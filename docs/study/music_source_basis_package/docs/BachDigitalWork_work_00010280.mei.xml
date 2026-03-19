@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mei xmlns="http://www.music-encoding.org/ns/mei"
+      xmlns:mei="http://www.music-encoding.org/ns/mei"
+      meiversion="3.0.0">
+   <meiHead>
+      <fileDesc>
+         <titleStmt>
+            <title>Einfall einen doppelten Contrapunct in der Octave von 6 Tacten zu machen, ohne die Regeln davon zu wissen Wq 257</title>
+            <respStmt/>
+         </titleStmt>
+         <pubStmt>
+            <respStmt>
+               <corpName role="marc:cre"
+                          codedval="1002954-0"
+                          authURI="http://d-nb.info/gnd/"
+                          authority="GND">Bach-Archiv Leipzig</corpName>
+            </respStmt>
+            <address>
+               <addrLine>Thomaskirchhof 15/16</addrLine>
+               <addrLine>04109 <geogName>Leipzig</geogName>
+               </addrLine>
+               <addrLine>
+                  <geogName>Germany</geogName>
+               </addrLine>
+            </address>
+            <date/>
+            <availability>
+               <useRestrict>Creative Commons CC BY 4.0</useRestrict>
+            </availability>
+         </pubStmt>
+         <seriesStmt>
+            <title>MEI-Export</title>
+            <respStmt>
+               <corpName role="marc:pbl">Bach digital</corpName>
+               <corpName role="marc:fnd"
+                          codedval="1002954-0"
+                          authURI="http://d-nb.info/gnd/"
+                          authority="GND">Bach-Archiv Leipzig<address>
+                     <addrLine>Thomaskirchhof 15/16</addrLine>
+                     <addrLine>04109 <geogName>Leipzig</geogName>
+                     </addrLine>
+                     <addrLine>
+                        <geogName>Germany</geogName>
+                     </addrLine>
+                  </address>
+               </corpName>
+               <corpName role="marc:fnd"
+                          codedval="5036103-X"
+                          authURI="http://d-nb.info/gnd/"
+                          authority="GND">Staatsbibliothek zu Berlin - Preußischer Kulturbesitz<address>
+                     <addrLine>Unter den Linden 8</addrLine>
+                     <addrLine>10117 <geogName>Berlin</geogName>
+                     </addrLine>
+                     <addrLine>
+                        <geogName>Germany</geogName>
+                     </addrLine>
+                  </address>
+               </corpName>
+               <corpName role="marc:fnd"
+                          codedval="5165770-3"
+                          authURI="http://d-nb.info/gnd/"
+                          authority="GND">Sächsische Landesbibliothek - Staats- und Universitätsbibliothek Dresden<address>
+                     <addrLine>01054 <geogName>Dresden</geogName>
+                     </addrLine>
+                     <addrLine>
+                        <geogName>Germany</geogName>
+                     </addrLine>
+                  </address>
+               </corpName>
+            </respStmt>
+            <identifier>
+               <ref target="http://www.bach-digital.de/"/>
+            </identifier>
+         </seriesStmt>
+      </fileDesc>
+      <encodingDesc>
+         <appInfo>
+            <application version="2025.06">
+               <name>Bach digital</name>
+               <ptr target="http://www.bach-digital.de/"/>
+            </application>
+         </appInfo>
+         <editorialDecl xml:lang="en">
+            <p>This encoding has been created automatically with Bach digital's MEI exporter v2.3.1</p>
+         </editorialDecl>
+      </encodingDesc>
+      <workDesc>
+         <work xml:id="w">
+            <identifier label="Wq">257</identifier>
+            <identifier label="H">869</identifier>
+            <titleStmt>
+               <title type="uniform" xml:lang="de">Einfall einen doppelten Contrapunct in der Octave von 6 Tacten zu machen, ohne die Regeln davon zu wissen</title>
+               <respStmt>
+                  <persName role="marc:cmp"
+                             codedval="118505505"
+                             authURI="http://d-nb.info/gnd/"
+                             authority="GND">Bach, Carl Philipp Emanuel</persName>
+               </respStmt>
+            </titleStmt>
+            <creation>
+               <date>ca. 1757</date>
+            </creation>
+            <perfMedium analog="marc:048">
+               <perfResList xml:id="perfResList_d949e65">
+                  <perfRes authority="marcmusperf"
+                            codedval="kn"
+                            n="1"
+                            xml:id="perfRes_d949e67"
+                            xml:lang="it">Tastiera</perfRes>
+               </perfResList>
+            </perfMedium>
+            <classification>
+               <termList>
+                  <term classcode="#GND">
+                     <identifier/>
+                     <title xml:lang="de">Werk für Tasteninstrumente mit oder ohne Pedal</title>
+                     <title xml:lang="en">Work for keyboard instruments with or without pedal keyboard</title>
+                     <title xml:lang="es">Obra para instrumento de teclado, con o sin pedalera</title>
+                     <title xml:lang="fr">Œuvre pour instrument à clavier, avec ou sans pédalier</title>
+                     <title xml:lang="it">Work for keyboard instruments with or without pedal keyboard</title>
+                     <title xml:lang="ja">鍵盤曲</title>
+                  </term>
+               </termList>
+               <classCode xml:id="GND"
+                           authority="Gemeinsame Normdatei (GND)"
+                           authURI="http://d-nb.info/gnd/"/>
+            </classification>
+         </work>
+      </workDesc>
+   </meiHead>
+   <music/>
+</mei>

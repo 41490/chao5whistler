@@ -1,0 +1,23 @@
+[package]
+name = "music-dice-basis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+quick-xml = { version = "0.38", features = ["serialize"] }
+musicxml = "1.1"
+
+[[example]]
+name = "mozart_rules"
+path = "examples/mozart_rules.rs"
+
+[[example]]
+name = "musicxml_to_mei_via_verovio"
+path = "examples/musicxml_to_mei_via_verovio.rs"
+
+[[example]]
+name = "normalize_musicxml_ids"
+path = "examples/normalize_musicxml_ids.rs"

@@ -1,0 +1,25 @@
+{
+  "work_id": "mozart_dicegame_print_1790s",
+  "sources": [
+    {
+      "type": "catalog_page",
+      "label": "IMSLP work page",
+      "details": "Musikalische Wuerfelspiele, K.Anh.C.30.01; first publication ca. 1790; several editions between 1790 and 1806"
+    },
+    {
+      "type": "edition_notice",
+      "label": "Rellstab Berlin",
+      "details": "Walzer oder Schleifer, ca. 1790, no author named"
+    },
+    {
+      "type": "edition_notice",
+      "label": "N. Simrock Bonn",
+      "details": "Englische Contretaenze and Walzer oder Schleifer, 1793"
+    },
+    {
+      "type": "digital_tool",
+      "label": "Humdrum dice-game page",
+      "details": "16-step two-dice selection description"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "cpebach_wq257_h869_einfall",
+  "title": "Einfall, einen doppelten Contrapunct in der Octave von 6 Tacten zu machen, ohne die Regeln davon zu wissen",
+  "short_title": "Einfall",
+  "composer": "Carl Philipp Emanuel Bach",
+  "catalogue": [
+    "Wq 257",
+    "H 869"
+  ],
+  "date": "ca. 1757",
+  "instrumentation": "keyboard",
+  "generation_model": "invertible_counterpoint_operation_model",
+  "bars": 6
+}

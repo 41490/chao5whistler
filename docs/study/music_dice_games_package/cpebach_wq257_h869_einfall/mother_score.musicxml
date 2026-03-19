@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Template placeholder for cpebach_wq257_h869_einfall.
+Use after ingesting a verified MusicXML or diplomatic transcription from the cited source.
+-->
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN"
+  "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="4.0">
+  <work>
+    <work-title>Einfall ... Wq 257 / H 869 - template</work-title>
+  </work>
+  <identification>
+    <creator type="composer">Carl Philipp Emanuel Bach</creator>
+    <miscellaneous>
+      <miscellaneous-field name="package-status">template-placeholder</miscellaneous-field>
+      <miscellaneous-field name="work-id">cpebach_wq257_h869_einfall</miscellaneous-field>
+    </miscellaneous>
+  </identification>
+  <part-list>
+    <score-part id="P1"><part-name>Keyboard</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <staves>1</staves>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <direction placement="above">
+        <direction-type><words>Template only: replace with verified six-bar source encoding.</words></direction-type>
+      </direction>
+      <note><rest measure="yes"/></note>
+    </measure>
+  </part>
+</score-partwise>

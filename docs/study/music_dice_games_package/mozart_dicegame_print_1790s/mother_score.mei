@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mei xmlns="http://www.music-encoding.org/ns/mei" meiversion="4.0.1">
+  <meiHead>
+    <fileDesc>
+      <titleStmt>
+        <title>Musikalische Wuerfelspiele (printed 1790s tradition) - template</title>
+        <respStmt><resp>Package assembly</resp><name>OpenAI</name></respStmt>
+      </titleStmt>
+      <pubStmt><p>Template placeholder; not a full diplomatic transcription.</p></pubStmt>
+    </fileDesc>
+    <encodingDesc>
+      <projectDesc>
+        <p>Encode a canonical printed witness here after full source verification.</p>
+      </projectDesc>
+    </encodingDesc>
+    <workList>
+      <work xml:id="mozart_dicegame_print_1790s">
+        <title>Musikalische Wuerfelspiele</title>
+      </work>
+    </workList>
+  </meiHead>
+  <music>
+    <body>
+      <mdiv>
+        <score>
+          <scoreDef meter.count="3" meter.unit="8" key.sig="0"/>
+          <section>
+            <measure n="1"><staff n="1"><layer n="1"><mRest/></layer></staff></measure>
+          </section>
+        </score>
+      </mdiv>
+    </body>
+  </music>
+</mei>

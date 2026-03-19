@@ -1,0 +1,15 @@
+{
+  "work_id": "cpebach_wq257_h869_einfall",
+  "sources": [
+    {
+      "type": "catalog_page",
+      "label": "Bach Digital work page",
+      "details": "Wq 257 / H 869; keyboard; ca. 1757"
+    },
+    {
+      "type": "publication_notice",
+      "label": "Marpurg 1757",
+      "details": "Historisch-kritische Beytraege zur Musik, Berlin 1757, pp. 167-181"
+    }
+  ]
+}

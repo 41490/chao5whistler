@@ -1,0 +1,22 @@
+{
+  "id": "mozart_dicegame_print_1790s",
+  "title": "Musikalische Wuerfelspiele",
+  "attribution": "traditionally attributed to Wolfgang Amadeus Mozart",
+  "catalogue": [
+    "K.Anh.C.30.01",
+    "K.3 Anh. 294d"
+  ],
+  "date": "ca. 1790 (printed tradition)",
+  "instrumentation": "keyboard",
+  "generation_model": "columnar_dice_selection",
+  "output_positions": 16,
+  "selector": {
+    "kind": "two_d6_sum",
+    "min": 2,
+    "max": 12
+  },
+  "notes": [
+    "Several editions published between 1790 and 1806, not all attributed to Mozart.",
+    "This package distinguishes the printed 1790s tradition from the autograph 1787 K.516f tradition."
+  ]
+}

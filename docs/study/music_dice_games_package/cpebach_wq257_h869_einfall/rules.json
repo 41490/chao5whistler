@@ -1,0 +1,22 @@
+{
+  "work_id": "cpebach_wq257_h869_einfall",
+  "mode": "operation_based",
+  "bars": 6,
+  "operations": [
+    "orig",
+    "inv8",
+    "permute"
+  ],
+  "selection_policy": {
+    "source_unit": "six_bar_design",
+    "must_preserve_octave_double_counterpoint_property": true
+  },
+  "manual_verification": {
+    "checklist": [
+      "The encoded source must represent a six-bar construction.",
+      "The encoding must preserve the octave double-counterpoint relation indicated by the title.",
+      "Any permutation operation must be justified against the verified source encoding."
+    ]
+  },
+  "status": "metadata_and_rule_model_ready_waiting_for_full_source_ingest"
+}

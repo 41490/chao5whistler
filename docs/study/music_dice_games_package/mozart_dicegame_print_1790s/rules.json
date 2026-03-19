@@ -1,0 +1,34 @@
+{
+  "work_id": "mozart_dicegame_print_1790s",
+  "mode": "columnar_choice",
+  "positions": 16,
+  "selector": {
+    "type": "sum_of_two_d6",
+    "allowed_values": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ]
+  },
+  "selection_policy": {
+    "one_fragment_per_position": true,
+    "concatenate_in_position_order": true
+  },
+  "manual_verification": {
+    "checklist": [
+      "There must be exactly 16 output positions.",
+      "Each position accepts one selector result derived from the sum of two six-sided dice.",
+      "Selector values must lie in the inclusive range 2..12.",
+      "Edition-specific exceptional positions must be documented before full mother-score encoding is finalized."
+    ]
+  },
+  "status": "rules_ready_but_waiting_for_final_diplomatic_measure_table_encoding"
+}

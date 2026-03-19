@@ -1,4 +1,4 @@
-# chao5whistler/src/K.516f
+# chao5whistler/src/musikalisches
 > 莫扎特骰子游戏
 
 ## background
@@ -29,6 +29,3 @@ Musikalisches Würfelspiel (K.516f) 的无限不循环音乐
 ## tracing
 
 - 260319 DAMA init.
-
-
-

@@ -1,0 +1,11 @@
+invoke
+requests
+tqdm
+natsorted
+#Pillow
+#libraqm
+imageio
+moviepy
+pydub
+#audioFX
+librosa

@@ -14,5 +14,5 @@ Per your requested structure:
 ## Important status note
 The package now has split maturity:
 
-- `mozart_dicegame_print_1790s` has completed source freeze, mother-score freeze, and stage-3 rules reconciliation against the canonical `rellstab_1790` witness.
+- `mozart_dicegame_print_1790s` has completed source freeze, mother-score freeze, stage-3 rules reconciliation, and stage-4 ingest freeze against the canonical `rellstab_1790` witness.
 - `cpebach_wq257_h869_einfall` remains a research-and-ingest scaffold awaiting fuller source ingest work.

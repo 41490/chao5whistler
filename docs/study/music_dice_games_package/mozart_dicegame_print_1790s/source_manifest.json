@@ -5,7 +5,7 @@
   "verification_witness_ids": [
     "simrock_1793"
   ],
-  "status": "stage3_rules_frozen",
+  "status": "stage4_ingest_frozen",
   "witnesses": [
     {
       "witness_id": "rellstab_1790",
@@ -101,6 +101,7 @@
     "Stage 1 freezes provenance and locating contracts without claiming that mother_score.musicxml or mother_score.mei are already diplomatic transcriptions.",
     "The canonical witness is page-addressable through the Staatsbibliothek zu Berlin IIIF manifest; the verification witness is only frozen at the file level in this stage.",
     "Stage 2 freezes the mother-score layer from the canonical Humdrum source.",
-    "Stage 3 reconciles rules.json and mozart_16x11_table.json against the canonical mother score while keeping Simrock 1793 at file-level witness-diff scope."
+    "Stage 3 reconciles rules.json and mozart_16x11_table.json against the canonical mother score while keeping Simrock 1793 at file-level witness-diff scope.",
+    "Stage 4 freezes runtime-ready ingest artifacts under ingest/, including normalized explicit-rest timelines and a validation report."
   ]
 }

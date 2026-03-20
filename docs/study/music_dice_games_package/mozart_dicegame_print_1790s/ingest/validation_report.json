@@ -1,0 +1,103 @@
+{
+  "work_id": "mozart_dicegame_print_1790s",
+  "canonical_witness_id": "rellstab_1790",
+  "verification_witness_id": "simrock_1793",
+  "status": "passed",
+  "stage": "stage4_ingest_frozen",
+  "source_files": {
+    "mother_score_musicxml": "mother_score.musicxml",
+    "mother_score_mei": "mother_score.mei",
+    "rules": "rules.json",
+    "fragments": "ingest/fragments.json",
+    "measures": "ingest/measures.json"
+  },
+  "summary": {
+    "fragment_count": 176,
+    "source_measure_count": 187,
+    "runtime_measure_count": 176,
+    "structural_measure_numbers": [
+      0
+    ],
+    "structural_measure_zero_occurrences": 11,
+    "checks_passed": 6,
+    "checks_failed": 0
+  },
+  "checks": [
+    {
+      "check_id": "fragment_coverage",
+      "status": "passed",
+      "details": {
+        "expected_fragment_count": 176,
+        "actual_fragment_count": 176
+      }
+    },
+    {
+      "check_id": "measure_numbering_contract",
+      "status": "passed",
+      "details": {
+        "runtime_measure_count": 176,
+        "structural_measure_numbers": [
+          0
+        ],
+        "structural_measure_zero_occurrences": 11,
+        "errors": []
+      }
+    },
+    {
+      "check_id": "selector_domain",
+      "status": "passed",
+      "details": {
+        "allowed_values": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ],
+        "rejected_examples": [
+          1,
+          13
+        ],
+        "errors": []
+      }
+    },
+    {
+      "check_id": "rule_reverse_lookup",
+      "status": "passed",
+      "details": {
+        "checked_fragments": 176,
+        "errors": []
+      }
+    },
+    {
+      "check_id": "normalized_duration_closure",
+      "status": "passed",
+      "details": {
+        "expected_measure_duration_quarter_length": 1.5,
+        "checked_part_timelines": 352,
+        "errors": []
+      }
+    },
+    {
+      "check_id": "runtime_independence",
+      "status": "passed",
+      "details": {
+        "fragments_artifact_contains_normalized_events": true,
+        "measures_artifact_records_structural_measure_zero": true,
+        "structural_measure_zero_occurrences": 11,
+        "runtime_can_ignore_original_mother_score_at_playback": true
+      }
+    }
+  ],
+  "errors": [],
+  "warnings": [
+    "Structural measure 0 is preserved in measures.json for source traceability but excluded from runtime fragments.",
+    "Inserted 53 implicit rest events to close empty or partial part timelines."
+  ]
+}

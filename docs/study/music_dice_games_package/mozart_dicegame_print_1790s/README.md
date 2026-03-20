@@ -10,7 +10,7 @@ For the current implementation path, this package is explicitly **not** the 1787
 - Canonical work id: `mozart_dicegame_print_1790s`
 - Canonical witness: `rellstab_1790`
 - Verification witness: `simrock_1793`
-- Current plan stage: `stage 3: rules freeze`
+- Current plan stage: `stage 4: ingest freeze`
 
 Stage 2 froze the canonical mother-score layer:
 
@@ -18,13 +18,19 @@ Stage 2 froze the canonical mother-score layer:
 - `mother_score.musicxml` is now the primary ingest-oriented mother score.
 - `mother_score.mei` is the aligned archive layer derived from that MusicXML.
 
-Stage 3 freezes the rule layer against that mother score:
+Stage 3 froze the rule layer against that mother score:
 
 - `rules.json` now records the complete `16 x 11` selector mapping plus reverse fragment lookup.
 - `docs/study/music_source_basis_package/docs/mozart_16x11_table.json` is now explicitly marked as reconciled against the canonical mother score.
 - `witness_diff.json` records the initial canonical-versus-verification policy state.
 
-The next unresolved step is `stage 4: ingest freeze`.
+Stage 4 freezes the runtime-ready ingest layer:
+
+- `ingest/fragments.json` now carries normalized fragment timelines with explicit rest closure.
+- `ingest/measures.json` preserves the full source measure sequence, including repeated structural `measure 0` boundaries.
+- `ingest/validation_report.json` records the stage-4 closure checks and confirms runtime independence from direct mother-score parsing.
+
+The next unresolved step is `stage 5: deterministic offline realization`.
 
 ## Source basis
 
@@ -46,6 +52,9 @@ The next unresolved step is `stage 4: ingest freeze`.
 - `mother_score.musicxml` - stage-2 frozen mother score for ingest.
 - `mother_score.mei` - stage-2 aligned archive representation.
 - `witness_diff.json` - initial stage-3 witness-diff record with file-level Simrock status.
+- `ingest/fragments.json` - runtime-ready fragment timelines normalized from the mother score.
+- `ingest/measures.json` - source-measure sequence and normalized per-measure part timelines.
+- `ingest/validation_report.json` - stage-4 validation output for ingest closure and selector consistency.
 
 ## Selector model
 
@@ -60,6 +69,12 @@ This package models the common printed workflow:
 
 The current `rules.json` and `docs/study/music_source_basis_package/docs/mozart_16x11_table.json` are reconciled against this mother score at stage 3. `Simrock 1793` remains file-level only until a later fragment-addressable witness-diff pass.
 
+Stage 4 makes runtime consumption explicit:
+
+- empty source parts are normalized into explicit rest events
+- structural `measure 0` remains traceable in `ingest/measures.json`
+- runtime fragment playback can now consume `ingest/*.json` without reparsing `mother_score.musicxml`
+
 ## Encoding policy
 
 The frozen order is:
@@ -72,10 +87,17 @@ The frozen order is:
 
 ## Validation
 
-Run the stage validators from the repository root:
+Refresh the stage-4 ingest artifacts before validating if the mother score or rules changed:
+
+```bash
+python src/musikalisches/tools/freeze_ingest.py
+```
+
+Then run the stage validators from the repository root:
 
 ```bash
 python src/musikalisches/tools/validate_source_freeze.py
 python src/musikalisches/tools/validate_mother_score.py
 python src/musikalisches/tools/validate_rules_freeze.py
+python src/musikalisches/tools/validate_ingest_freeze.py
 ```

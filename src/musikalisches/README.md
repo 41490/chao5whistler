@@ -6,7 +6,7 @@
 - `work_id`: `mozart_dicegame_print_1790s`
 - `canonical_witness_id`: `rellstab_1790`
 - `verification_witness_id`: `simrock_1793`
-- current plan stage: `stage 1: source freeze`
+- current plan stage: `stage 2: mother-score freeze`
 - first runtime milestone: `offline realization + offline audio render`
 
 ## boundary
@@ -20,6 +20,17 @@
 3. rules reconciliation
 4. ingest contract
 5. Rust runtime implementation
+
+当前已完成：
+
+- canonical provenance 冻结
+- canonical mother score 冻结
+
+当前仍未完成：
+
+- `rules.json` 与 canonical mother score 的正式对账
+- normalized ingest 产物
+- runtime
 
 在 stage 5 之前，不应把这里描述成“已经开始实现 K.516f 无限直播工具”。
 

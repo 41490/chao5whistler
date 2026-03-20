@@ -10,9 +10,15 @@ For the current implementation path, this package is explicitly **not** the 1787
 - Canonical work id: `mozart_dicegame_print_1790s`
 - Canonical witness: `rellstab_1790`
 - Verification witness: `simrock_1793`
-- Current plan stage: `stage 1: source freeze`
+- Current plan stage: `stage 2: mother-score freeze`
 
-Stage 1 freezes provenance and locating contracts. It does **not** claim that the mother-score files are already diplomatic transcriptions.
+Stage 2 freezes the canonical mother-score layer:
+
+- `mother_score.source.k516f.krn` is the frozen Humdrum source used for this stage.
+- `mother_score.musicxml` is now the primary ingest-oriented mother score.
+- `mother_score.mei` is the aligned archive layer derived from that MusicXML.
+
+The next unresolved step is `stage 3: rules reconciliation`.
 
 ## Source basis
 
@@ -30,8 +36,9 @@ Stage 1 freezes provenance and locating contracts. It does **not** claim that th
 - `source_manifest.json` - witness-level source freeze record.
 - `page_trace.json` - page-level provenance for the canonical witness plus file-level trace for the verification witness.
 - `fragment_identity_map.json` - canonical fragment-to-page/row/slot locating draft for fragments `1..176`.
-- `mother_score.musicxml` - stage-2 placeholder for the future diplomatic mother score.
-- `mother_score.mei` - stage-2 placeholder for the future diplomatic mother score.
+- `mother_score.source.k516f.krn` - frozen canonical digital source aligned to the Rellstab witness.
+- `mother_score.musicxml` - stage-2 frozen mother score for ingest.
+- `mother_score.mei` - stage-2 aligned archive representation.
 
 ## Selector model
 
@@ -42,11 +49,11 @@ This package models the common printed workflow:
 3. Resolve one fragment from the current position column.
 4. Concatenate the `16` selected fragments in position order.
 
-The `16x11` selector table remains the rule-layer truth for runtime realization. Stage 1 only ensures that every fragment id in that table can now be traced back to a canonical witness page location.
+`fragment id == measure number` for measures `1..176` in the stage-2 mother score.
+
+Important: the current `rules.json` and `docs/study/music_source_basis_package/docs/mozart_16x11_table.json` are not yet reconciled against this mother score. That reconciliation belongs to stage 3.
 
 ## Encoding policy
-
-The mother-score files remain placeholders until stage 2.
 
 The frozen order is:
 
@@ -58,8 +65,9 @@ The frozen order is:
 
 ## Validation
 
-Run the stage-1 validator from the repository root:
+Run the stage validators from the repository root:
 
 ```bash
 python src/musikalisches/tools/validate_source_freeze.py
+python src/musikalisches/tools/validate_mother_score.py
 ```

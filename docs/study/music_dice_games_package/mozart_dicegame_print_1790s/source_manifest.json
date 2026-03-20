@@ -1,25 +1,97 @@
 {
   "work_id": "mozart_dicegame_print_1790s",
-  "sources": [
+  "work_family": "Mozart dice-game printed tradition",
+  "canonical_witness_id": "rellstab_1790",
+  "verification_witness_ids": [
+    "simrock_1793"
+  ],
+  "status": "stage1_source_frozen",
+  "witnesses": [
     {
-      "type": "catalog_page",
-      "label": "IMSLP work page",
-      "details": "Musikalische Wuerfelspiele, K.Anh.C.30.01; first publication ca. 1790; several editions between 1790 and 1806"
+      "witness_id": "rellstab_1790",
+      "role": "canonical",
+      "title": "Anleitung so viel Walzer man will mit Wuerfeln zu componiren ohne musikalisch zu seyn oder Composition zu wissen",
+      "short_title": "Walzer oder Schleifer",
+      "publisher": "Rellstab",
+      "place": "Berlin",
+      "date": "ca. 1790",
+      "imslp_work_url": "https://imslp.org/wiki/Musikalische_W%C3%BCrfelspiele%2C_K.Anh.C.30.01_%28Mozart%2C_Wolfgang_Amadeus%29",
+      "imslp_file_id": 595848,
+      "imslp_file_permlink": "https://imslp.org/wiki/Special:ReverseLookup/595848",
+      "imslp_image_index_url": "https://imslp.org/wiki/Special:ImagefromIndex/595848",
+      "scan_source": {
+        "institution_id": "D-B",
+        "institution_name": "Staatsbibliothek zu Berlin - Preussischer Kulturbesitz",
+        "viewer_url": "https://digital.staatsbibliothek-berlin.de/werkansicht/?PPN=PPN1672431816",
+        "iiif_manifest_url": "https://content.staatsbibliothek-berlin.de/dc/PPN1672431816/manifest",
+        "persistent_url": "http://resolver.staatsbibliothek-berlin.de/SBB0002938000000000",
+        "digital_identifier": "PPN1672431816"
+      },
+      "extent": {
+        "imslp_scan_pages": 12,
+        "iiif_canvases": 17,
+        "publication_pages": 8,
+        "publication_page_canvas_span": {
+          "start": 5,
+          "end": 12
+        }
+      },
+      "location_contract": {
+        "page_trace_file": "page_trace.json",
+        "fragment_identity_map_file": "fragment_identity_map.json",
+        "location_method": "Locate the printed fragment number on the canonical witness, then resolve publication page, row, and slot from the fragment identity map."
+      }
     },
     {
-      "type": "edition_notice",
-      "label": "Rellstab Berlin",
-      "details": "Walzer oder Schleifer, ca. 1790, no author named"
-    },
-    {
-      "type": "edition_notice",
-      "label": "N. Simrock Bonn",
-      "details": "Englische Contretaenze and Walzer oder Schleifer, 1793"
-    },
-    {
-      "type": "digital_tool",
-      "label": "Humdrum dice-game page",
-      "details": "16-step two-dice selection description"
+      "witness_id": "simrock_1793",
+      "role": "verification",
+      "title": "Anleitung Walzer oder Schleifer mit zwei Wuerfeln zu componiren",
+      "publisher": "N. Simrock",
+      "place": "Bonn",
+      "date": "1793",
+      "imslp_work_url": "https://imslp.org/wiki/Musikalische_W%C3%BCrfelspiele%2C_K.Anh.C.30.01_%28Mozart%2C_Wolfgang_Amadeus%29",
+      "imslp_file_id": 798374,
+      "imslp_file_permlink": "https://imslp.org/wiki/Special:ReverseLookup/798374",
+      "imslp_image_index_url": "https://imslp.org/wiki/Special:ImagefromIndex/798374",
+      "scan_source": {
+        "institution_id": "GB-Lbl",
+        "institution_name": "British Library",
+        "homepage_url": "http://www.bl.uk/"
+      },
+      "extent": {
+        "imslp_scan_pages": 7
+      },
+      "location_contract": {
+        "page_trace_file": "page_trace.json",
+        "location_method": "Stage 1 freezes file-level provenance only for the verification witness; fragment-level page tracing is deferred to stage 3 witness-diff work."
+      }
     }
+  ],
+  "source_pages": [
+    {
+      "source_id": "imslp_work_page",
+      "kind": "catalog_page",
+      "label": "IMSLP work page",
+      "url": "https://imslp.org/wiki/Musikalische_W%C3%BCrfelspiele%2C_K.Anh.C.30.01_%28Mozart%2C_Wolfgang_Amadeus%29",
+      "purpose": "Freeze the 1790s printed tradition entry and the file ids for the canonical and verification witnesses."
+    },
+    {
+      "source_id": "humdrum_rules_page",
+      "kind": "digital_tool",
+      "label": "Humdrum dice-game page",
+      "url": "https://dice.humdrum.org/",
+      "purpose": "Freeze the 16-step two-dice selector workflow."
+    },
+    {
+      "source_id": "ccarh_table_page",
+      "kind": "reference_table",
+      "label": "CCARH Music 253 Labs table",
+      "url": "https://www.ccarh.org/courses/253/lab/kerndice/",
+      "purpose": "Cross-check the full 16x11 fragment lookup table."
+    }
+  ],
+  "notes": [
+    "Stage 1 freezes provenance and locating contracts without claiming that mother_score.musicxml or mother_score.mei are already diplomatic transcriptions.",
+    "The canonical witness is page-addressable through the Staatsbibliothek zu Berlin IIIF manifest; the verification witness is only frozen at the file level in this stage."
   ]
 }

@@ -1,0 +1,146 @@
+{
+  "work_id": "mozart_dicegame_print_1790s",
+  "status": "stage1_page_trace_frozen",
+  "witnesses": [
+    {
+      "witness_id": "rellstab_1790",
+      "role": "canonical",
+      "imslp_file_id": 595848,
+      "page_trace_status": "page_level_frozen",
+      "scan_canvases": [
+        {
+          "scan_canvas_index": 1,
+          "canvas_label": " -  [1]",
+          "kind": "unpaginated_scan_canvas",
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0001"
+        },
+        {
+          "scan_canvas_index": 2,
+          "canvas_label": " -  [2]",
+          "kind": "unpaginated_scan_canvas",
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0002"
+        },
+        {
+          "scan_canvas_index": 3,
+          "canvas_label": " -  [3]",
+          "kind": "unpaginated_scan_canvas",
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0003",
+          "note": "The IIIF metadata marks PHYS_0003 as the title page."
+        },
+        {
+          "scan_canvas_index": 4,
+          "canvas_label": " -  [4]",
+          "kind": "unpaginated_scan_canvas",
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0004"
+        },
+        {
+          "scan_canvas_index": 5,
+          "canvas_label": "1 [5]",
+          "kind": "publication_page",
+          "publication_page": 1,
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0005",
+          "preview_image_url": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0005/full/1200,/0/default.jpg"
+        },
+        {
+          "scan_canvas_index": 6,
+          "canvas_label": "2 [6]",
+          "kind": "publication_page",
+          "publication_page": 2,
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0006",
+          "preview_image_url": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0006/full/1200,/0/default.jpg"
+        },
+        {
+          "scan_canvas_index": 7,
+          "canvas_label": "3 [7]",
+          "kind": "publication_page",
+          "publication_page": 3,
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0007",
+          "preview_image_url": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0007/full/1200,/0/default.jpg"
+        },
+        {
+          "scan_canvas_index": 8,
+          "canvas_label": "4 [8]",
+          "kind": "publication_page",
+          "publication_page": 4,
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0008",
+          "preview_image_url": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0008/full/1200,/0/default.jpg"
+        },
+        {
+          "scan_canvas_index": 9,
+          "canvas_label": "5 [9]",
+          "kind": "publication_page",
+          "publication_page": 5,
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0009",
+          "preview_image_url": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0009/full/1200,/0/default.jpg"
+        },
+        {
+          "scan_canvas_index": 10,
+          "canvas_label": "6 [10]",
+          "kind": "publication_page",
+          "publication_page": 6,
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0010",
+          "preview_image_url": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0010/full/1200,/0/default.jpg"
+        },
+        {
+          "scan_canvas_index": 11,
+          "canvas_label": "7 [11]",
+          "kind": "publication_page",
+          "publication_page": 7,
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0011",
+          "preview_image_url": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0011/full/1200,/0/default.jpg"
+        },
+        {
+          "scan_canvas_index": 12,
+          "canvas_label": "8 [12]",
+          "kind": "publication_page",
+          "publication_page": 8,
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0012",
+          "preview_image_url": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0012/full/1200,/0/default.jpg"
+        },
+        {
+          "scan_canvas_index": 13,
+          "canvas_label": " -  [13]",
+          "kind": "unpaginated_scan_canvas",
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0013"
+        },
+        {
+          "scan_canvas_index": 14,
+          "canvas_label": " -  [14]",
+          "kind": "unpaginated_scan_canvas",
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0014"
+        },
+        {
+          "scan_canvas_index": 15,
+          "canvas_label": " -  [15]",
+          "kind": "unpaginated_scan_canvas",
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0015"
+        },
+        {
+          "scan_canvas_index": 16,
+          "canvas_label": " -  [16]",
+          "kind": "unpaginated_scan_canvas",
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0016"
+        },
+        {
+          "scan_canvas_index": 17,
+          "canvas_label": " -  [17]",
+          "kind": "unpaginated_scan_canvas",
+          "service_id": "https://content.staatsbibliothek-berlin.de/dc/1672431816-0017"
+        }
+      ]
+    },
+    {
+      "witness_id": "simrock_1793",
+      "role": "verification",
+      "imslp_file_id": 798374,
+      "page_trace_status": "file_level_frozen_only",
+      "imslp_scan_pages": 7,
+      "scan_source": {
+        "institution_id": "GB-Lbl",
+        "institution_name": "British Library",
+        "homepage_url": "http://www.bl.uk/"
+      },
+      "note": "Stage 1 freezes the verification witness at the file level only; fragment-level page tracing is deferred until stage 3 witness-diff work."
+    }
+  ]
+}

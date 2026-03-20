@@ -1,0 +1,204 @@
+{
+  "work_id": "mozart_dicegame_print_1790s",
+  "canonical_witness_id": "rellstab_1790",
+  "status": "stage1_fragment_identity_draft",
+  "location_method": "Resolve each printed fragment number against the canonical witness publication page, row, and slot.",
+  "cross_checks": {
+    "rules_table_file": "../../music_source_basis_package/docs/mozart_16x11_table.json",
+    "page_trace_file": "page_trace.json"
+  },
+  "pages": [
+    {
+      "publication_page": 1,
+      "scan_canvas_index": 5,
+      "rows": [
+        {
+          "row_index": 1,
+          "start_fragment_id": 1,
+          "end_fragment_id": 8,
+          "slot_count": 8
+        },
+        {
+          "row_index": 2,
+          "start_fragment_id": 9,
+          "end_fragment_id": 16,
+          "slot_count": 8
+        },
+        {
+          "row_index": 3,
+          "start_fragment_id": 17,
+          "end_fragment_id": 24,
+          "slot_count": 8
+        }
+      ]
+    },
+    {
+      "publication_page": 2,
+      "scan_canvas_index": 6,
+      "rows": [
+        {
+          "row_index": 1,
+          "start_fragment_id": 25,
+          "end_fragment_id": 31,
+          "slot_count": 7
+        },
+        {
+          "row_index": 2,
+          "start_fragment_id": 32,
+          "end_fragment_id": 38,
+          "slot_count": 7
+        },
+        {
+          "row_index": 3,
+          "start_fragment_id": 39,
+          "end_fragment_id": 46,
+          "slot_count": 8
+        }
+      ]
+    },
+    {
+      "publication_page": 3,
+      "scan_canvas_index": 7,
+      "rows": [
+        {
+          "row_index": 1,
+          "start_fragment_id": 47,
+          "end_fragment_id": 55,
+          "slot_count": 9
+        },
+        {
+          "row_index": 2,
+          "start_fragment_id": 56,
+          "end_fragment_id": 62,
+          "slot_count": 7
+        },
+        {
+          "row_index": 3,
+          "start_fragment_id": 63,
+          "end_fragment_id": 70,
+          "slot_count": 8
+        }
+      ]
+    },
+    {
+      "publication_page": 4,
+      "scan_canvas_index": 8,
+      "rows": [
+        {
+          "row_index": 1,
+          "start_fragment_id": 71,
+          "end_fragment_id": 78,
+          "slot_count": 8
+        },
+        {
+          "row_index": 2,
+          "start_fragment_id": 79,
+          "end_fragment_id": 85,
+          "slot_count": 7
+        },
+        {
+          "row_index": 3,
+          "start_fragment_id": 86,
+          "end_fragment_id": 92,
+          "slot_count": 7
+        }
+      ]
+    },
+    {
+      "publication_page": 5,
+      "scan_canvas_index": 9,
+      "rows": [
+        {
+          "row_index": 1,
+          "start_fragment_id": 93,
+          "end_fragment_id": 99,
+          "slot_count": 7
+        },
+        {
+          "row_index": 2,
+          "start_fragment_id": 100,
+          "end_fragment_id": 106,
+          "slot_count": 7
+        },
+        {
+          "row_index": 3,
+          "start_fragment_id": 107,
+          "end_fragment_id": 114,
+          "slot_count": 8
+        }
+      ]
+    },
+    {
+      "publication_page": 6,
+      "scan_canvas_index": 10,
+      "rows": [
+        {
+          "row_index": 1,
+          "start_fragment_id": 115,
+          "end_fragment_id": 122,
+          "slot_count": 8
+        },
+        {
+          "row_index": 2,
+          "start_fragment_id": 123,
+          "end_fragment_id": 129,
+          "slot_count": 7
+        },
+        {
+          "row_index": 3,
+          "start_fragment_id": 130,
+          "end_fragment_id": 137,
+          "slot_count": 8
+        }
+      ]
+    },
+    {
+      "publication_page": 7,
+      "scan_canvas_index": 11,
+      "rows": [
+        {
+          "row_index": 1,
+          "start_fragment_id": 138,
+          "end_fragment_id": 145,
+          "slot_count": 8
+        },
+        {
+          "row_index": 2,
+          "start_fragment_id": 146,
+          "end_fragment_id": 153,
+          "slot_count": 8
+        },
+        {
+          "row_index": 3,
+          "start_fragment_id": 154,
+          "end_fragment_id": 160,
+          "slot_count": 7
+        }
+      ]
+    },
+    {
+      "publication_page": 8,
+      "scan_canvas_index": 12,
+      "rows": [
+        {
+          "row_index": 1,
+          "start_fragment_id": 161,
+          "end_fragment_id": 166,
+          "slot_count": 6
+        },
+        {
+          "row_index": 2,
+          "start_fragment_id": 167,
+          "end_fragment_id": 172,
+          "slot_count": 6
+        },
+        {
+          "row_index": 3,
+          "start_fragment_id": 173,
+          "end_fragment_id": 176,
+          "slot_count": 4
+        }
+      ]
+    }
+  ]
+}

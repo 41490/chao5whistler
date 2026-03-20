@@ -1,31 +1,35 @@
 # chao5whistler/src/musikalisches
-> 莫扎特骰子游戏
+> 莫扎特印刷骰子游戏实现入口
 
-## background
-Musikalisches Würfelspiel (K.516f) 的无限不循环音乐
+## current frozen target
 
-（德语，意为"音乐骰子游戏"）是一种通过掷骰子从预先创作好的音乐片段中随机组合生成音乐的系统。这类游戏在18世纪的西欧非常流行。
+- `work_id`: `mozart_dicegame_print_1790s`
+- `canonical_witness_id`: `rellstab_1790`
+- `verification_witness_id`: `simrock_1793`
+- current plan stage: `stage 1: source freeze`
+- first runtime milestone: `offline realization + offline audio render`
 
-归在莫扎特名下的最著名版本（K.516f）由莫扎特的出版商 Nikolaus Simrock 于1792年在柏林出版，但这个署名归属并未被证实。莫扎特1787年的手稿包含176个单小节的音乐片段，看起来是某种用双小节片段构建音乐的游戏或系统，但没有附带说明，也没有证据表明涉及骰子。
+## boundary
 
-具体玩法是：玩家掷两颗骰子16次，每次得到一个2到12之间的点数和，然后用一个查找表（reference chart）对应到176个预写的音乐片段中的某一个，最终将16个片段拼接成一首完整的华尔兹或小步舞曲。 
+当前入口针对的是 **1790s printed dice-game tradition**，不是 `K.516f autograph`。
 
-关键的设计巧妙之处在于：尽管是随机拼接，这个骰子游戏的设计方式保证了和弦进行与和声结构在整首曲子中保持一致，确保乐句能够和谐地衔接在一起，产生连贯的音乐感。 
+因此这里的推进顺序是：
 
-组合数量方面，除了第8和第16小节外，每个小节位置都有11种不同的可能（对应骰子点数和2-12），第8小节只有1种可能，第16小节有2种。总计可以产生 2×11¹⁴ = 759,499,667,166,482 种不同但风格相似的华尔兹。 近760万亿种组合。
+1. source provenance
+2. mother-score engineering
+3. rules reconciliation
+4. ingest contract
+5. Rust runtime implementation
 
-[音乐骰子游戏 - 维基百科 --- Musikalisches Würfelspiel - Wikipedia](https://en.wikipedia.org/wiki/Musikalisches_W%C3%BCrfelspiel)
+在 stage 5 之前，不应把这里描述成“已经开始实现 K.516f 无限直播工具”。
 
-## goal
-结合各种开源模块, 以 rust 为实现, 同时输出音乐和图案形成的标准 1080p 视频流,
-来进行 Youtube 无限直播
+## implementation gate
 
-## logging
-...TBD
+只有满足以下条件，才允许正式进入 Rust 编码：
 
-## refer.
-...TBD
+1. canonical witness 已冻结
+2. `mother_score.musicxml` 不再是 placeholder
+3. `rules.json` 与 `16x11` 表完成核对
+4. ingest 输出契约已冻结
 
-## tracing
-
-- 260319 DAMA init.
+当前这个目录主要承载执行入口说明和本地校验工具。

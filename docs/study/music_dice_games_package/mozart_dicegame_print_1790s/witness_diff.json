@@ -1,0 +1,18 @@
+{
+  "work_id": "mozart_dicegame_print_1790s",
+  "canonical_witness_id": "rellstab_1790",
+  "verification_witness_id": "simrock_1793",
+  "status": "stage3_initial_witness_diff",
+  "comparison_scope": {
+    "canonical_rules_source": "rules.json",
+    "canonical_mother_score_source": "mother_score.musicxml",
+    "verification_trace_status": "file_level_frozen_only",
+    "fragment_level_comparison_ready": false
+  },
+  "summary": {
+    "canonical_runtime_definition": "rellstab_1790 remains authoritative",
+    "verification_scope": "Simrock 1793 is frozen only at the file level in the current repository state",
+    "diff_assertion_policy": "No fragment-level differences are asserted until the verification witness is page-traced and fragment-addressable"
+  },
+  "diffs": []
+}

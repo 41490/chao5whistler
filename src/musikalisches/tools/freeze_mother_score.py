@@ -96,8 +96,8 @@ def build_musicxml() -> None:
             "measure number 0 denotes a structural repeat boundary emitted by conversion."
         ),
         "rules-reconciliation-status": (
-            "Pending stage 3. The current rules.json and mozart_16x11_table.json "
-            "are not yet reconciled against this Rellstab mother score."
+            "Stage 2 freeze created. Run freeze_rules.py to reconcile rules.json "
+            "and mozart_16x11_table.json against this Rellstab mother score."
         ),
     }
     for key, value in misc_fields.items():

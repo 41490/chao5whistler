@@ -45,7 +45,12 @@
 - 规则层：`JSON`
 - 运行时索引层：由 Rust 在 ingest 阶段生成的内部规范化结构
 
-但需要注意，`docs/study/music_dice_games_package/README.md` 已经明确说明当前 `mother_score.mei` 与 `mother_score.musicxml` 还是 **template placeholders**，不能把它们误当作已经可直接驱动实现的权威谱面。
+需要注意，这一条在调研当时成立，但现在仓库状态已前进到：
+
+- `mother_score.mei` 与 `mother_score.musicxml` 已冻结为可核验母谱层；
+- `rules.json` 与 `mozart_16x11_table.json` 也已进入 stage 3 对账完成状态。
+
+因此后续推进时，不应再把它们视为 placeholder，而应把重点转到 ingest 规范化与 runtime 消费契约。
 
 ### 2. 当前仓库里存在“研究对象混线”的风险
 

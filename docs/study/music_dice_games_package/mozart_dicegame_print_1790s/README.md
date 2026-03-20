@@ -10,15 +10,21 @@ For the current implementation path, this package is explicitly **not** the 1787
 - Canonical work id: `mozart_dicegame_print_1790s`
 - Canonical witness: `rellstab_1790`
 - Verification witness: `simrock_1793`
-- Current plan stage: `stage 2: mother-score freeze`
+- Current plan stage: `stage 3: rules freeze`
 
-Stage 2 freezes the canonical mother-score layer:
+Stage 2 froze the canonical mother-score layer:
 
 - `mother_score.source.k516f.krn` is the frozen Humdrum source used for this stage.
 - `mother_score.musicxml` is now the primary ingest-oriented mother score.
 - `mother_score.mei` is the aligned archive layer derived from that MusicXML.
 
-The next unresolved step is `stage 3: rules reconciliation`.
+Stage 3 freezes the rule layer against that mother score:
+
+- `rules.json` now records the complete `16 x 11` selector mapping plus reverse fragment lookup.
+- `docs/study/music_source_basis_package/docs/mozart_16x11_table.json` is now explicitly marked as reconciled against the canonical mother score.
+- `witness_diff.json` records the initial canonical-versus-verification policy state.
+
+The next unresolved step is `stage 4: ingest freeze`.
 
 ## Source basis
 
@@ -39,6 +45,7 @@ The next unresolved step is `stage 3: rules reconciliation`.
 - `mother_score.source.k516f.krn` - frozen canonical digital source aligned to the Rellstab witness.
 - `mother_score.musicxml` - stage-2 frozen mother score for ingest.
 - `mother_score.mei` - stage-2 aligned archive representation.
+- `witness_diff.json` - initial stage-3 witness-diff record with file-level Simrock status.
 
 ## Selector model
 
@@ -51,7 +58,7 @@ This package models the common printed workflow:
 
 `fragment id == measure number` for measures `1..176` in the stage-2 mother score.
 
-Important: the current `rules.json` and `docs/study/music_source_basis_package/docs/mozart_16x11_table.json` are not yet reconciled against this mother score. That reconciliation belongs to stage 3.
+The current `rules.json` and `docs/study/music_source_basis_package/docs/mozart_16x11_table.json` are reconciled against this mother score at stage 3. `Simrock 1793` remains file-level only until a later fragment-addressable witness-diff pass.
 
 ## Encoding policy
 
@@ -70,4 +77,5 @@ Run the stage validators from the repository root:
 ```bash
 python src/musikalisches/tools/validate_source_freeze.py
 python src/musikalisches/tools/validate_mother_score.py
+python src/musikalisches/tools/validate_rules_freeze.py
 ```

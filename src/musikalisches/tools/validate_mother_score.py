@@ -62,6 +62,15 @@ def validate_musicxml() -> tuple[bool, str]:
     return True, "musicxml ok"
 
 
+def read_rules_reconciliation_status() -> str:
+    tree = ET.parse(MUSICXML_PATH)
+    root = tree.getroot()
+    for field in root.findall("./identification/miscellaneous/miscellaneous-field"):
+        if field.attrib.get("name") == "rules-reconciliation-status":
+            return field.text or "unknown"
+    return "missing"
+
+
 def validate_mei() -> tuple[bool, str]:
     text = MEI_PATH.read_text(encoding="utf-8")
     if "template placeholder" in text:
@@ -114,7 +123,7 @@ def main() -> int:
     print("stage2 mother-score validation passed")
     print("canonical source: mother_score.source.k516f.krn")
     print("fragment contract: measure number == fragment id for 1..176")
-    print("rules reconciliation: pending stage 3")
+    print(f"rules reconciliation: {read_rules_reconciliation_status()}")
     return 0
 
 

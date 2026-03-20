@@ -6,7 +6,7 @@
 - `work_id`: `mozart_dicegame_print_1790s`
 - `canonical_witness_id`: `rellstab_1790`
 - `verification_witness_id`: `simrock_1793`
-- current plan stage: `stage 4: ingest freeze`
+- current plan stage: `stage 5: milestone M1`
 - first runtime milestone: `offline realization + offline audio render`
 
 ## boundary
@@ -29,10 +29,14 @@
 - `witness_diff.json` 初版已建立，且保持 `rellstab_1790` 为唯一 canonical runtime 定义
 - `ingest/fragments.json` / `ingest/measures.json` / `ingest/validation_report.json` 已冻结
 - ingest 已把空 part 显式补成 rest timeline，runtime 不再需要直接解析 `mother_score.musicxml`
+- Rust CLI crate 已建立：`cargo run -- render-audio ...`
+- runtime 已可输出 realized fragment sequence / note-event sequence / offline WAV / M1 validation report
 
 当前仍未完成：
 
-- runtime
+- stage 6 视觉层
+- stage 7 FFmpeg / RTMP bridge
+- stage 8 soak / operations
 
 在 stage 5 之前，不应把这里描述成“已经开始实现 K.516f 无限直播工具”。
 
@@ -45,7 +49,7 @@
 3. `rules.json` 与 `16x11` 表完成核对
 4. ingest 输出契约已冻结
 
-当前 1-4 已满足，下一门槛是 stage 5 runtime realization。
+当前 1-4 已满足，且 stage 5 的最小 M1 pipeline 已可运行。
 
 当前这个目录主要承载执行入口说明和本地校验工具。
 
@@ -56,4 +60,28 @@
 ```bash
 python src/musikalisches/tools/freeze_ingest.py
 python src/musikalisches/tools/validate_ingest_freeze.py
+```
+
+## stage 5 M1
+
+构建 release binary：
+
+```bash
+cargo build --release
+install -m 755 target/release/musikalisches ops/bin/musikalisches
+```
+
+生成一套本地 M1 样例产物：
+
+```bash
+cargo run -- render-audio \
+  --work mozart_dicegame_print_1790s \
+  --demo-rolls \
+  --output-dir ops/out/m1-demo
+```
+
+验收这套样例产物：
+
+```bash
+python src/musikalisches/tools/validate_m1_artifacts.py ops/out/m1-demo
 ```

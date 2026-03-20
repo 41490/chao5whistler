@@ -27,19 +27,33 @@ cargo run -- render-audio \
   --output-dir ops/out/m1-explicit
 ```
 
+If you have a SoundFont available, the same command can render through `rustysynth`
+instead of the built-in fallback oscillator:
+
+```bash
+cargo run -- render-audio \
+  --work mozart_dicegame_print_1790s \
+  --demo-rolls \
+  --soundfont /path/to/piano.sf2 \
+  --output-dir ops/out/m1-sf2
+```
+
 Artifacts written per run:
 
 - `render_request.json`
 - `realized_fragment_sequence.json`
 - `note_event_sequence.json`
 - `event_transition_sequence.json`
+- `synth_event_sequence.json`
 - `artifact_summary.json`
 - `m1_validation_report.json`
 - `offline_audio.wav`
 
 `note_event_sequence.json` now carries explicit `voice_group_*` metadata, and
 `event_transition_sequence.json` carries deterministic `note_on` / `note_off`
-boundaries plus per-group transition indices.
+boundaries plus per-group transition indices. `synth_event_sequence.json`
+bridges those transitions into channelized synth events and is the contract
+consumed by the optional SoundFont render path.
 
 Golden regression cases live in:
 

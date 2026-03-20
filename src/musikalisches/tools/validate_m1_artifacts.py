@@ -14,6 +14,7 @@ REQUIRED_FILES = {
     "realized_fragment_sequence.json",
     "note_event_sequence.json",
     "event_transition_sequence.json",
+    "synth_event_sequence.json",
     "artifact_summary.json",
     "m1_validation_report.json",
     "offline_audio.wav",
@@ -59,6 +60,7 @@ def main() -> int:
     realized_payload = load_json(artifact_dir / "realized_fragment_sequence.json")
     note_event_payload = load_json(artifact_dir / "note_event_sequence.json")
     transition_payload = load_json(artifact_dir / "event_transition_sequence.json")
+    synth_event_payload = load_json(artifact_dir / "synth_event_sequence.json")
     summary_payload = load_json(artifact_dir / "artifact_summary.json")
     report_payload = load_json(artifact_dir / "m1_validation_report.json")
 
@@ -81,6 +83,10 @@ def main() -> int:
         errors.append("m1_validation_report.json note_event_count must be > 0")
     if report_payload.get("summary", {}).get("event_transition_count", 0) <= 0:
         errors.append("m1_validation_report.json event_transition_count must be > 0")
+    if report_payload.get("summary", {}).get("synth_event_count", 0) <= 0:
+        errors.append("m1_validation_report.json synth_event_count must be > 0")
+    if not report_payload.get("summary", {}).get("audio_render_backend"):
+        errors.append("m1_validation_report.json audio_render_backend must be present")
 
     fragments = realized_payload.get("fragments", [])
     if len(fragments) != 16:
@@ -121,6 +127,27 @@ def main() -> int:
     ):
         errors.append("event_transition_sequence.json must remain time-ordered")
 
+    synth_events = synth_event_payload.get("synth_events", [])
+    if not synth_events:
+        errors.append("synth_event_sequence.json must contain synth events")
+    if synth_event_payload.get("summary", {}).get("voice_group_count") != 2:
+        errors.append("synth_event_sequence.json voice_group_count must equal 2")
+    if synth_event_payload.get("summary", {}).get("note_on_count") != len(note_events):
+        errors.append("synth_event_sequence.json note_on_count must equal note_event_count")
+    if synth_event_payload.get("summary", {}).get("note_off_count") != len(note_events):
+        errors.append("synth_event_sequence.json note_off_count must equal note_event_count")
+    if synth_event_payload.get("summary", {}).get("program_change_count") != 2:
+        errors.append("synth_event_sequence.json program_change_count must equal 2")
+    if synth_event_payload.get("summary", {}).get("synth_event_count") != len(synth_events):
+        errors.append("synth_event_sequence.json synth_event_count summary mismatch")
+    if len(synth_events) != len(note_events) * 2 + 2:
+        errors.append("synth_event_sequence.json must contain 2 setup events plus 2 synth events per note event")
+    if any(
+        synth_events[index]["at_frame"] > synth_events[index + 1]["at_frame"]
+        for index in range(len(synth_events) - 1)
+    ):
+        errors.append("synth_event_sequence.json must remain frame-ordered")
+
     if fragments and note_events:
         total_duration = realized_payload.get("total_duration_quarter_length")
         last_note_end = max(event["end_quarter_length"] for event in note_events)
@@ -145,6 +172,8 @@ def main() -> int:
         errors.append("artifact_summary.json note_event_count mismatch")
     if summary_payload.get("event_transition_count") != len(transitions):
         errors.append("artifact_summary.json event_transition_count mismatch")
+    if summary_payload.get("synth_event_count") != len(synth_events):
+        errors.append("artifact_summary.json synth_event_count mismatch")
     if summary_payload.get("voice_group_count") != 2:
         errors.append("artifact_summary.json voice_group_count must equal 2")
     if summary_payload.get("audio_present") is not True:
@@ -161,6 +190,7 @@ def main() -> int:
     print(f"fragment_count: {len(fragments)}")
     print(f"note_event_count: {len(note_events)}")
     print(f"event_transition_count: {len(transitions)}")
+    print(f"synth_event_count: {len(synth_events)}")
     print(f"audio_frames: {frames}")
     print(f"audio_file: {wav_path}")
     return 0

@@ -30,9 +30,10 @@
 - `ingest/fragments.json` / `ingest/measures.json` / `ingest/validation_report.json` 已冻结
 - ingest 已把空 part 显式补成 rest timeline，runtime 不再需要直接解析 `mother_score.musicxml`
 - Rust CLI crate 已建立：`cargo run -- render-audio ...`
-- runtime 已可输出 realized fragment sequence / note-event sequence / event-transition sequence / offline WAV / M1 validation report
+- runtime 已可输出 realized fragment sequence / note-event sequence / event-transition sequence / synth-event sequence / offline WAV / M1 validation report
 - stage 5 已加入 golden roll cases 与小型 artifact summary，便于回归和 review
 - note-event / transition 契约已显式带出 `voice_group` 元数据，可为后续合成器/分析器对接保留分组边界
+- `render-audio` 已可在提供 `--soundfont` 时走 `rustysynth` 真实合成；未提供时回退到内置 deterministic fallback
 
 当前仍未完成：
 
@@ -80,6 +81,16 @@ cargo run -- render-audio \
   --work mozart_dicegame_print_1790s \
   --demo-rolls \
   --output-dir ops/out/m1-demo
+```
+
+如有 SoundFont，可走真实合成路径：
+
+```bash
+cargo run -- render-audio \
+  --work mozart_dicegame_print_1790s \
+  --demo-rolls \
+  --soundfont /path/to/piano.sf2 \
+  --output-dir ops/out/m1-sf2
 ```
 
 验收这套样例产物：

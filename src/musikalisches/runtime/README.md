@@ -32,5 +32,29 @@ Artifacts written per run:
 - `render_request.json`
 - `realized_fragment_sequence.json`
 - `note_event_sequence.json`
+- `event_transition_sequence.json`
+- `artifact_summary.json`
 - `m1_validation_report.json`
 - `offline_audio.wav`
+
+`note_event_sequence.json` now carries explicit `voice_group_*` metadata, and
+`event_transition_sequence.json` carries deterministic `note_on` / `note_off`
+boundaries plus per-group transition indices.
+
+Golden regression cases live in:
+
+- `src/musikalisches/runtime/golden_cases/stage5_m1_cases.json`
+
+Run the runtime regression set:
+
+```bash
+cargo test
+```
+
+Or run the same fixture checks through the CLI and write a machine-readable report:
+
+```bash
+cargo run -- verify-golden \
+  --work mozart_dicegame_print_1790s \
+  --output-dir ops/out/golden-check
+```

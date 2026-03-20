@@ -13,6 +13,8 @@ REQUIRED_FILES = {
     "render_request.json",
     "realized_fragment_sequence.json",
     "note_event_sequence.json",
+    "event_transition_sequence.json",
+    "artifact_summary.json",
     "m1_validation_report.json",
     "offline_audio.wav",
 }
@@ -56,6 +58,8 @@ def main() -> int:
     request_payload = load_json(artifact_dir / "render_request.json")
     realized_payload = load_json(artifact_dir / "realized_fragment_sequence.json")
     note_event_payload = load_json(artifact_dir / "note_event_sequence.json")
+    transition_payload = load_json(artifact_dir / "event_transition_sequence.json")
+    summary_payload = load_json(artifact_dir / "artifact_summary.json")
     report_payload = load_json(artifact_dir / "m1_validation_report.json")
 
     if request_payload.get("work_id") != "mozart_dicegame_print_1790s":
@@ -75,6 +79,8 @@ def main() -> int:
         errors.append("m1_validation_report.json fragment_count must equal 16")
     if report_payload.get("summary", {}).get("note_event_count", 0) <= 0:
         errors.append("m1_validation_report.json note_event_count must be > 0")
+    if report_payload.get("summary", {}).get("event_transition_count", 0) <= 0:
+        errors.append("m1_validation_report.json event_transition_count must be > 0")
 
     fragments = realized_payload.get("fragments", [])
     if len(fragments) != 16:
@@ -87,6 +93,33 @@ def main() -> int:
         errors.append("note_event_sequence.json must contain note events")
     if note_event_payload.get("summary", {}).get("fragment_count") != 16:
         errors.append("note_event_sequence.json summary fragment_count must equal 16")
+    if note_event_payload.get("summary", {}).get("voice_group_count") != 2:
+        errors.append("note_event_sequence.json voice_group_count must equal 2")
+    if len(note_event_payload.get("voice_groups", [])) != 2:
+        errors.append("note_event_sequence.json must expose exactly 2 voice groups")
+
+    transitions = transition_payload.get("transitions", [])
+    if not transitions:
+        errors.append("event_transition_sequence.json must contain transitions")
+    if transition_payload.get("summary", {}).get("note_event_count") != len(note_events):
+        errors.append("event_transition_sequence.json note_event_count summary mismatch")
+    if transition_payload.get("summary", {}).get("transition_count") != len(transitions):
+        errors.append("event_transition_sequence.json transition_count summary mismatch")
+    if len(transitions) != len(note_events) * 2:
+        errors.append("event_transition_sequence.json must contain exactly 2 transitions per note event")
+    if transition_payload.get("summary", {}).get("note_on_count") != len(note_events):
+        errors.append("event_transition_sequence.json note_on_count must equal note_event_count")
+    if transition_payload.get("summary", {}).get("note_off_count") != len(note_events):
+        errors.append("event_transition_sequence.json note_off_count must equal note_event_count")
+    if transition_payload.get("summary", {}).get("voice_group_count") != 2:
+        errors.append("event_transition_sequence.json voice_group_count must equal 2")
+    if len(transition_payload.get("voice_groups", [])) != 2:
+        errors.append("event_transition_sequence.json must expose exactly 2 voice groups")
+    if any(
+        transitions[index]["at_seconds"] > transitions[index + 1]["at_seconds"] + 1e-9
+        for index in range(len(transitions) - 1)
+    ):
+        errors.append("event_transition_sequence.json must remain time-ordered")
 
     if fragments and note_events:
         total_duration = realized_payload.get("total_duration_quarter_length")
@@ -108,6 +141,17 @@ def main() -> int:
     if audio_frames != frames:
         errors.append("m1_validation_report.json audio_frames does not match offline_audio.wav")
 
+    if summary_payload.get("note_event_count") != len(note_events):
+        errors.append("artifact_summary.json note_event_count mismatch")
+    if summary_payload.get("event_transition_count") != len(transitions):
+        errors.append("artifact_summary.json event_transition_count mismatch")
+    if summary_payload.get("voice_group_count") != 2:
+        errors.append("artifact_summary.json voice_group_count must equal 2")
+    if summary_payload.get("audio_present") is not True:
+        errors.append("artifact_summary.json audio_present must be true for render-audio outputs")
+    if summary_payload.get("fragment_ids") != [fragment["fragment_id"] for fragment in fragments]:
+        errors.append("artifact_summary.json fragment_ids must match realized_fragment_sequence.json")
+
     if errors:
         return fail(errors)
 
@@ -116,6 +160,7 @@ def main() -> int:
     print(f"selector_count: {request_payload['selector_count']}")
     print(f"fragment_count: {len(fragments)}")
     print(f"note_event_count: {len(note_events)}")
+    print(f"event_transition_count: {len(transitions)}")
     print(f"audio_frames: {frames}")
     print(f"audio_file: {wav_path}")
     return 0

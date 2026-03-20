@@ -17,8 +17,12 @@ const FRAGMENTS_PATH: &str =
     "docs/study/music_dice_games_package/mozart_dicegame_print_1790s/ingest/fragments.json";
 const RULES_PATH: &str =
     "docs/study/music_dice_games_package/mozart_dicegame_print_1790s/rules.json";
+const GOLDEN_CASES_PATH: &str = "src/musikalisches/runtime/golden_cases/stage5_m1_cases.json";
 const REALIZED_FRAGMENT_SEQUENCE_FILE: &str = "realized_fragment_sequence.json";
 const NOTE_EVENT_SEQUENCE_FILE: &str = "note_event_sequence.json";
+const EVENT_TRANSITION_SEQUENCE_FILE: &str = "event_transition_sequence.json";
+const ARTIFACT_SUMMARY_FILE: &str = "artifact_summary.json";
+const GOLDEN_VERIFICATION_REPORT_FILE: &str = "golden_verification_report.json";
 const RENDER_REQUEST_FILE: &str = "render_request.json";
 const M1_VALIDATION_REPORT_FILE: &str = "m1_validation_report.json";
 const OFFLINE_AUDIO_FILE: &str = "offline_audio.wav";
@@ -27,6 +31,7 @@ const OFFLINE_AUDIO_FILE: &str = "offline_audio.wav";
 pub enum CommandKind {
     Realize,
     RenderAudio,
+    VerifyGolden,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +49,8 @@ pub struct ArtifactPaths {
     pub output_dir: PathBuf,
     pub realized_fragment_sequence: PathBuf,
     pub note_event_sequence: PathBuf,
+    pub event_transition_sequence: PathBuf,
+    pub artifact_summary: PathBuf,
     pub render_request: PathBuf,
     pub validation_report: PathBuf,
     pub offline_audio: Option<PathBuf>,
@@ -212,6 +219,7 @@ pub struct NoteEventSequence {
     pub sample_rate: u32,
     pub total_duration_quarter_length: f64,
     pub total_duration_seconds: f64,
+    pub voice_groups: Vec<VoiceGroupSummary>,
     pub note_events: Vec<NoteEvent>,
     pub summary: NoteEventSummary,
 }
@@ -228,6 +236,10 @@ pub struct NoteEvent {
     pub source_part_id: String,
     pub source_part_name: String,
     pub source_part_abbreviation: String,
+    pub voice_group_id: String,
+    pub voice_group_label: String,
+    pub voice_group_kind: String,
+    pub voice_event_index_in_group: usize,
     pub source_event_index: Option<u16>,
     pub source_event_kind: String,
     pub source_encoding: String,
@@ -246,9 +258,148 @@ pub struct NoteEvent {
 pub struct NoteEventSummary {
     pub note_event_count: usize,
     pub fragment_count: usize,
+    pub voice_group_count: usize,
     pub distinct_pitch_count: usize,
     pub total_duration_quarter_length: f64,
     pub total_duration_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct VoiceGroupSummary {
+    pub voice_group_id: String,
+    pub voice_group_label: String,
+    pub voice_group_kind: String,
+    pub part_index: u8,
+    pub source_part_id: String,
+    pub source_part_name: String,
+    pub source_part_abbreviation: String,
+    pub note_event_count: usize,
+    pub event_transition_count: usize,
+    pub distinct_pitch_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct EventTransitionSequence {
+    pub work_id: String,
+    pub command: String,
+    pub rolls: Vec<u8>,
+    pub tempo_bpm: f64,
+    pub sample_rate: u32,
+    pub total_duration_quarter_length: f64,
+    pub total_duration_seconds: f64,
+    pub voice_groups: Vec<VoiceGroupSummary>,
+    pub transitions: Vec<EventTransition>,
+    pub summary: EventTransitionSummary,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct EventTransition {
+    pub transition_index: usize,
+    pub note_event_index: usize,
+    pub step_index: usize,
+    pub position_label: String,
+    pub selector_value: u8,
+    pub fragment_id: u16,
+    pub measure_number: u16,
+    pub part_index: u8,
+    pub source_part_id: String,
+    pub source_part_name: String,
+    pub source_part_abbreviation: String,
+    pub voice_group_id: String,
+    pub voice_group_label: String,
+    pub voice_group_kind: String,
+    pub voice_event_index_in_group: usize,
+    pub voice_transition_index_in_group: usize,
+    pub transition_kind: String,
+    pub pitch_name_with_octave: String,
+    pub midi: u8,
+    pub frequency_hz: f64,
+    pub at_quarter_length: f64,
+    pub at_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct EventTransitionSummary {
+    pub transition_count: usize,
+    pub note_on_count: usize,
+    pub note_off_count: usize,
+    pub note_event_count: usize,
+    pub fragment_count: usize,
+    pub voice_group_count: usize,
+    pub total_duration_quarter_length: f64,
+    pub total_duration_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ArtifactSummary {
+    pub work_id: String,
+    pub command: String,
+    pub rolls: Vec<u8>,
+    pub fragment_ids: Vec<u16>,
+    pub position_labels: Vec<String>,
+    pub unique_fragment_count: usize,
+    pub note_event_count: usize,
+    pub event_transition_count: usize,
+    pub voice_group_count: usize,
+    pub distinct_pitch_count: usize,
+    pub total_duration_quarter_length: f64,
+    pub total_duration_seconds: f64,
+    pub audio_present: bool,
+    pub audio: Option<AudioRenderSummary>,
+    pub voice_groups: Vec<VoiceGroupSummary>,
+    pub output_files: OutputFiles,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GoldenCasesFixture {
+    pub cases: Vec<GoldenCase>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GoldenCase {
+    pub case_id: String,
+    pub rolls: Vec<u8>,
+    pub expected_fragment_ids: Vec<u16>,
+    pub expected_note_event_count: usize,
+    pub expected_event_transition_count: usize,
+    pub expected_distinct_pitch_count: usize,
+    pub expected_total_duration_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GoldenVerificationReport {
+    pub work_id: String,
+    pub stage: String,
+    pub status: String,
+    pub fixture_path: String,
+    pub command: String,
+    pub cases: Vec<GoldenCaseVerification>,
+    pub summary: GoldenVerificationSummary,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GoldenCaseVerification {
+    pub case_id: String,
+    pub status: String,
+    pub rolls: Vec<u8>,
+    pub expected_fragment_ids: Vec<u16>,
+    pub actual_fragment_ids: Vec<u16>,
+    pub expected_note_event_count: usize,
+    pub actual_note_event_count: usize,
+    pub expected_event_transition_count: usize,
+    pub actual_event_transition_count: usize,
+    pub expected_distinct_pitch_count: usize,
+    pub actual_distinct_pitch_count: usize,
+    pub expected_total_duration_seconds: f64,
+    pub actual_total_duration_seconds: f64,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GoldenVerificationSummary {
+    pub case_count: usize,
+    pub cases_passed: usize,
+    pub cases_failed: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -277,6 +428,8 @@ pub struct ValidationSummary {
     pub selector_count: usize,
     pub fragment_count: usize,
     pub note_event_count: usize,
+    pub event_transition_count: usize,
+    pub voice_group_count: usize,
     pub total_duration_quarter_length: f64,
     pub total_duration_seconds: f64,
     pub tempo_bpm: f64,
@@ -292,6 +445,8 @@ pub struct OutputFiles {
     pub render_request: String,
     pub realized_fragment_sequence: String,
     pub note_event_sequence: String,
+    pub event_transition_sequence: String,
+    pub artifact_summary: String,
     pub validation_report: String,
     pub offline_audio: Option<String>,
 }
@@ -319,9 +474,18 @@ where
     }
 
     let config = parse_cli(args)?;
-    let artifacts = run_command(&config)?;
-    print_summary(&config, &artifacts);
-    Ok(())
+    match config.command {
+        CommandKind::VerifyGolden => {
+            let report_path = run_verify_golden(&config)?;
+            print_golden_summary(&config, &report_path);
+            Ok(())
+        }
+        _ => {
+            let artifacts = run_command(&config)?;
+            print_summary(&config, &artifacts);
+            Ok(())
+        }
+    }
 }
 
 fn print_usage() {
@@ -331,6 +495,7 @@ fn print_usage() {
          Commands:\n\
            realize       Resolve a deterministic 16-step fragment sequence and note events\n\
            render-audio  Resolve the sequence and render offline_audio.wav\n\
+           verify-golden Verify the fixed stage-5 golden roll fixtures\n\
          \n\
          Common flags:\n\
            --work mozart_dicegame_print_1790s\n\
@@ -346,6 +511,7 @@ pub fn parse_cli(args: Vec<String>) -> Result<CliConfig> {
     let command = match args.first().map(String::as_str) {
         Some("realize") => CommandKind::Realize,
         Some("render-audio") => CommandKind::RenderAudio,
+        Some("verify-golden") => CommandKind::VerifyGolden,
         Some(other) => bail!("unsupported command: {other}"),
         None => bail!("missing command"),
     };
@@ -410,10 +576,20 @@ pub fn parse_cli(args: Vec<String>) -> Result<CliConfig> {
     if use_demo_rolls && rolls.is_some() {
         bail!("use either --rolls or --demo-rolls, not both");
     }
-    let rolls = if use_demo_rolls {
-        DEMO_ROLLS.to_vec()
-    } else {
-        rolls.context("missing --rolls or --demo-rolls")?
+    let rolls = match command {
+        CommandKind::VerifyGolden => {
+            if use_demo_rolls || rolls.is_some() {
+                bail!("verify-golden does not accept --rolls or --demo-rolls");
+            }
+            Vec::new()
+        }
+        _ => {
+            if use_demo_rolls {
+                DEMO_ROLLS.to_vec()
+            } else {
+                rolls.context("missing --rolls or --demo-rolls")?
+            }
+        }
     };
 
     Ok(CliConfig {
@@ -455,6 +631,12 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
         config.tempo_bpm,
         config.sample_rate,
     )?;
+    let transitions = build_event_transition_sequence(
+        &config.rolls,
+        config.tempo_bpm,
+        config.sample_rate,
+        &note_events,
+    );
     let replay = realize_sequence(&contracts, &config.rolls, config.tempo_bpm)?;
     let replay_events = build_note_event_sequence(
         &contracts,
@@ -463,6 +645,12 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
         config.tempo_bpm,
         config.sample_rate,
     )?;
+    let replay_transitions = build_event_transition_sequence(
+        &config.rolls,
+        config.tempo_bpm,
+        config.sample_rate,
+        &replay_events,
+    );
 
     let render_request = RenderRequest {
         work_id: config.work_id.clone(),
@@ -479,12 +667,15 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
 
     let realized_path = config.output_dir.join(REALIZED_FRAGMENT_SEQUENCE_FILE);
     let note_event_path = config.output_dir.join(NOTE_EVENT_SEQUENCE_FILE);
+    let transition_path = config.output_dir.join(EVENT_TRANSITION_SEQUENCE_FILE);
+    let summary_path = config.output_dir.join(ARTIFACT_SUMMARY_FILE);
     let request_path = config.output_dir.join(RENDER_REQUEST_FILE);
     let validation_path = config.output_dir.join(M1_VALIDATION_REPORT_FILE);
 
     write_json(&request_path, &render_request)?;
     write_json(&realized_path, &realization)?;
     write_json(&note_event_path, &note_events)?;
+    write_json(&transition_path, &transitions)?;
 
     let audio_summary = match config.command {
         CommandKind::Realize => None,
@@ -492,6 +683,7 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
             let path = config.output_dir.join(OFFLINE_AUDIO_FILE);
             Some(render_wav(&note_events, &path, config.sample_rate)?)
         }
+        CommandKind::VerifyGolden => unreachable!("verify-golden does not use run_command"),
     };
 
     let report = build_validation_report(
@@ -499,20 +691,132 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
         &contracts,
         &realization,
         &note_events,
+        &transitions,
         replay == realization,
         replay_events == note_events,
+        replay_transitions == transitions,
         audio_summary.as_ref(),
     );
     write_json(&validation_path, &report)?;
+
+    let artifact_summary = build_artifact_summary(
+        config,
+        &realization,
+        &note_events,
+        &transitions,
+        audio_summary.as_ref(),
+    );
+    write_json(&summary_path, &artifact_summary)?;
 
     Ok(ArtifactPaths {
         output_dir: config.output_dir.clone(),
         realized_fragment_sequence: realized_path,
         note_event_sequence: note_event_path,
+        event_transition_sequence: transition_path,
+        artifact_summary: summary_path,
         render_request: request_path,
         validation_report: validation_path,
         offline_audio: audio_summary.map(|summary| config.output_dir.join(summary.path)),
     })
+}
+
+pub fn run_verify_golden(config: &CliConfig) -> Result<PathBuf> {
+    let contracts = load_contracts(&config.work_id)?;
+    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(GOLDEN_CASES_PATH);
+    let fixture: GoldenCasesFixture = read_json(&fixture_path)?;
+    let mut case_reports = Vec::with_capacity(fixture.cases.len());
+
+    for case in fixture.cases {
+        let realization = realize_sequence(&contracts, &case.rolls, config.tempo_bpm)?;
+        let note_events = build_note_event_sequence(
+            &contracts,
+            &realization,
+            &case.rolls,
+            config.tempo_bpm,
+            config.sample_rate,
+        )?;
+        let transitions = build_event_transition_sequence(
+            &case.rolls,
+            config.tempo_bpm,
+            config.sample_rate,
+            &note_events,
+        );
+
+        let actual_fragment_ids: Vec<u16> = realization
+            .fragments
+            .iter()
+            .map(|step| step.fragment_id)
+            .collect();
+        let mut errors = Vec::new();
+        if actual_fragment_ids != case.expected_fragment_ids {
+            errors.push("fragment ids do not match golden fixture".to_string());
+        }
+        if note_events.note_events.len() != case.expected_note_event_count {
+            errors.push("note_event_count does not match golden fixture".to_string());
+        }
+        if transitions.summary.transition_count != case.expected_event_transition_count {
+            errors.push("event_transition_count does not match golden fixture".to_string());
+        }
+        if note_events.summary.distinct_pitch_count != case.expected_distinct_pitch_count {
+            errors.push("distinct_pitch_count does not match golden fixture".to_string());
+        }
+        if realization.total_duration_seconds != case.expected_total_duration_seconds {
+            errors.push("total_duration_seconds does not match golden fixture".to_string());
+        }
+
+        case_reports.push(GoldenCaseVerification {
+            case_id: case.case_id,
+            status: if errors.is_empty() {
+                "passed".to_string()
+            } else {
+                "failed".to_string()
+            },
+            rolls: case.rolls,
+            expected_fragment_ids: case.expected_fragment_ids,
+            actual_fragment_ids,
+            expected_note_event_count: case.expected_note_event_count,
+            actual_note_event_count: note_events.note_events.len(),
+            expected_event_transition_count: case.expected_event_transition_count,
+            actual_event_transition_count: transitions.summary.transition_count,
+            expected_distinct_pitch_count: case.expected_distinct_pitch_count,
+            actual_distinct_pitch_count: note_events.summary.distinct_pitch_count,
+            expected_total_duration_seconds: case.expected_total_duration_seconds,
+            actual_total_duration_seconds: realization.total_duration_seconds,
+            errors,
+        });
+    }
+
+    let cases_failed = case_reports
+        .iter()
+        .filter(|case| case.status == "failed")
+        .count();
+    let cases_passed = case_reports.len() - cases_failed;
+    let report = GoldenVerificationReport {
+        work_id: config.work_id.clone(),
+        stage: "stage5_m1_runtime".to_string(),
+        status: if cases_failed == 0 {
+            "passed".to_string()
+        } else {
+            "failed".to_string()
+        },
+        fixture_path: fixture_path.display().to_string(),
+        command: command_name(&config.command).to_string(),
+        cases: case_reports,
+        summary: GoldenVerificationSummary {
+            case_count: cases_passed + cases_failed,
+            cases_passed,
+            cases_failed,
+        },
+    };
+
+    fs::create_dir_all(&config.output_dir)
+        .with_context(|| format!("failed to create {}", config.output_dir.display()))?;
+    let report_path = config.output_dir.join(GOLDEN_VERIFICATION_REPORT_FILE);
+    write_json(&report_path, &report)?;
+    if report.status != "passed" {
+        bail!("golden verification failed; see {}", report_path.display());
+    }
+    Ok(report_path)
 }
 
 pub fn load_contracts(work_id: &str) -> Result<LoadedContracts> {
@@ -718,6 +1022,7 @@ pub fn build_note_event_sequence(
         .collect();
 
     let mut note_events = Vec::new();
+    let mut voice_group_counts: HashMap<String, usize> = HashMap::new();
 
     for step in &realization.fragments {
         let fragment = fragment_index
@@ -731,6 +1036,12 @@ pub fn build_note_event_sequence(
             })?;
 
         for part in &fragment.parts {
+            let voice_group_id = format!("part-{}", part.part_index);
+            let voice_group_label = format!(
+                "{} ({})",
+                part.source_part_name, part.source_part_abbreviation
+            );
+            let voice_group_kind = "staff_part".to_string();
             let mut previous_end = 0.0;
             for event in &part.events {
                 if (event.offset_quarter_length - previous_end).abs() > 1e-9 {
@@ -747,6 +1058,13 @@ pub fn build_note_event_sequence(
                     continue;
                 }
                 for pitch in &event.pitches {
+                    let voice_event_index_in_group = {
+                        let count = voice_group_counts
+                            .entry(voice_group_id.clone())
+                            .or_insert(0);
+                        *count += 1;
+                        *count
+                    };
                     let start_quarter = step.start_quarter_length + event.offset_quarter_length;
                     let duration_quarter = event.duration_quarter_length;
                     let end_quarter = step.start_quarter_length + event.end_offset_quarter_length;
@@ -765,6 +1083,10 @@ pub fn build_note_event_sequence(
                         source_part_id: part.source_part_id.clone(),
                         source_part_name: part.source_part_name.clone(),
                         source_part_abbreviation: part.source_part_abbreviation.clone(),
+                        voice_group_id: voice_group_id.clone(),
+                        voice_group_label: voice_group_label.clone(),
+                        voice_group_kind: voice_group_kind.clone(),
+                        voice_event_index_in_group,
                         source_event_index: event.source_event_index,
                         source_event_kind: event.kind.clone(),
                         source_encoding: event.source_encoding.clone(),
@@ -790,6 +1112,7 @@ pub fn build_note_event_sequence(
         .len();
 
     let note_event_count = note_events.len();
+    let voice_groups = build_voice_group_summaries(&note_events);
 
     Ok(NoteEventSequence {
         work_id: contracts.rules.work_id.clone(),
@@ -799,15 +1122,128 @@ pub fn build_note_event_sequence(
         sample_rate,
         total_duration_quarter_length: realization.total_duration_quarter_length,
         total_duration_seconds: realization.total_duration_seconds,
+        voice_groups: voice_groups.clone(),
         note_events,
         summary: NoteEventSummary {
             note_event_count,
             fragment_count: realization.fragments.len(),
+            voice_group_count: voice_groups.len(),
             distinct_pitch_count,
             total_duration_quarter_length: realization.total_duration_quarter_length,
             total_duration_seconds: realization.total_duration_seconds,
         },
     })
+}
+
+pub fn build_event_transition_sequence(
+    rolls: &[u8],
+    tempo_bpm: f64,
+    sample_rate: u32,
+    note_events: &NoteEventSequence,
+) -> EventTransitionSequence {
+    let mut transitions = Vec::with_capacity(note_events.note_events.len() * 2);
+    for event in &note_events.note_events {
+        transitions.push(EventTransition {
+            transition_index: 0,
+            note_event_index: event.note_event_index,
+            step_index: event.step_index,
+            position_label: event.position_label.clone(),
+            selector_value: event.selector_value,
+            fragment_id: event.fragment_id,
+            measure_number: event.measure_number,
+            part_index: event.part_index,
+            source_part_id: event.source_part_id.clone(),
+            source_part_name: event.source_part_name.clone(),
+            source_part_abbreviation: event.source_part_abbreviation.clone(),
+            voice_group_id: event.voice_group_id.clone(),
+            voice_group_label: event.voice_group_label.clone(),
+            voice_group_kind: event.voice_group_kind.clone(),
+            voice_event_index_in_group: event.voice_event_index_in_group,
+            voice_transition_index_in_group: 0,
+            transition_kind: "note_on".to_string(),
+            pitch_name_with_octave: event.pitch_name_with_octave.clone(),
+            midi: event.midi,
+            frequency_hz: event.frequency_hz,
+            at_quarter_length: event.start_quarter_length,
+            at_seconds: event.start_seconds,
+        });
+        transitions.push(EventTransition {
+            transition_index: 0,
+            note_event_index: event.note_event_index,
+            step_index: event.step_index,
+            position_label: event.position_label.clone(),
+            selector_value: event.selector_value,
+            fragment_id: event.fragment_id,
+            measure_number: event.measure_number,
+            part_index: event.part_index,
+            source_part_id: event.source_part_id.clone(),
+            source_part_name: event.source_part_name.clone(),
+            source_part_abbreviation: event.source_part_abbreviation.clone(),
+            voice_group_id: event.voice_group_id.clone(),
+            voice_group_label: event.voice_group_label.clone(),
+            voice_group_kind: event.voice_group_kind.clone(),
+            voice_event_index_in_group: event.voice_event_index_in_group,
+            voice_transition_index_in_group: 0,
+            transition_kind: "note_off".to_string(),
+            pitch_name_with_octave: event.pitch_name_with_octave.clone(),
+            midi: event.midi,
+            frequency_hz: event.frequency_hz,
+            at_quarter_length: event.end_quarter_length,
+            at_seconds: event.end_seconds,
+        });
+    }
+
+    transitions.sort_by(|left, right| {
+        left.at_seconds
+            .total_cmp(&right.at_seconds)
+            .then_with(|| {
+                transition_kind_rank(&left.transition_kind)
+                    .cmp(&transition_kind_rank(&right.transition_kind))
+            })
+            .then_with(|| left.step_index.cmp(&right.step_index))
+            .then_with(|| left.part_index.cmp(&right.part_index))
+            .then_with(|| left.midi.cmp(&right.midi))
+            .then_with(|| left.note_event_index.cmp(&right.note_event_index))
+    });
+    let mut voice_transition_counts: HashMap<String, usize> = HashMap::new();
+    for (index, transition) in transitions.iter_mut().enumerate() {
+        transition.transition_index = index + 1;
+        let count = voice_transition_counts
+            .entry(transition.voice_group_id.clone())
+            .or_insert(0);
+        *count += 1;
+        transition.voice_transition_index_in_group = *count;
+    }
+
+    let note_on_count = transitions
+        .iter()
+        .filter(|transition| transition.transition_kind == "note_on")
+        .count();
+    let note_off_count = transitions.len() - note_on_count;
+
+    let voice_groups = note_events.voice_groups.clone();
+
+    EventTransitionSequence {
+        work_id: note_events.work_id.clone(),
+        command: "realize".to_string(),
+        rolls: rolls.to_vec(),
+        tempo_bpm,
+        sample_rate,
+        total_duration_quarter_length: note_events.total_duration_quarter_length,
+        total_duration_seconds: note_events.total_duration_seconds,
+        voice_groups: voice_groups.clone(),
+        transitions,
+        summary: EventTransitionSummary {
+            transition_count: note_events.note_events.len() * 2,
+            note_on_count,
+            note_off_count,
+            note_event_count: note_events.note_events.len(),
+            fragment_count: note_events.summary.fragment_count,
+            voice_group_count: voice_groups.len(),
+            total_duration_quarter_length: note_events.total_duration_quarter_length,
+            total_duration_seconds: note_events.total_duration_seconds,
+        },
+    }
 }
 
 pub fn render_wav(
@@ -891,8 +1327,10 @@ pub fn build_validation_report(
     contracts: &LoadedContracts,
     realization: &RealizedFragmentSequence,
     note_events: &NoteEventSequence,
+    transitions: &EventTransitionSequence,
     replay_matches: bool,
     replay_note_events_match: bool,
+    replay_transitions_match: bool,
     audio_summary: Option<&AudioRenderSummary>,
 ) -> M1ValidationReport {
     let mut errors = Vec::new();
@@ -943,6 +1381,28 @@ pub fn build_validation_report(
         .map(|event| event.end_quarter_length)
         .fold(0.0_f64, f64::max)
         <= realization.total_duration_quarter_length + 1e-9;
+    let transition_balance = transitions.summary.transition_count
+        == note_events.note_events.len() * 2
+        && transitions.summary.note_on_count == note_events.note_events.len()
+        && transitions.summary.note_off_count == note_events.note_events.len();
+    let transition_ordering = transitions
+        .transitions
+        .windows(2)
+        .all(|pair| pair[0].at_seconds <= pair[1].at_seconds + 1e-9);
+    let voice_group_contract = !note_events.voice_groups.is_empty()
+        && note_events.voice_groups.len() == transitions.voice_groups.len()
+        && note_events
+            .voice_groups
+            .iter()
+            .map(|group| group.note_event_count)
+            .sum::<usize>()
+            == note_events.note_events.len()
+        && note_events
+            .voice_groups
+            .iter()
+            .map(|group| group.event_transition_count)
+            .sum::<usize>()
+            == transitions.summary.transition_count;
     if !duration_closure {
         errors.push("note-event sequence overruns the realized timeline".to_string());
     }
@@ -950,7 +1410,7 @@ pub fn build_validation_report(
     if note_events.note_events.is_empty() {
         errors.push("note-event sequence is empty".to_string());
     }
-    if !replay_matches || !replay_note_events_match {
+    if !replay_matches || !replay_note_events_match || !replay_transitions_match {
         errors.push("deterministic replay check failed".to_string());
     }
 
@@ -1006,10 +1466,11 @@ pub fn build_validation_report(
     ));
     checks.push(validation_check(
         "deterministic_replay",
-        replay_matches && replay_note_events_match,
+        replay_matches && replay_note_events_match && replay_transitions_match,
         serde_json::json!({
             "fragment_sequence_replayed_identically": replay_matches,
             "note_events_replayed_identically": replay_note_events_match,
+            "event_transitions_replayed_identically": replay_transitions_match,
         }),
         &mut errors,
         "same input must realize and replay identically",
@@ -1033,6 +1494,40 @@ pub fn build_validation_report(
         }),
         &mut errors,
         "note events must stay within the realized duration",
+    ));
+    checks.push(validation_check(
+        "event_transition_balance",
+        transition_balance,
+        serde_json::json!({
+            "transition_count": transitions.summary.transition_count,
+            "note_on_count": transitions.summary.note_on_count,
+            "note_off_count": transitions.summary.note_off_count,
+            "note_event_count": note_events.note_events.len(),
+        }),
+        &mut errors,
+        "event transitions must contain one note_on and one note_off per note event",
+    ));
+    checks.push(validation_check(
+        "event_transition_order",
+        transition_ordering,
+        serde_json::json!({
+            "transition_count": transitions.summary.transition_count,
+            "first_transition_seconds": transitions.transitions.first().map(|transition| transition.at_seconds),
+            "last_transition_seconds": transitions.transitions.last().map(|transition| transition.at_seconds),
+        }),
+        &mut errors,
+        "event transitions must remain time-ordered",
+    ));
+    checks.push(validation_check(
+        "voice_group_contract",
+        voice_group_contract,
+        serde_json::json!({
+            "voice_group_count": note_events.voice_groups.len(),
+            "transition_voice_group_count": transitions.voice_groups.len(),
+            "voice_groups": &note_events.voice_groups,
+        }),
+        &mut errors,
+        "voice groups must remain aligned across note events and transitions",
     ));
     checks.push(ValidationCheck {
         check_id: "offline_audio_output".to_string(),
@@ -1073,6 +1568,8 @@ pub fn build_validation_report(
             selector_count: config.rolls.len(),
             fragment_count: realization.fragments.len(),
             note_event_count: note_events.note_events.len(),
+            event_transition_count: transitions.summary.transition_count,
+            voice_group_count: note_events.voice_groups.len(),
             total_duration_quarter_length: realization.total_duration_quarter_length,
             total_duration_seconds: realization.total_duration_seconds,
             tempo_bpm: config.tempo_bpm,
@@ -1086,10 +1583,89 @@ pub fn build_validation_report(
             render_request: RENDER_REQUEST_FILE.to_string(),
             realized_fragment_sequence: REALIZED_FRAGMENT_SEQUENCE_FILE.to_string(),
             note_event_sequence: NOTE_EVENT_SEQUENCE_FILE.to_string(),
+            event_transition_sequence: EVENT_TRANSITION_SEQUENCE_FILE.to_string(),
+            artifact_summary: ARTIFACT_SUMMARY_FILE.to_string(),
             validation_report: M1_VALIDATION_REPORT_FILE.to_string(),
             offline_audio: audio_summary.map(|summary| summary.path.clone()),
         },
     }
+}
+
+pub fn build_artifact_summary(
+    config: &CliConfig,
+    realization: &RealizedFragmentSequence,
+    note_events: &NoteEventSequence,
+    transitions: &EventTransitionSequence,
+    audio_summary: Option<&AudioRenderSummary>,
+) -> ArtifactSummary {
+    ArtifactSummary {
+        work_id: config.work_id.clone(),
+        command: command_name(&config.command).to_string(),
+        rolls: config.rolls.clone(),
+        fragment_ids: realization
+            .fragments
+            .iter()
+            .map(|step| step.fragment_id)
+            .collect(),
+        position_labels: realization
+            .fragments
+            .iter()
+            .map(|step| step.position_label.clone())
+            .collect(),
+        unique_fragment_count: realization.summary.unique_fragment_count,
+        note_event_count: note_events.note_events.len(),
+        event_transition_count: transitions.summary.transition_count,
+        voice_group_count: note_events.voice_groups.len(),
+        distinct_pitch_count: note_events.summary.distinct_pitch_count,
+        total_duration_quarter_length: realization.total_duration_quarter_length,
+        total_duration_seconds: realization.total_duration_seconds,
+        audio_present: audio_summary.is_some(),
+        audio: audio_summary.cloned(),
+        voice_groups: note_events.voice_groups.clone(),
+        output_files: OutputFiles {
+            render_request: RENDER_REQUEST_FILE.to_string(),
+            realized_fragment_sequence: REALIZED_FRAGMENT_SEQUENCE_FILE.to_string(),
+            note_event_sequence: NOTE_EVENT_SEQUENCE_FILE.to_string(),
+            event_transition_sequence: EVENT_TRANSITION_SEQUENCE_FILE.to_string(),
+            artifact_summary: ARTIFACT_SUMMARY_FILE.to_string(),
+            validation_report: M1_VALIDATION_REPORT_FILE.to_string(),
+            offline_audio: audio_summary.map(|summary| summary.path.clone()),
+        },
+    }
+}
+
+fn build_voice_group_summaries(note_events: &[NoteEvent]) -> Vec<VoiceGroupSummary> {
+    let mut groups: BTreeMap<String, VoiceGroupSummary> = BTreeMap::new();
+    let mut pitch_sets: BTreeMap<String, BTreeSet<u8>> = BTreeMap::new();
+
+    for event in note_events {
+        let entry = groups
+            .entry(event.voice_group_id.clone())
+            .or_insert_with(|| VoiceGroupSummary {
+                voice_group_id: event.voice_group_id.clone(),
+                voice_group_label: event.voice_group_label.clone(),
+                voice_group_kind: event.voice_group_kind.clone(),
+                part_index: event.part_index,
+                source_part_id: event.source_part_id.clone(),
+                source_part_name: event.source_part_name.clone(),
+                source_part_abbreviation: event.source_part_abbreviation.clone(),
+                note_event_count: 0,
+                event_transition_count: 0,
+                distinct_pitch_count: 0,
+            });
+        entry.note_event_count += 1;
+        pitch_sets
+            .entry(event.voice_group_id.clone())
+            .or_default()
+            .insert(event.midi);
+    }
+
+    for (group_id, entry) in &mut groups {
+        entry.event_transition_count = entry.note_event_count * 2;
+        entry.distinct_pitch_count = pitch_sets.get(group_id).map_or(0, BTreeSet::len);
+    }
+
+    groups.into_values().collect()
 }
 
 fn validation_check(
@@ -1119,10 +1695,12 @@ fn print_summary(config: &CliConfig, artifacts: &ArtifactPaths) {
     println!("rolls: {}", format_rolls(&config.rolls));
     println!("output_dir: {}", artifacts.output_dir.display());
     println!(
-        "artifacts: {}, {}, {}, {}",
+        "artifacts: {}, {}, {}, {}, {}, {}",
         artifacts.render_request.display(),
         artifacts.realized_fragment_sequence.display(),
         artifacts.note_event_sequence.display(),
+        artifacts.event_transition_sequence.display(),
+        artifacts.artifact_summary.display(),
         artifacts.validation_report.display()
     );
     if let Some(path) = &artifacts.offline_audio {
@@ -1130,10 +1708,26 @@ fn print_summary(config: &CliConfig, artifacts: &ArtifactPaths) {
     }
 }
 
+fn print_golden_summary(config: &CliConfig, report_path: &Path) {
+    println!("command: {}", command_name(&config.command));
+    println!("work: {}", config.work_id);
+    println!("output_dir: {}", config.output_dir.display());
+    println!("golden_report: {}", report_path.display());
+}
+
 fn command_name(command: &CommandKind) -> &'static str {
     match command {
         CommandKind::Realize => "realize",
         CommandKind::RenderAudio => "render-audio",
+        CommandKind::VerifyGolden => "verify-golden",
+    }
+}
+
+fn transition_kind_rank(kind: &str) -> u8 {
+    match kind {
+        "note_off" => 0,
+        "note_on" => 1,
+        _ => 2,
     }
 }
 
@@ -1198,6 +1792,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn parse_rolls_requires_exactly_sixteen_values() {
@@ -1246,5 +1841,111 @@ mod tests {
         assert_eq!(realization_a, realization_b);
         assert_eq!(notes_a, notes_b);
         assert!(!notes_a.note_events.is_empty());
+        assert_eq!(notes_a.summary.voice_group_count, 2);
+    }
+
+    #[test]
+    fn event_transitions_are_balanced_for_demo_rolls() {
+        let contracts = load_contracts(CANONICAL_WORK_ID).unwrap();
+        let realization = realize_sequence(&contracts, &DEMO_ROLLS, DEFAULT_TEMPO_BPM).unwrap();
+        let notes = build_note_event_sequence(
+            &contracts,
+            &realization,
+            &DEMO_ROLLS,
+            DEFAULT_TEMPO_BPM,
+            DEFAULT_SAMPLE_RATE,
+        )
+        .unwrap();
+        let transitions = build_event_transition_sequence(
+            &DEMO_ROLLS,
+            DEFAULT_TEMPO_BPM,
+            DEFAULT_SAMPLE_RATE,
+            &notes,
+        );
+        assert_eq!(
+            transitions.summary.transition_count,
+            notes.note_events.len() * 2
+        );
+        assert_eq!(transitions.summary.note_on_count, notes.note_events.len());
+        assert_eq!(transitions.summary.note_off_count, notes.note_events.len());
+        assert_eq!(transitions.summary.voice_group_count, 2);
+        assert_eq!(notes.voice_groups.len(), 2);
+        assert_eq!(transitions.voice_groups.len(), 2);
+        assert!(transitions
+            .transitions
+            .windows(2)
+            .all(|pair| pair[0].at_seconds <= pair[1].at_seconds + 1e-9));
+    }
+
+    #[test]
+    fn parse_verify_golden_requires_no_rolls() {
+        let config = parse_cli(vec![
+            "verify-golden".to_string(),
+            "--work".to_string(),
+            CANONICAL_WORK_ID.to_string(),
+            "--output-dir".to_string(),
+            "ops/out/golden-check".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(config.command, CommandKind::VerifyGolden);
+        assert!(config.rolls.is_empty());
+    }
+
+    #[test]
+    fn golden_cases_fixture_matches_expected_outputs() {
+        let contracts = load_contracts(CANONICAL_WORK_ID).unwrap();
+        let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(GOLDEN_CASES_PATH);
+        let payload: GoldenCasesFixture =
+            serde_json::from_str(&fs::read_to_string(fixture_path).unwrap()).unwrap();
+
+        for case in payload.cases {
+            let realization = realize_sequence(&contracts, &case.rolls, DEFAULT_TEMPO_BPM).unwrap();
+            let notes = build_note_event_sequence(
+                &contracts,
+                &realization,
+                &case.rolls,
+                DEFAULT_TEMPO_BPM,
+                DEFAULT_SAMPLE_RATE,
+            )
+            .unwrap();
+            let transitions = build_event_transition_sequence(
+                &case.rolls,
+                DEFAULT_TEMPO_BPM,
+                DEFAULT_SAMPLE_RATE,
+                &notes,
+            );
+
+            let actual_fragments: Vec<u16> = realization
+                .fragments
+                .iter()
+                .map(|step| step.fragment_id)
+                .collect();
+            assert_eq!(
+                actual_fragments, case.expected_fragment_ids,
+                "case_id={}",
+                case.case_id
+            );
+            assert_eq!(
+                notes.note_events.len(),
+                case.expected_note_event_count,
+                "case_id={}",
+                case.case_id
+            );
+            assert_eq!(
+                transitions.summary.transition_count, case.expected_event_transition_count,
+                "case_id={}",
+                case.case_id
+            );
+            assert_eq!(
+                notes.summary.distinct_pitch_count, case.expected_distinct_pitch_count,
+                "case_id={}",
+                case.case_id
+            );
+            assert_eq!(
+                realization.total_duration_seconds, case.expected_total_duration_seconds,
+                "case_id={}",
+                case.case_id
+            );
+        }
     }
 }

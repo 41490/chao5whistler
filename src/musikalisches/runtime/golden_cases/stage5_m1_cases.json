@@ -1,0 +1,40 @@
+{
+  "cases": [
+    {
+      "case_id": "demo",
+      "rolls": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 7, 6, 5, 4, 3],
+      "expected_fragment_ids": [70, 64, 160, 35, 117, 27, 49, 89, 93, 34, 175, 107, 134, 32, 159, 20],
+      "expected_note_event_count": 120,
+      "expected_event_transition_count": 240,
+      "expected_distinct_pitch_count": 26,
+      "expected_total_duration_seconds": 12.0
+    },
+    {
+      "case_id": "all_sevens",
+      "rolls": [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7],
+      "expected_fragment_ids": [165, 152, 112, 15, 147, 27, 73, 102, 144, 104, 87, 107, 128, 48, 109, 74],
+      "expected_note_event_count": 118,
+      "expected_event_transition_count": 236,
+      "expected_distinct_pitch_count": 22,
+      "expected_total_duration_seconds": 12.0
+    },
+    {
+      "case_id": "high_low",
+      "rolls": [12, 2, 12, 2, 12, 2, 12, 2, 12, 2, 12, 2, 12, 2, 12, 2],
+      "expected_fragment_ids": [145, 14, 6, 122, 56, 153, 63, 167, 50, 3, 175, 170, 113, 166, 53, 5],
+      "expected_note_event_count": 96,
+      "expected_event_transition_count": 192,
+      "expected_distinct_pitch_count": 20,
+      "expected_total_duration_seconds": 12.0
+    },
+    {
+      "case_id": "ascending_twice",
+      "rolls": [2, 3, 4, 5, 6, 7, 8, 9, 3, 4, 5, 6, 7, 8, 9, 10],
+      "expected_fragment_ids": [70, 64, 160, 35, 117, 27, 49, 89, 148, 176, 38, 19, 128, 80, 96, 98],
+      "expected_note_event_count": 114,
+      "expected_event_transition_count": 228,
+      "expected_distinct_pitch_count": 21,
+      "expected_total_duration_seconds": 12.0
+    }
+  ]
+}

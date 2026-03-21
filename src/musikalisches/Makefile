@@ -6,6 +6,7 @@ DEMO_OUT := $(ROOT)/ops/out/m1-demo
 STREAM_DEMO_OUT := $(ROOT)/ops/out/stream-demo
 STREAM_SF2_OUT := $(ROOT)/ops/out/stream-sf2
 GOLDEN_OUT := $(ROOT)/ops/out/golden-check
+VIDEO_STUB_OUT := $(ROOT)/ops/out/video-stub
 DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_synth_profile.json
 DEFAULT_SOUNDFONT := $(ROOT)/ops/assets/soundfonts/default.sf2
 PYTHON ?= python
@@ -36,8 +37,14 @@ help:
 	'  make stage5-sf2-check      Validate looped SoundFont demo artifacts' \
 	'  make stage5-profile-show   Show default synth profile path' \
 	'' \
+	'Stage 6 preflight:' \
+	'  make stage6-video-stub    Derive visual stub artifacts from analyzer output' \
+	'  make stage6-video-check   Validate stage6 visual stub artifacts' \
+	'  make stage6-plan-show     Show stage6 video stub guide path' \
+	'' \
 	'Utilities:' \
 	'  make stage5-all            fmt + test + golden + stream render + validate' \
+	'  make stage6-all            stage5-stream + stage6 stub build + validate' \
 	'  make plans-open            Print manual test guide path' \
 	'  make clean-out             Remove generated artifact dirs used by Makefile' \
 	'' \
@@ -45,7 +52,8 @@ help:
 	'  SOUND_FONT=/path/to/file.sf2       Override SoundFont for stage5-sf2' \
 	'  SYNTH_PROFILE=/path/to/profile.json Override synth routing profile' \
 	'  LOOP_COUNT=4                       Override loop count for stream targets' \
-	'  ANALYSIS_WINDOW_MS=40              Override analyzer window size'
+	'  ANALYSIS_WINDOW_MS=40              Override analyzer window size' \
+	'  STAGE6_SOURCE_DIR=/path/to/artifacts Override stage6 stub source dir'
 
 .PHONY: stage2-validate
 stage2-validate:
@@ -133,6 +141,27 @@ stage5-sf2-check:
 stage5-profile-show:
 	@printf '%s\n' $(DEFAULT_SYNTH_PROFILE)
 
+.PHONY: stage6-video-stub
+stage6-video-stub:
+	@SOURCE_DIR="$${STAGE6_SOURCE_DIR:-$(STREAM_DEMO_OUT)}"; \
+	if [[ ! -f "$$SOURCE_DIR/analysis_window_sequence.json" ]]; then \
+		$(MAKE) stage5-stream; \
+	fi; \
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage6_video_stub.py \
+		"$$SOURCE_DIR" \
+		$(VIDEO_STUB_OUT)
+
+.PHONY: stage6-video-check
+stage6-video-check:
+	@if [[ ! -f "$(VIDEO_STUB_OUT)/video_stub_scene.json" ]]; then \
+		$(MAKE) stage6-video-stub; \
+	fi
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage6_video_stub.py $(VIDEO_STUB_OUT)
+
+.PHONY: stage6-plan-show
+stage6-plan-show:
+	@printf '%s\n' $(ROOT)/docs/plans/260321-stage6-video-stub-guide.md
+
 .PHONY: stage5-all
 stage5-all:
 	cd $(ROOT) && $(CARGO) fmt --all
@@ -141,10 +170,16 @@ stage5-all:
 	@$(MAKE) stage5-stream
 	@$(MAKE) stage5-stream-check
 
+.PHONY: stage6-all
+stage6-all:
+	@$(MAKE) stage5-stream
+	@$(MAKE) stage6-video-stub
+	@$(MAKE) stage6-video-check
+
 .PHONY: plans-open
 plans-open:
 	@printf '%s\n' $(ROOT)/docs/plans/260321-stage5-build-and-manual-test-guide.md
 
 .PHONY: clean-out
 clean-out:
-	rm -rf $(DEMO_OUT) $(STREAM_DEMO_OUT) $(STREAM_SF2_OUT) $(GOLDEN_OUT)
+	rm -rf $(DEMO_OUT) $(STREAM_DEMO_OUT) $(STREAM_SF2_OUT) $(GOLDEN_OUT) $(VIDEO_STUB_OUT)

@@ -35,6 +35,7 @@
 - note-event / transition 契约已显式带出 `voice_group` 元数据，可为后续合成器/分析器对接保留分组边界
 - `render-audio` 已可在提供 `--soundfont` 时走 `rustysynth` 真实合成；未提供时按 `--soundfont` > `MUSIKALISCHES_SOUNDFONT` > repo/system default 的顺序发现，找不到才回退到内置 deterministic fallback
 - stage 5 已补 `loop_count` 连续播放骨架、`synth_profile` 路由配置、以及统一 analyzer 时钟输出，便于进入视频/直播链路前先做人工检验
+- stage 6 已补 analyzer -> video stub 预演入口，可把 stage 5 分析输出转成 Solarized Dark 的视觉 stub 契约与静态预览
 
 当前仍未完成：
 
@@ -121,6 +122,27 @@ python src/musikalisches/tools/validate_m1_artifacts.py ops/out/m1-demo
 
 ```text
 docs/plans/260321-stage5-build-and-manual-test-guide.md
+```
+
+## stage 6 preflight
+
+从 stage 5 analyzer 产物生成视觉 stub：
+
+```bash
+make -C src/musikalisches stage6-video-stub
+make -C src/musikalisches stage6-video-check
+```
+
+默认输出：
+
+```text
+ops/out/video-stub
+```
+
+说明文档见：
+
+```text
+docs/plans/260321-stage6-video-stub-guide.md
 ```
 
 运行 stage 5 golden regression：

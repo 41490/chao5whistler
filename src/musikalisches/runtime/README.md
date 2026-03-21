@@ -101,3 +101,21 @@ cargo run -- verify-golden \
 For manual build and split-output verification, see:
 
 - `docs/plans/260321-stage5-build-and-manual-test-guide.md`
+
+Stage 6 preflight can now derive a visual stub bundle from the analyzer output:
+
+```bash
+make -C src/musikalisches stage6-video-stub
+make -C src/musikalisches stage6-video-check
+```
+
+The stub artifacts land in `ops/out/video-stub` and currently include:
+
+- `video_stub_manifest.json`
+- `video_stub_scene.json`
+- `video_stub_preview.svg`
+- `stage6_validation_report.json`
+
+Manual inspection notes live in:
+
+- `docs/plans/260321-stage6-video-stub-guide.md`

@@ -18,11 +18,25 @@ Youtube 有很多无限直播节目...
 ## logging
 ...TBD
 
+## development
+
+### jj workflow
+
+This repo uses `jj` (Jujutsu) for local version control in colocated mode.
+
+- inspect current state: `jj log` and `jj status`
+- describe the current change: `jj describe -m "type(scope): summary"`
+- start the next unit of work: `jj new`
+- update from remote: `jj git fetch`
+- publish a new line of work: `jj bookmark create codex/issue-<n>-<slug> -r @`
+- push the bookmark: `jj git push --bookmark codex/issue-<n>-<slug>`
+
+For local history manipulation, prefer `jj` over mutating Git commands.
+
 ## refer.
 ...TBD
 
 ## tracing
 
 - 260319 DAMA init.
-
 

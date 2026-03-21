@@ -1,0 +1,404 @@
+# songh runtime configuration template
+#
+# This file is a tracked template, not a secret store.
+# Do not put RTMP keys here in a committed version.
+# Runtime secret injection priority:
+# 1. SONGH_RTMP_URL
+# 2. songh.local.toml
+# 3. songh.toml
+
+[meta]
+# Human-readable profile name for logs and record labels.
+profile = "default"
+
+# Visible label for reports and output naming.
+label = "songh"
+
+[runtime]
+# Allowed:
+# - "archive_replay"
+# - "random_fallback"
+# - "dry_run"
+mode = "archive_replay"
+
+# V1 only supports "realtime_day".
+clock = "realtime_day"
+
+# Start on the next whole second so A/V clocks align cleanly.
+# Allowed:
+# - "immediate"
+# - "align_to_next_second"
+start_policy = "align_to_next_second"
+
+[archive]
+# Root directory where local day-packs live.
+root_dir = "var/songh/archive"
+
+# Day selection policy.
+# Allowed:
+# - "latest_complete_day"
+# - "fixed_day"
+selector = "latest_complete_day"
+
+# Prefer the complete pack from N days ago.
+# Current decision is 2, matching "use the day before yesterday first".
+preferred_offset_days = 2
+
+# Only used when selector = "fixed_day".
+# Format: YYYY-MM-DD
+fixed_day = ""
+
+[archive.download]
+# When true, runtime may fetch missing raw hourly archives.
+enabled = true
+
+# Official GH Archive bucket root.
+base_url = "https://data.gharchive.org"
+
+# HTTP timeout for a single download request.
+timeout_secs = 60
+
+# Download concurrency for 24 hourly files.
+max_parallel = 4
+
+# HTTP user agent for GH Archive requests.
+user_agent = "songh/0.1"
+
+[archive.normalize]
+# Normalized local file codec.
+# Allowed:
+# - "jsonl.zst"
+# - "jsonl.gz"
+codec = "jsonl.zst"
+
+# Build per-minute offsets for fast seek and stable replay.
+write_minute_index = true
+
+# Emit stats.json for reports and debugging.
+write_stats = true
+
+# V1 decision: non-primary events are dropped during normalization.
+drop_secondary_events = true
+
+[replay]
+# Issue requirement: at most 4 events per second enter the render cluster.
+max_events_per_second = 4
+
+# Decision: dedupe window is fixed at 10 minutes.
+dedupe_window_secs = 600
+
+# Stable selection order when a second contains more than 4 events.
+selection_order = ["weight_desc", "created_at_asc", "event_id_asc"]
+
+# V1 drops overflow events after counting them.
+overflow_policy = "drop_and_count"
+
+[fallback]
+# Enable synthetic generation when no valid archive pack is available.
+enabled = true
+
+# Decision: fallback density should be another 1x sparser.
+# 1.0 means "same density as reference template".
+# 0.5 means "half as dense".
+density_scale = 0.5
+
+# 0 means "randomize at startup".
+# Any non-zero value forces deterministic fallback output.
+seed = 0
+
+# If local history exists, use it as a density template.
+# Allowed:
+# - "history_if_available"
+# - "builtin_only"
+density_source = "history_if_available"
+
+# Prefix used to synthesize fake repo names in fallback mode.
+synthetic_repo_prefix = "synthetic/repo"
+
+# Prefix used to synthesize fake actor names in fallback mode.
+synthetic_actor_prefix = "synthetic_actor"
+
+[events]
+# V1 primary event set.
+primary_types = [
+  "CreateEvent",
+  "DeleteEvent",
+  "PushEvent",
+  "IssuesEvent",
+  "IssueCommentEvent",
+  "CommitCommentEvent",
+  "PullRequestEvent",
+  "PublicEvent",
+  "ForkEvent",
+  "ReleaseEvent",
+]
+
+# Default hash truncation length for display templates.
+hash_len_default = 8
+
+[events.weights]
+# Fixed event weights decided in Issue discussion.
+CreateEvent = 10
+DeleteEvent = 20
+PushEvent = 30
+IssuesEvent = 40
+IssueCommentEvent = 50
+CommitCommentEvent = 60
+PullRequestEvent = 70
+PublicEvent = 80
+ForkEvent = 90
+ReleaseEvent = 100
+
+[text]
+# Supported syntax:
+# - {field}
+# - {field:N}
+#
+# Supported fields:
+# - repo
+# - repo_owner
+# - repo_name
+# - type
+# - actor
+# - hash
+# - id
+# - weight
+# - hour
+# - minute
+# - second
+#
+# Example:
+# "{repo}/{hash:8}"
+template = "{repo}/{hash:8}"
+
+# V1 rule: unknown fields fail config validation immediately.
+unknown_field_policy = "error"
+
+# V1 rule: empty known fields render as empty string.
+empty_field_policy = "render_empty"
+
+# Final rendered single-line string cap.
+max_rendered_chars = 64
+
+# V1 text is always single-line.
+allow_multiline = false
+
+[audio]
+# Fixed by decision.
+sample_rate = 48000
+
+# V1 uses stereo output.
+channels = 2
+
+# Global master gain on the final mix bus.
+master_gain_db = 0.0
+
+# Default voice mode if an event-specific voice block does not override it.
+# Allowed:
+# - "synth"
+# - "wav_sample"
+# - "hybrid"
+voice_mode_default = "hybrid"
+
+[audio.background]
+# Optional background layer. Only WAV is allowed.
+enabled = false
+
+# Must point to a .wav file when enabled = true.
+wav_path = ""
+
+# Background level relative to event bus.
+gain_db = -9.0
+
+# Loop forever during replay.
+loop = true
+
+[audio.mix]
+# Fixed overlap window between adjacent event cues.
+crossfade_ms = 80
+
+# Prevent clipping when multiple cues overlap.
+limiter_enabled = true
+
+# Ceiling used by the limiter.
+limiter_ceiling_dbfs = -1.0
+
+# Voice blocks below share the same shape:
+# enabled, mode, preset, sample_path, gain_db, duration_ms, pan
+
+[audio.voices.CreateEvent]
+enabled = true
+mode = "hybrid"
+preset = "seal_bark"
+sample_path = ""
+gain_db = -2.0
+duration_ms = 700
+pan = 0.0
+
+[audio.voices.DeleteEvent]
+enabled = true
+mode = "hybrid"
+preset = "urchin_snap"
+sample_path = ""
+gain_db = -1.0
+duration_ms = 650
+pan = 0.0
+
+[audio.voices.PushEvent]
+enabled = true
+mode = "hybrid"
+preset = "dolphin_click"
+sample_path = ""
+gain_db = 0.0
+duration_ms = 900
+pan = 0.0
+
+[audio.voices.IssuesEvent]
+enabled = true
+mode = "hybrid"
+preset = "humpback_moan"
+sample_path = ""
+gain_db = 1.0
+duration_ms = 1100
+pan = 0.0
+
+[audio.voices.IssueCommentEvent]
+enabled = true
+mode = "hybrid"
+preset = "beluga_chirp"
+sample_path = ""
+gain_db = 2.0
+duration_ms = 900
+pan = 0.0
+
+[audio.voices.CommitCommentEvent]
+enabled = true
+mode = "hybrid"
+preset = "seahorse_click"
+sample_path = ""
+gain_db = 2.5
+duration_ms = 750
+pan = 0.0
+
+[audio.voices.PullRequestEvent]
+enabled = true
+mode = "hybrid"
+preset = "orca_call"
+sample_path = ""
+gain_db = 3.0
+duration_ms = 1200
+pan = 0.0
+
+[audio.voices.PublicEvent]
+enabled = true
+mode = "hybrid"
+preset = "blue_whale_boom"
+sample_path = ""
+gain_db = 4.0
+duration_ms = 1400
+pan = 0.0
+
+[audio.voices.ForkEvent]
+enabled = true
+mode = "hybrid"
+preset = "clownfish_pop"
+sample_path = ""
+gain_db = 5.0
+duration_ms = 1300
+pan = 0.0
+
+[audio.voices.ReleaseEvent]
+enabled = true
+mode = "hybrid"
+preset = "pod_chorus"
+sample_path = ""
+gain_db = 6.0
+duration_ms = 1600
+pan = 0.0
+
+[video.canvas]
+# Fully configurable render resolution.
+width = 1920
+height = 1080
+fps = 30
+
+[video.palette]
+# Current visual direction is Solarized Dark.
+theme = "solarized_dark"
+background_hex = "#002b36"
+text_hex = "#fdf6e3"
+accent_hex = "#b58900"
+
+[video.text]
+# Primary font for floating event text.
+font_path = "assets/1942.ttf"
+
+# Design-size bounds before runtime scaling.
+font_size_min = 14
+font_size_max = 42
+
+# Outline width to preserve readability on the dark background.
+stroke_width = 2
+
+# Initial opacity before fade-out.
+initial_alpha = 220
+
+# Spawn region is the lower half of the frame.
+bottom_spawn_min_ratio = 0.50
+bottom_spawn_max_ratio = 0.95
+
+[video.motion]
+# Allowed:
+# - "vertical"
+# - "fixed_angle"
+# - "random_angle"
+mode = "vertical"
+
+# Used only when mode = "fixed_angle".
+# 0.0 means straight upward.
+angle_deg = 0.0
+
+# Used only when mode = "random_angle".
+random_min_deg = -25.0
+random_max_deg = 25.0
+
+# Base movement speed in pixels per second at actual canvas scale.
+speed_px_per_sec = 180.0
+
+[outputs]
+# Enable RTMP/RTMPS live output.
+enable_rtmp = false
+
+# Keep local recording on by default.
+enable_local_record = true
+
+# Single encode, multi-output policy.
+tee_muxer = true
+
+[outputs.rtmp]
+# Leave empty in tracked config.
+# Runtime should inject this through SONGH_RTMP_URL or songh.local.toml.
+url = ""
+
+# Frozen default container for live output.
+container = "flv"
+
+[outputs.record]
+enabled = true
+
+# Suggested naming pattern.
+# Implementation may resolve {date} and {label} at runtime.
+path = "var/songh/records/{date}/{label}.flv"
+
+# Decision: default local recording container is .flv.
+container = "flv"
+
+[observe]
+# Runtime log verbosity.
+log_level = "info"
+
+# Emit periodic runtime stats every N seconds.
+emit_stats_every_secs = 30
+
+# Write runtime reports for later tracing and debugging.
+write_runtime_report = true

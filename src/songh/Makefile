@@ -3,6 +3,8 @@ SHELL := /bin/bash
 ROOT := $(abspath $(CURDIR)/../..)
 MANIFEST := $(ROOT)/src/songh/Cargo.toml
 TRACKED_TEMPLATE := $(ROOT)/docs/plans/260321-songh-template.toml
+STAGE2_FIXTURE_ROOT := $(ROOT)/ops/out/songh-stage2-archive
+STAGE2_FIXTURE_DAY := 2026-03-19
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
 
@@ -15,12 +17,16 @@ help:
 	'  make stage1-fmt             Format the stage-1 crate' \
 	'  make stage1-test            Run stage-1 unit tests' \
 	'  make stage1-check-template  Validate the tracked template config' \
-	'  make stage1-dump-defaults   Print built-in default config as TOML' \
-	'  make stage1-manual          Unified manual verification command' \
-	'  make stage1-all             fmt + test + tracked-template check' \
-	'' \
-	'Next stage after review:' \
-	'  stage2 archive day-pack downloader + normalize pipeline'
+		'  make stage1-dump-defaults   Print built-in default config as TOML' \
+		'  make stage1-manual          Unified manual verification command' \
+		'  make stage1-all             fmt + test + tracked-template check' \
+		'' \
+		'Stage 2: archive day-pack downloader + normalize pipeline' \
+		'  make stage2-seed-fixture    Write a deterministic local raw fixture day' \
+		'  make stage2-prepare-fixture Build normalized/index/manifest from fixture raw' \
+		'  make stage2-validate-fixture Validate the generated fixture day-pack' \
+		'  make stage2-manual          Unified manual verification command' \
+		'  make stage2-all             fmt + test + fixture prepare + validate'
 
 .PHONY: stage1-fmt
 stage1-fmt:
@@ -50,3 +56,34 @@ stage1-all:
 	@$(MAKE) stage1-fmt
 	@$(MAKE) stage1-test
 	@$(MAKE) stage1-check-template
+
+.PHONY: stage2-seed-fixture
+stage2-seed-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		seed-fixture-raw --archive-root $(STAGE2_FIXTURE_ROOT) --day $(STAGE2_FIXTURE_DAY) --force
+
+.PHONY: stage2-prepare-fixture
+stage2-prepare-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		prepare-day-pack --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY) --skip-download --force
+
+.PHONY: stage2-validate-fixture
+stage2-validate-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		validate-day-pack --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY)
+
+.PHONY: stage2-manual
+stage2-manual:
+	@$(MAKE) stage2-seed-fixture
+	@$(MAKE) stage2-prepare-fixture
+	@$(MAKE) stage2-validate-fixture
+
+.PHONY: stage2-all
+stage2-all:
+	@$(MAKE) stage1-fmt
+	@$(MAKE) stage1-test
+	@$(MAKE) stage2-seed-fixture
+	@$(MAKE) stage2-prepare-fixture
+	@$(MAKE) stage2-validate-fixture

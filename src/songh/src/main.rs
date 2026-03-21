@@ -1,6 +1,8 @@
 mod app;
+mod archive;
 mod cli;
 mod config;
+mod model;
 
 use std::process;
 

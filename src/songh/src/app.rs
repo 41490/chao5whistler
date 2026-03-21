@@ -1,8 +1,12 @@
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 
-use crate::cli::{CheckConfigArgs, CliCommand, PrintDefaultConfigArgs};
+use crate::archive;
+use crate::cli::{
+    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, SeedFixtureRawArgs,
+    ValidateDayPackArgs,
+};
 use crate::config::{self, OutputFormat};
 
 pub fn run<I>(args: I) -> Result<()>
@@ -16,6 +20,9 @@ where
         }
         CliCommand::CheckConfig(args) => run_check_config(args)?,
         CliCommand::PrintDefaultConfig(args) => run_print_default_config(args)?,
+        CliCommand::SeedFixtureRaw(args) => run_seed_fixture_raw(args)?,
+        CliCommand::PrepareDayPack(args) => run_prepare_day_pack(args)?,
+        CliCommand::ValidateDayPack(args) => run_validate_day_pack(args)?,
     }
 
     Ok(())
@@ -81,17 +88,67 @@ fn run_print_default_config(args: PrintDefaultConfigArgs) -> Result<()> {
     Ok(())
 }
 
+fn run_seed_fixture_raw(args: SeedFixtureRawArgs) -> Result<()> {
+    let report = archive::seed_fixture_raw(&args.archive_root, &args.day, args.force)?;
+    println!("songh stage2 fixture raw seed passed");
+    println!("archive root: {}", args.archive_root.display());
+    println!("source day: {}", args.day);
+    println!("raw files written: {}", report.raw_file_count);
+    println!("raw events written: {}", report.raw_event_count);
+    Ok(())
+}
+
+fn run_prepare_day_pack(args: PrepareDayPackArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report = archive::prepare_day_pack(
+        &loaded.config,
+        &args.day,
+        args.archive_root.as_deref(),
+        args.force,
+        args.skip_download,
+    )?;
+
+    println!("songh stage2 day-pack prepare passed");
+    println!("main config: {}", config_path.display());
+    println!("archive root: {}", report.archive_root.display());
+    println!("source day: {}", report.source_day);
+    println!("raw events: {}", report.raw_event_count);
+    println!("normalized events: {}", report.normalized_event_count);
+    println!(
+        "dropped secondary events: {}",
+        report.dropped_secondary_event_count
+    );
+    println!("manifest: {}", report.manifest_path.display());
+    Ok(())
+}
+
+fn run_validate_day_pack(args: ValidateDayPackArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report =
+        archive::validate_day_pack(&loaded.config, &args.day, args.archive_root.as_deref())?;
+
+    println!("songh stage2 day-pack validation passed");
+    println!("main config: {}", config_path.display());
+    println!("archive root: {}", report.archive_root.display());
+    println!("source day: {}", report.source_day);
+    println!("raw files: {}", report.raw_file_count);
+    println!("normalized files: {}", report.normalized_file_count);
+    println!("normalized events: {}", report.normalized_event_count);
+    println!("minute index hours: {}", report.minute_index_hours);
+    println!("manifest checksum coverage: ok");
+    Ok(())
+}
+
 fn default_runtime_config_path() -> PathBuf {
     std::env::current_dir()
         .map(|cwd| cwd.join("songh.toml"))
         .unwrap_or_else(|_| PathBuf::from("songh.toml"))
-}
-
-#[allow(dead_code)]
-fn ensure_file_exists(path: &PathBuf) -> Result<()> {
-    if !path.exists() {
-        bail!("config file not found: {}", path.display());
-    }
-
-    Ok(())
 }

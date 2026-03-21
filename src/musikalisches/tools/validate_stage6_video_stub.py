@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 REQUIRED_FILES = {
+    "visual_scene_profile.json",
     "video_stub_manifest.json",
     "video_stub_scene.json",
     "video_stub_preview.svg",
@@ -83,6 +84,7 @@ def main() -> int:
     if missing:
         return fail([f"missing files: {', '.join(missing)}"])
 
+    scene_profile = load_json(artifact_dir / "visual_scene_profile.json")
     manifest = load_json(artifact_dir / "video_stub_manifest.json")
     scene = load_json(artifact_dir / "video_stub_scene.json")
     preview_text = (artifact_dir / "video_stub_preview.svg").read_text(encoding="utf-8")
@@ -106,17 +108,50 @@ def main() -> int:
     checks.append(
         build_check(
             "palette",
-            scene.get("palette", {}).get("palette_id") == "solarized_dark",
-            {"palette_id": scene.get("palette", {}).get("palette_id")},
+            scene.get("palette", {}).get("palette_id")
+            == scene_profile.get("palette", {}).get("palette_id"),
+            {
+                "scene_palette_id": scene.get("palette", {}).get("palette_id"),
+                "profile_palette_id": scene_profile.get("palette", {}).get("palette_id"),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "scene_profile_id",
+            scene.get("visual_scene_profile_id") == scene_profile.get("profile_id")
+            and manifest.get("visual_scene_profile_id") == scene_profile.get("profile_id"),
+            {
+                "scene_profile_id": scene.get("visual_scene_profile_id"),
+                "manifest_profile_id": manifest.get("visual_scene_profile_id"),
+                "profile_id": scene_profile.get("profile_id"),
+            },
         )
     )
     checks.append(
         build_check(
             "canvas",
-            scene.get("canvas", {}).get("width", 0) > 0
-            and scene.get("canvas", {}).get("height", 0) > 0
-            and scene.get("canvas", {}).get("fps", 0) > 0,
-            scene.get("canvas", {}),
+            scene.get("canvas", {}).get("width", 0)
+            == scene_profile.get("canvas", {}).get("width")
+            and scene.get("canvas", {}).get("height", 0)
+            == scene_profile.get("canvas", {}).get("height")
+            and scene.get("canvas", {}).get("fps", 0)
+            == scene_profile.get("canvas", {}).get("fps"),
+            {
+                "scene_canvas": scene.get("canvas", {}),
+                "profile_canvas": scene_profile.get("canvas", {}),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "motion",
+            scene.get("motion", {}).get("mode")
+            == scene_profile.get("motion", {}).get("mode"),
+            {
+                "scene_motion": scene.get("motion", {}).get("mode"),
+                "profile_motion": scene_profile.get("motion", {}).get("mode"),
+            },
         )
     )
     checks.append(
@@ -153,6 +188,14 @@ def main() -> int:
         build_check(
             "manifest_scene_file",
             manifest.get("artifacts", {}).get("scene_file") == "video_stub_scene.json",
+            {"artifacts": manifest.get("artifacts", {})},
+        )
+    )
+    checks.append(
+        build_check(
+            "manifest_profile_file",
+            manifest.get("artifacts", {}).get("visual_scene_profile_file")
+            == "visual_scene_profile.json",
             {"artifacts": manifest.get("artifacts", {})},
         )
     )

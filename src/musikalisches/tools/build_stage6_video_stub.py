@@ -15,33 +15,12 @@ REQUIRED_INPUT_FILES = {
     "artifact_summary.json",
 }
 
-SOLARIZED_DARK = {
-    "base03": "#002b36",
-    "base02": "#073642",
-    "base01": "#586e75",
-    "base00": "#657b83",
-    "base0": "#839496",
-    "base1": "#93a1a1",
-    "yellow": "#b58900",
-    "orange": "#cb4b16",
-    "red": "#dc322f",
-    "magenta": "#d33682",
-    "violet": "#6c71c4",
-    "blue": "#268bd2",
-    "cyan": "#2aa198",
-    "green": "#859900",
-}
-
-CYCLE_ACCENTS = [
-    "blue",
-    "cyan",
-    "green",
-    "yellow",
-    "orange",
-    "magenta",
-    "violet",
-    "red",
-]
+DEFAULT_SCENE_PROFILE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "runtime"
+    / "config"
+    / "stage6_default_scene_profile.json"
+)
 
 
 def load_json(path: Path) -> dict:
@@ -69,12 +48,63 @@ def sample_items(items: list[dict], limit: int) -> list[dict]:
     return sampled
 
 
+def resolve_scene_profile(
+    profile_path: Path,
+    width_override: int | None,
+    height_override: int | None,
+    fps_override: int | None,
+) -> dict:
+    if not profile_path.exists():
+        raise SystemExit(f"scene profile does not exist: {profile_path}")
+
+    profile = load_json(profile_path)
+    palette = profile.get("palette", {})
+    motion = profile.get("motion", {})
+    preview = profile.get("preview", {})
+    canvas = profile.get("canvas", {})
+
+    if not profile.get("profile_id"):
+        raise SystemExit("scene profile must contain profile_id")
+    if not palette.get("palette_id"):
+        raise SystemExit("scene profile palette must contain palette_id")
+    if not palette.get("colors"):
+        raise SystemExit("scene profile palette must contain colors")
+    if not palette.get("accent_sequence"):
+        raise SystemExit("scene profile palette must contain accent_sequence")
+    if not motion.get("mode"):
+        raise SystemExit("scene profile motion must contain mode")
+    if not preview.get("sampled_window_limit"):
+        raise SystemExit("scene profile preview must contain sampled_window_limit")
+    if canvas.get("width", 0) <= 0 or canvas.get("height", 0) <= 0 or canvas.get("fps", 0) <= 0:
+        raise SystemExit("scene profile canvas width/height/fps must all be > 0")
+
+    colors = palette["colors"]
+    for accent_name in palette["accent_sequence"]:
+        if accent_name not in colors:
+            raise SystemExit(f"scene profile accent color missing from colors map: {accent_name}")
+
+    resolved = json.loads(json.dumps(profile))
+    resolved["canvas"]["width"] = width_override or resolved["canvas"]["width"]
+    resolved["canvas"]["height"] = height_override or resolved["canvas"]["height"]
+    resolved["canvas"]["fps"] = fps_override or resolved["canvas"]["fps"]
+    resolved["source"] = (
+        "repo_default"
+        if profile_path.resolve() == DEFAULT_SCENE_PROFILE_PATH.resolve()
+        else "cli"
+    )
+    resolved["source_path"] = str(profile_path.resolve())
+    return resolved
+
+
 def build_lane_layout(
     synth_profile: dict,
-    width: int,
-    height: int,
+    scene_profile: dict,
 ) -> list[dict]:
     voice_groups = synth_profile.get("voice_groups", [])
+    width = scene_profile["canvas"]["width"]
+    height = scene_profile["canvas"]["height"]
+    motion = scene_profile["motion"]
+    palette = scene_profile["palette"]
     max_base_amplitude = max(
         (group.get("base_amplitude", 0.0) for group in voice_groups),
         default=1.0,
@@ -98,7 +128,9 @@ def build_lane_layout(
             0.2,
             group.get("base_amplitude", 0.0) / max_base_amplitude,
         )
-        accent_name = CYCLE_ACCENTS[(index - 1) % len(CYCLE_ACCENTS)]
+        accent_name = palette["accent_sequence"][
+            (index - 1) % len(palette["accent_sequence"])
+        ]
         lanes.append(
             {
                 "lane_id": f"voice_group_{group.get('part_index', index)}",
@@ -109,17 +141,26 @@ def build_lane_layout(
                 "stereo_bias": stereo_bias,
                 "amplitude_weight": round(amplitude_weight, 6),
                 "center_x": round(spacing * index, 2),
-                "center_y": round(height * 0.46 + stereo_bias * height * 0.08, 2),
+                "center_y": round(
+                    height * motion["lane_center_y_ratio"]
+                    + stereo_bias * height * motion["lane_bias_y_range_ratio"],
+                    2,
+                ),
                 "left_gain": group.get("left_gain"),
                 "right_gain": group.get("right_gain"),
                 "accent_name": accent_name,
-                "accent_color": SOLARIZED_DARK[accent_name],
+                "accent_color": palette["colors"][accent_name],
             }
         )
     return lanes
 
 
-def build_cycles(stream_plan: dict, analysis_windows: list[dict]) -> list[dict]:
+def build_cycles(
+    stream_plan: dict,
+    analysis_windows: list[dict],
+    scene_profile: dict,
+) -> list[dict]:
+    palette = scene_profile["palette"]
     cycles: list[dict] = []
     for cycle in stream_plan.get("cycles", []):
         cycle_windows = [
@@ -127,7 +168,9 @@ def build_cycles(stream_plan: dict, analysis_windows: list[dict]) -> list[dict]:
             for window in analysis_windows
             if window.get("cycle_index") == cycle.get("cycle_index")
         ]
-        accent_name = CYCLE_ACCENTS[(cycle["cycle_index"] - 1) % len(CYCLE_ACCENTS)]
+        accent_name = palette["accent_sequence"][
+            (cycle["cycle_index"] - 1) % len(palette["accent_sequence"])
+        ]
         envelope_values = [window.get("envelope_amplitude", 0.0) for window in cycle_windows]
         cycles.append(
             {
@@ -140,7 +183,7 @@ def build_cycles(stream_plan: dict, analysis_windows: list[dict]) -> list[dict]:
                 "note_event_count": cycle.get("note_event_count"),
                 "synth_event_count": cycle.get("synth_event_count"),
                 "accent_name": accent_name,
-                "accent_color": SOLARIZED_DARK[accent_name],
+                "accent_color": palette["colors"][accent_name],
                 "mean_envelope_amplitude": round(
                     sum(envelope_values) / len(envelope_values),
                     6,
@@ -159,8 +202,12 @@ def build_keyframes(
     analysis: dict,
     cycles: list[dict],
     lanes: list[dict],
+    scene_profile: dict,
 ) -> list[dict]:
     windows = analysis.get("windows", [])
+    colors = scene_profile["palette"]["colors"]
+    motion = scene_profile["motion"]
+    accent_sequence = scene_profile["palette"]["accent_sequence"]
     max_envelope = max(
         (window.get("envelope_amplitude", 0.0) for window in windows),
         default=1.0,
@@ -182,11 +229,15 @@ def build_keyframes(
         for lane in lanes:
             lane_energy = min(
                 1.0,
-                normalized_envelope * (0.75 + lane["amplitude_weight"] * 0.5),
+                normalized_envelope
+                * (
+                    motion["lane_energy_base"]
+                    + lane["amplitude_weight"] * motion["lane_energy_scale"]
+                ),
             )
             center_y = lane["center_y"] + math.sin(
                 window.get("clock_seconds", 0.0) * 1.7 + lane["part_index"]
-            ) * 12.0
+            ) * motion["lane_wave_height_px"]
             voice_pulses.append(
                 {
                     "lane_id": lane["lane_id"],
@@ -195,12 +246,23 @@ def build_keyframes(
                     "color": lane["accent_color"],
                     "center_x": lane["center_x"],
                     "center_y": round(center_y, 2),
-                    "radius_px": round(72.0 + lane_energy * 210.0, 2),
-                    "stroke_width_px": round(2.0 + normalized_peak * 6.0, 2),
-                    "opacity": round(0.28 + lane_energy * 0.55, 3),
+                    "radius_px": round(
+                        motion["base_radius_px"] + lane_energy * motion["radius_range_px"],
+                        2,
+                    ),
+                    "stroke_width_px": round(
+                        motion["base_stroke_width_px"]
+                        + normalized_peak * motion["stroke_width_range_px"],
+                        2,
+                    ),
+                    "opacity": round(
+                        motion["base_opacity"] + lane_energy * motion["opacity_range"],
+                        3,
+                    ),
                     "orbit_offset_px": round(
-                        lane["stereo_bias"] * 42.0
-                        + math.cos(window.get("clock_seconds", 0.0) + lane["part_index"]) * 8.0,
+                        lane["stereo_bias"] * motion["lane_orbit_px"]
+                        + math.cos(window.get("clock_seconds", 0.0) + lane["part_index"])
+                        * motion["lane_orbit_wave_px"],
                         2,
                     ),
                 }
@@ -219,15 +281,25 @@ def build_keyframes(
                 "envelope_amplitude": window.get("envelope_amplitude"),
                 "normalized_envelope": round(normalized_envelope, 6),
                 "normalized_peak": round(normalized_peak, 6),
-                "background_color": SOLARIZED_DARK["base03"],
+                "background_color": scene_profile["palette"]["background_color"],
                 "cycle_accent_color": cycle_color_by_index.get(
                     cycle_index,
-                    SOLARIZED_DARK["blue"],
+                    colors[accent_sequence[0]],
                 ),
-                "grid_alpha": round(0.08 + normalized_envelope * 0.18, 3),
-                "global_scale": round(0.65 + normalized_envelope * 0.7, 3),
+                "grid_alpha": round(
+                    motion["grid_alpha_base"] + normalized_envelope * motion["grid_alpha_range"],
+                    3,
+                ),
+                "global_scale": round(
+                    motion["base_scale"] + normalized_envelope * motion["envelope_scale_range"],
+                    3,
+                ),
                 "rotation_degrees": round(
-                    (window.get("clock_seconds", 0.0) * 24.0) % 360.0,
+                    (
+                        window.get("clock_seconds", 0.0)
+                        * motion["rotation_degrees_per_second"]
+                    )
+                    % 360.0,
                     2,
                 ),
                 "voice_pulses": voice_pulses,
@@ -239,9 +311,13 @@ def build_keyframes(
 def build_preview_svg(scene: dict) -> str:
     width = scene["canvas"]["width"]
     height = scene["canvas"]["height"]
-    palette = scene["palette"]["colors"]
+    palette = scene["palette"]
+    colors = palette["colors"]
     keyframes = scene["keyframes"]
-    preview_keyframes = sample_items(keyframes, limit=180)
+    preview_keyframes = sample_items(
+        keyframes,
+        limit=scene["preview"]["sampled_window_limit"],
+    )
     representative = keyframes[len(keyframes) // 2]
     chart_x = 80
     chart_y = 400
@@ -274,7 +350,7 @@ def build_preview_svg(scene: dict) -> str:
         cycle_markers.append(
             f"<line x1=\"{round(position, 2)}\" y1=\"{chart_y}\" "
             f"x2=\"{round(position, 2)}\" y2=\"{chart_y + chart_height}\" "
-            f"stroke=\"{palette['base01']}\" stroke-width=\"1\" stroke-dasharray=\"4 8\" />"
+            f"stroke=\"{palette['grid_color']}\" stroke-width=\"1\" stroke-dasharray=\"4 8\" />"
         )
         cycle_markers.append(
             f"<text x=\"{round(position + 8, 2)}\" y=\"{chart_y - 12}\" "
@@ -294,18 +370,19 @@ def build_preview_svg(scene: dict) -> str:
 
     lines = [
         f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">",
-        f"<rect width=\"{width}\" height=\"{height}\" fill=\"{palette['base03']}\" />",
-        f"<rect x=\"48\" y=\"48\" width=\"{width - 96}\" height=\"{height - 96}\" rx=\"24\" fill=\"{palette['base02']}\" stroke=\"{palette['base01']}\" stroke-width=\"2\" />",
-        f"<text x=\"80\" y=\"104\" font-size=\"34\" fill=\"{palette['base1']}\">musikalisches stage6 video stub preview</text>",
-        f"<text x=\"80\" y=\"140\" font-size=\"18\" fill=\"{palette['base0']}\">palette: solarized_dark | motion: {scene['motion']['mode']} | keyframes: {scene['summary']['window_count']}</text>",
-        f"<text x=\"80\" y=\"176\" font-size=\"18\" fill=\"{palette['base0']}\">source: {scene['input_summary']['source_artifact_dir']}</text>",
-        f"<text x=\"80\" y=\"240\" font-size=\"20\" fill=\"{palette['cyan']}\">representative pulse geometry</text>",
+        f"<rect width=\"{width}\" height=\"{height}\" fill=\"{palette['background_color']}\" />",
+        f"<rect x=\"48\" y=\"48\" width=\"{width - 96}\" height=\"{height - 96}\" rx=\"24\" fill=\"{palette['panel_color']}\" stroke=\"{palette['grid_color']}\" stroke-width=\"2\" />",
+        f"<text x=\"80\" y=\"104\" font-size=\"34\" fill=\"{palette['text_color']}\">{scene['preview']['title']}</text>",
+        f"<text x=\"80\" y=\"140\" font-size=\"18\" fill=\"{colors['base0']}\">palette: {palette['palette_id']} | motion: {scene['motion']['mode']} | keyframes: {scene['summary']['window_count']}</text>",
+        f"<text x=\"80\" y=\"176\" font-size=\"18\" fill=\"{colors['base0']}\">source: {scene['input_summary']['source_artifact_dir']}</text>",
+        f"<text x=\"80\" y=\"212\" font-size=\"18\" fill=\"{colors['base0']}\">scene profile: {scene['visual_scene_profile_id']}</text>",
+        f"<text x=\"80\" y=\"240\" font-size=\"20\" fill=\"{colors['cyan']}\">{scene['preview']['geometry_label']}</text>",
         *lane_circles,
-        f"<rect x=\"{chart_x}\" y=\"{chart_y}\" width=\"{chart_width}\" height=\"{chart_height}\" rx=\"14\" fill=\"{palette['base03']}\" stroke=\"{palette['base01']}\" stroke-width=\"1.5\" />",
+        f"<rect x=\"{chart_x}\" y=\"{chart_y}\" width=\"{chart_width}\" height=\"{chart_height}\" rx=\"14\" fill=\"{palette['background_color']}\" stroke=\"{palette['grid_color']}\" stroke-width=\"1.5\" />",
         *cycle_markers,
         *bars,
-        f"<polyline fill=\"none\" stroke=\"{palette['base1']}\" stroke-width=\"2.5\" points=\"{' '.join(envelope_points)}\" />",
-        f"<text x=\"{chart_x}\" y=\"{chart_y + chart_height + 34}\" font-size=\"18\" fill=\"{palette['base0']}\">sampled analyzer envelope over time</text>",
+        f"<polyline fill=\"none\" stroke=\"{palette['text_color']}\" stroke-width=\"2.5\" points=\"{' '.join(envelope_points)}\" />",
+        f"<text x=\"{chart_x}\" y=\"{chart_y + chart_height + 34}\" font-size=\"18\" fill=\"{colors['base0']}\">{scene['preview']['envelope_label']}</text>",
         "</svg>",
     ]
     return "\n".join(lines) + "\n"
@@ -327,13 +404,19 @@ def main() -> int:
         default="ops/out/video-stub",
         help="directory where stage6 stub artifacts will be written",
     )
-    parser.add_argument("--width", type=int, default=1280, help="preview canvas width")
-    parser.add_argument("--height", type=int, default=720, help="preview canvas height")
-    parser.add_argument("--fps", type=int, default=30, help="target preview frame rate")
+    parser.add_argument(
+        "--scene-profile",
+        default=str(DEFAULT_SCENE_PROFILE_PATH),
+        help="visual scene profile JSON path",
+    )
+    parser.add_argument("--width", type=int, help="override profile canvas width")
+    parser.add_argument("--height", type=int, help="override profile canvas height")
+    parser.add_argument("--fps", type=int, help="override profile frame rate")
     args = parser.parse_args()
 
     source_dir = Path(args.source_artifact_dir).resolve()
     output_dir = Path(args.output_dir).resolve()
+    scene_profile_path = Path(args.scene_profile).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if not source_dir.exists():
@@ -361,31 +444,43 @@ def main() -> int:
     if not synth_profile.get("voice_groups"):
         raise SystemExit("synth_routing_profile.json must contain at least one voice group")
 
-    lanes = build_lane_layout(synth_profile, width=args.width, height=args.height)
-    cycles = build_cycles(stream_plan, analysis.get("windows", []))
+    scene_profile = resolve_scene_profile(
+        scene_profile_path,
+        width_override=args.width,
+        height_override=args.height,
+        fps_override=args.fps,
+    )
+    lanes = build_lane_layout(synth_profile, scene_profile=scene_profile)
+    cycles = build_cycles(
+        stream_plan,
+        analysis.get("windows", []),
+        scene_profile=scene_profile,
+    )
     if not cycles:
         raise SystemExit("stream_loop_plan.json must contain at least one cycle")
-    keyframes = build_keyframes(analysis, cycles, lanes)
+    keyframes = build_keyframes(
+        analysis,
+        cycles,
+        lanes,
+        scene_profile=scene_profile,
+    )
 
     scene = {
         "stage": "stage6_video_stub",
         "work_id": analysis.get("work_id"),
         "source_stage": "stage5_m1_runtime",
+        "visual_scene_profile_id": scene_profile["profile_id"],
+        "visual_scene_profile_source": scene_profile["source"],
+        "visual_scene_profile_path": scene_profile["source_path"],
         "canvas": {
-            "width": args.width,
-            "height": args.height,
-            "fps": args.fps,
-            "background_color": SOLARIZED_DARK["base03"],
+            "width": scene_profile["canvas"]["width"],
+            "height": scene_profile["canvas"]["height"],
+            "fps": scene_profile["canvas"]["fps"],
+            "background_color": scene_profile["palette"]["background_color"],
         },
-        "palette": {
-            "palette_id": "solarized_dark",
-            "colors": SOLARIZED_DARK,
-        },
-        "motion": {
-            "mode": "dual_orbit_pulse",
-            "clock_source": "analysis_window_sequence.clock_seconds",
-            "keyframe_source": "one_keyframe_per_analysis_window",
-        },
+        "palette": scene_profile["palette"],
+        "motion": scene_profile["motion"],
+        "preview": scene_profile["preview"],
         "input_summary": {
             "source_artifact_dir": str(source_dir),
             "render_backend": analysis.get("render_backend"),
@@ -393,6 +488,7 @@ def main() -> int:
             "loop_count": analysis.get("loop_count"),
             "analysis_window_count": len(analysis.get("windows", [])),
             "synth_routing_profile_id": synth_profile.get("profile_id"),
+            "visual_scene_profile_id": scene_profile["profile_id"],
             "audio_duration_seconds": artifact_summary.get("audio_duration_seconds"),
         },
         "lane_layout": lanes,
@@ -426,8 +522,11 @@ def main() -> int:
         "description": "Analyzer-to-video stub derived from stage5 runtime artifacts.",
         "work_id": scene["work_id"],
         "source_artifact_dir": str(source_dir),
+        "visual_scene_profile_id": scene_profile["profile_id"],
+        "visual_scene_profile_source": scene_profile["source"],
         "input_files": sorted(REQUIRED_INPUT_FILES),
         "artifacts": {
+            "visual_scene_profile_file": "visual_scene_profile.json",
             "scene_file": "video_stub_scene.json",
             "preview_file": "video_stub_preview.svg",
             "validation_report_file": "stage6_validation_report.json",
@@ -437,12 +536,14 @@ def main() -> int:
             "cycle_count": scene["summary"]["cycle_count"],
             "lane_count": scene["summary"]["lane_count"],
             "total_duration_seconds": scene["summary"]["total_duration_seconds"],
-            "canvas": f"{args.width}x{args.height}",
-            "fps": args.fps,
+            "canvas": f"{scene['canvas']['width']}x{scene['canvas']['height']}",
+            "fps": scene["canvas"]["fps"],
             "motion_mode": scene["motion"]["mode"],
+            "palette_id": scene["palette"]["palette_id"],
         },
     }
 
+    write_json(output_dir / "visual_scene_profile.json", scene_profile)
     write_json(output_dir / "video_stub_scene.json", scene)
     write_json(output_dir / "video_stub_manifest.json", manifest)
     (output_dir / "video_stub_preview.svg").write_text(
@@ -453,6 +554,7 @@ def main() -> int:
     print("stage6 video stub built")
     print(f"source_artifact_dir: {source_dir}")
     print(f"output_dir: {output_dir}")
+    print(f"scene_profile_file: {output_dir / 'visual_scene_profile.json'}")
     print(f"scene_file: {output_dir / 'video_stub_scene.json'}")
     print(f"preview_file: {output_dir / 'video_stub_preview.svg'}")
     return 0

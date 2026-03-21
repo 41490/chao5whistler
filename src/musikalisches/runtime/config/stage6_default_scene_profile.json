@@ -1,0 +1,71 @@
+{
+  "profile_id": "stage6_default_dual_orbit_solarized_dark",
+  "description": "Default stage-6 analyzer-driven visual stub profile for the dual-voice runtime skeleton.",
+  "canvas": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30
+  },
+  "palette": {
+    "palette_id": "solarized_dark",
+    "background_color": "#002b36",
+    "panel_color": "#073642",
+    "grid_color": "#586e75",
+    "text_color": "#93a1a1",
+    "accent_sequence": [
+      "blue",
+      "cyan",
+      "green",
+      "yellow",
+      "orange",
+      "magenta",
+      "violet",
+      "red"
+    ],
+    "colors": {
+      "base03": "#002b36",
+      "base02": "#073642",
+      "base01": "#586e75",
+      "base00": "#657b83",
+      "base0": "#839496",
+      "base1": "#93a1a1",
+      "yellow": "#b58900",
+      "orange": "#cb4b16",
+      "red": "#dc322f",
+      "magenta": "#d33682",
+      "violet": "#6c71c4",
+      "blue": "#268bd2",
+      "cyan": "#2aa198",
+      "green": "#859900"
+    }
+  },
+  "motion": {
+    "mode": "dual_orbit_pulse",
+    "clock_source": "analysis_window_sequence.clock_seconds",
+    "keyframe_source": "one_keyframe_per_analysis_window",
+    "rotation_degrees_per_second": 24.0,
+    "base_scale": 0.65,
+    "envelope_scale_range": 0.7,
+    "grid_alpha_base": 0.08,
+    "grid_alpha_range": 0.18,
+    "lane_center_y_ratio": 0.46,
+    "lane_bias_y_range_ratio": 0.08,
+    "lane_energy_base": 0.75,
+    "lane_energy_scale": 0.5,
+    "lane_wave_height_px": 12.0,
+    "lane_orbit_px": 42.0,
+    "lane_orbit_wave_px": 8.0,
+    "base_radius_px": 72.0,
+    "radius_range_px": 210.0,
+    "base_opacity": 0.28,
+    "opacity_range": 0.55,
+    "base_stroke_width_px": 2.0,
+    "stroke_width_range_px": 6.0
+  },
+  "preview": {
+    "sampled_window_limit": 180,
+    "title": "musikalisches stage6 video stub preview",
+    "geometry_label": "representative pulse geometry",
+    "envelope_label": "sampled analyzer envelope over time"
+  }
+}

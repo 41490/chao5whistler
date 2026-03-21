@@ -109,8 +109,20 @@ make -C src/musikalisches stage6-video-stub
 make -C src/musikalisches stage6-video-check
 ```
 
+The default scene profile lives at:
+
+- `src/musikalisches/runtime/config/stage6_default_scene_profile.json`
+
+If you already have a SoundFont-based stage-5 artifact set, you can also run:
+
+```bash
+make -C src/musikalisches stage6-video-stub-sf2
+make -C src/musikalisches stage6-video-check-sf2
+```
+
 The stub artifacts land in `ops/out/video-stub` and currently include:
 
+- `visual_scene_profile.json`
 - `video_stub_manifest.json`
 - `video_stub_scene.json`
 - `video_stub_preview.svg`

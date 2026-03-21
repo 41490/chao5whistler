@@ -38,6 +38,13 @@ make -C src/musikalisches stage6-video-stub
 make -C src/musikalisches stage6-video-check
 ```
 
+如需对 SoundFont 路径做独立 smoke:
+
+```bash
+make -C src/musikalisches stage6-video-stub-sf2
+make -C src/musikalisches stage6-video-check-sf2
+```
+
 如需改输入目录:
 
 ```bash
@@ -45,11 +52,22 @@ make -C src/musikalisches stage6-video-stub \
   STAGE6_SOURCE_DIR=ops/out/stream-sf2
 ```
 
+如需替换 scene profile:
+
+```bash
+make -C src/musikalisches stage6-video-stub \
+  STAGE6_SCENE_PROFILE=/path/to/scene_profile.json
+```
+
 ## 3. 输入与输出
 
 默认输入目录:
 
 - `ops/out/stream-demo`
+
+默认 scene profile:
+
+- `src/musikalisches/runtime/config/stage6_default_scene_profile.json`
 
 要求已有 4 个 stage 5 文件:
 
@@ -64,6 +82,7 @@ make -C src/musikalisches stage6-video-stub \
 
 生成文件:
 
+- `visual_scene_profile.json`
 - `video_stub_manifest.json`
 - `video_stub_scene.json`
 - `video_stub_preview.svg`
@@ -72,10 +91,14 @@ make -C src/musikalisches stage6-video-stub \
 ## 4. 人工检查点
 
 - `video_stub_scene.json`
+  - `visual_scene_profile_id` 必须存在
   - `palette.palette_id = "solarized_dark"`
   - `motion.mode = "dual_orbit_pulse"`
   - `summary.window_count` 必须等于 `analysis_window_sequence.json.windows` 数量
   - `summary.cycle_count` 必须等于 `stream_loop_plan.json.loop_count`
+- `visual_scene_profile.json`
+  - `profile_id` 应与 `video_stub_scene.json.visual_scene_profile_id` 一致
+  - `canvas` / `palette` / `motion` 应为本次实际生效参数
 - `lane_layout`
   - 数量必须等于 `synth_routing_profile.json.voice_groups`
   - `channel` 不应丢失

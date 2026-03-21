@@ -44,6 +44,7 @@ help:
 	'  make stage6-video-check   Validate stage6 visual stub artifacts' \
 	'  make stage6-video-stub-sf2 Build visual stub from SoundFont artifacts' \
 	'  make stage6-video-check-sf2 Validate SoundFont visual stub artifacts' \
+	'  make stage6-scene-profile-check Validate stage6 scene profile contract' \
 	'  make stage6-scene-profile-show Show default stage6 scene profile path' \
 	'  make stage6-plan-show     Show stage6 video stub guide path' \
 	'' \
@@ -184,6 +185,11 @@ stage6-video-check-sf2:
 		$(MAKE) stage6-video-stub-sf2; \
 	fi
 	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage6_video_stub.py $(VIDEO_STUB_SF2_OUT)
+
+.PHONY: stage6-scene-profile-check
+stage6-scene-profile-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage6_scene_profile.py \
+		"$${STAGE6_SCENE_PROFILE:-$(DEFAULT_STAGE6_SCENE_PROFILE)}"
 
 .PHONY: stage6-scene-profile-show
 stage6-scene-profile-show:

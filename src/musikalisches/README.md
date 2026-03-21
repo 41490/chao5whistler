@@ -130,6 +130,7 @@ docs/plans/260321-stage5-build-and-manual-test-guide.md
 从 stage 5 analyzer 产物生成视觉 stub：
 
 ```bash
+make -C src/musikalisches stage6-scene-profile-check
 make -C src/musikalisches stage6-video-stub
 make -C src/musikalisches stage6-video-check
 ```
@@ -138,6 +139,12 @@ make -C src/musikalisches stage6-video-check
 
 ```text
 src/musikalisches/runtime/config/stage6_default_scene_profile.json
+```
+
+对应 schema:
+
+```text
+src/musikalisches/runtime/config/stage6_scene_profile.schema.json
 ```
 
 如已有 SoundFont 路径样例产物，也可单独做一轮 visual smoke：

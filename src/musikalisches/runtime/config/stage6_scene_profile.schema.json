@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/41490/chao5whistler/blob/main/src/musikalisches/runtime/config/stage6_scene_profile.schema.json",
+  "title": "Musikalisches Stage 6 Scene Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile_id",
+    "description",
+    "canvas",
+    "palette",
+    "motion",
+    "preview"
+  ],
+  "properties": {
+    "profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "repo_default",
+        "cli"
+      ]
+    },
+    "source_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "fps"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 320
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 240
+        },
+        "fps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        }
+      }
+    },
+    "palette": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "palette_id",
+        "background_color",
+        "panel_color",
+        "grid_color",
+        "text_color",
+        "accent_sequence",
+        "colors"
+      ],
+      "properties": {
+        "palette_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "background_color": {
+          "$ref": "#/$defs/hexColor"
+        },
+        "panel_color": {
+          "$ref": "#/$defs/hexColor"
+        },
+        "grid_color": {
+          "$ref": "#/$defs/hexColor"
+        },
+        "text_color": {
+          "$ref": "#/$defs/hexColor"
+        },
+        "accent_sequence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "colors": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/hexColor"
+          },
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "motion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "clock_source",
+        "keyframe_source",
+        "rotation_degrees_per_second",
+        "base_scale",
+        "envelope_scale_range",
+        "grid_alpha_base",
+        "grid_alpha_range",
+        "lane_center_y_ratio",
+        "lane_bias_y_range_ratio",
+        "lane_energy_base",
+        "lane_energy_scale",
+        "lane_wave_height_px",
+        "lane_orbit_px",
+        "lane_orbit_wave_px",
+        "base_radius_px",
+        "radius_range_px",
+        "base_opacity",
+        "opacity_range",
+        "base_stroke_width_px",
+        "stroke_width_range_px"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clock_source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "keyframe_source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rotation_degrees_per_second": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "base_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "envelope_scale_range": {
+          "type": "number",
+          "minimum": 0
+        },
+        "grid_alpha_base": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "grid_alpha_range": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lane_center_y_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lane_bias_y_range_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lane_energy_base": {
+          "type": "number",
+          "minimum": 0
+        },
+        "lane_energy_scale": {
+          "type": "number",
+          "minimum": 0
+        },
+        "lane_wave_height_px": {
+          "type": "number",
+          "minimum": 0
+        },
+        "lane_orbit_px": {
+          "type": "number",
+          "minimum": 0
+        },
+        "lane_orbit_wave_px": {
+          "type": "number",
+          "minimum": 0
+        },
+        "base_radius_px": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "radius_range_px": {
+          "type": "number",
+          "minimum": 0
+        },
+        "base_opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "opacity_range": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "base_stroke_width_px": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "stroke_width_range_px": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sampled_window_limit",
+        "title",
+        "geometry_label",
+        "envelope_label"
+      ],
+      "properties": {
+        "sampled_window_limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "geometry_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "envelope_label": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    }
+  }
+}

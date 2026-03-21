@@ -26,6 +26,12 @@
 make -C src/musikalisches stage5-stream
 ```
 
+先校验 scene profile contract:
+
+```bash
+make -C src/musikalisches stage6-scene-profile-check
+```
+
 生成 stage 6 stub:
 
 ```bash
@@ -68,6 +74,7 @@ make -C src/musikalisches stage6-video-stub \
 默认 scene profile:
 
 - `src/musikalisches/runtime/config/stage6_default_scene_profile.json`
+- `src/musikalisches/runtime/config/stage6_scene_profile.schema.json`
 
 要求已有 4 个 stage 5 文件:
 
@@ -99,6 +106,7 @@ make -C src/musikalisches stage6-video-stub \
 - `visual_scene_profile.json`
   - `profile_id` 应与 `video_stub_scene.json.visual_scene_profile_id` 一致
   - `canvas` / `palette` / `motion` 应为本次实际生效参数
+  - `source` / `source_path` 应与 scene / manifest 一致
 - `lane_layout`
   - 数量必须等于 `synth_routing_profile.json.voice_groups`
   - `channel` 不应丢失

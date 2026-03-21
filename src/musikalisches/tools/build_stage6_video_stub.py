@@ -7,6 +7,11 @@ import json
 import math
 from pathlib import Path
 
+from stage6_scene_profile import (
+    DEFAULT_SCENE_PROFILE_PATH,
+    validate_scene_profile_payload,
+)
+
 
 REQUIRED_INPUT_FILES = {
     "analysis_window_sequence.json",
@@ -14,13 +19,6 @@ REQUIRED_INPUT_FILES = {
     "synth_routing_profile.json",
     "artifact_summary.json",
 }
-
-DEFAULT_SCENE_PROFILE_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "runtime"
-    / "config"
-    / "stage6_default_scene_profile.json"
-)
 
 
 def load_json(path: Path) -> dict:
@@ -58,30 +56,11 @@ def resolve_scene_profile(
         raise SystemExit(f"scene profile does not exist: {profile_path}")
 
     profile = load_json(profile_path)
-    palette = profile.get("palette", {})
-    motion = profile.get("motion", {})
-    preview = profile.get("preview", {})
-    canvas = profile.get("canvas", {})
-
-    if not profile.get("profile_id"):
-        raise SystemExit("scene profile must contain profile_id")
-    if not palette.get("palette_id"):
-        raise SystemExit("scene profile palette must contain palette_id")
-    if not palette.get("colors"):
-        raise SystemExit("scene profile palette must contain colors")
-    if not palette.get("accent_sequence"):
-        raise SystemExit("scene profile palette must contain accent_sequence")
-    if not motion.get("mode"):
-        raise SystemExit("scene profile motion must contain mode")
-    if not preview.get("sampled_window_limit"):
-        raise SystemExit("scene profile preview must contain sampled_window_limit")
-    if canvas.get("width", 0) <= 0 or canvas.get("height", 0) <= 0 or canvas.get("fps", 0) <= 0:
-        raise SystemExit("scene profile canvas width/height/fps must all be > 0")
-
-    colors = palette["colors"]
-    for accent_name in palette["accent_sequence"]:
-        if accent_name not in colors:
-            raise SystemExit(f"scene profile accent color missing from colors map: {accent_name}")
+    input_errors = validate_scene_profile_payload(profile, allow_output_metadata=False)
+    if input_errors:
+        raise SystemExit(
+            "scene profile validation failed:\n- " + "\n- ".join(input_errors)
+        )
 
     resolved = json.loads(json.dumps(profile))
     resolved["canvas"]["width"] = width_override or resolved["canvas"]["width"]
@@ -93,6 +72,11 @@ def resolve_scene_profile(
         else "cli"
     )
     resolved["source_path"] = str(profile_path.resolve())
+    resolved_errors = validate_scene_profile_payload(resolved, allow_output_metadata=True)
+    if resolved_errors:
+        raise SystemExit(
+            "resolved scene profile validation failed:\n- " + "\n- ".join(resolved_errors)
+        )
     return resolved
 
 
@@ -524,6 +508,7 @@ def main() -> int:
         "source_artifact_dir": str(source_dir),
         "visual_scene_profile_id": scene_profile["profile_id"],
         "visual_scene_profile_source": scene_profile["source"],
+        "visual_scene_profile_path": scene_profile["source_path"],
         "input_files": sorted(REQUIRED_INPUT_FILES),
         "artifacts": {
             "visual_scene_profile_file": "visual_scene_profile.json",

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
+
+from stage6_scene_profile import (
+    SCENE_PROFILE_SCHEMA_PATH,
+    validate_scene_profile_payload,
+)
 
 
 REQUIRED_FILES = {
@@ -93,6 +97,10 @@ def main() -> int:
     lanes = scene.get("lane_layout", [])
     cycles = scene.get("cycles", [])
     checks: list[dict] = []
+    scene_profile_errors = validate_scene_profile_payload(
+        scene_profile,
+        allow_output_metadata=True,
+    )
 
     checks.append(
         build_check(
@@ -118,6 +126,17 @@ def main() -> int:
     )
     checks.append(
         build_check(
+            "scene_profile_contract",
+            not scene_profile_errors,
+            {
+                "schema_file": str(SCENE_PROFILE_SCHEMA_PATH),
+                "error_count": len(scene_profile_errors),
+                "errors": scene_profile_errors,
+            },
+        )
+    )
+    checks.append(
+        build_check(
             "scene_profile_id",
             scene.get("visual_scene_profile_id") == scene_profile.get("profile_id")
             and manifest.get("visual_scene_profile_id") == scene_profile.get("profile_id"),
@@ -125,6 +144,23 @@ def main() -> int:
                 "scene_profile_id": scene.get("visual_scene_profile_id"),
                 "manifest_profile_id": manifest.get("visual_scene_profile_id"),
                 "profile_id": scene_profile.get("profile_id"),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "scene_profile_source",
+            scene.get("visual_scene_profile_source") == scene_profile.get("source")
+            and manifest.get("visual_scene_profile_source") == scene_profile.get("source")
+            and scene.get("visual_scene_profile_path") == scene_profile.get("source_path")
+            and manifest.get("visual_scene_profile_path") == scene_profile.get("source_path"),
+            {
+                "scene_source": scene.get("visual_scene_profile_source"),
+                "manifest_source": manifest.get("visual_scene_profile_source"),
+                "profile_source": scene_profile.get("source"),
+                "scene_path": scene.get("visual_scene_profile_path"),
+                "manifest_path": manifest.get("visual_scene_profile_path"),
+                "profile_path": scene_profile.get("source_path"),
             },
         )
     )
@@ -260,4 +296,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

@@ -1,0 +1,150 @@
+SHELL := /bin/bash
+
+ROOT := $(abspath $(CURDIR)/../..)
+WORK_ID := mozart_dicegame_print_1790s
+DEMO_OUT := $(ROOT)/ops/out/m1-demo
+STREAM_DEMO_OUT := $(ROOT)/ops/out/stream-demo
+STREAM_SF2_OUT := $(ROOT)/ops/out/stream-sf2
+GOLDEN_OUT := $(ROOT)/ops/out/golden-check
+DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_synth_profile.json
+DEFAULT_SOUNDFONT := $(ROOT)/ops/assets/soundfonts/default.sf2
+PYTHON ?= python
+CARGO ?= cargo
+MAKEFLAGS += --no-print-directory
+
+.PHONY: help
+help:
+	@printf '%s\n' \
+	'Musikalisches stage dispatch' \
+	'' \
+	'Core:' \
+	'  make stage2-validate        Validate frozen mother score' \
+	'  make stage3-validate        Validate frozen rules contract' \
+	'  make stage4-freeze          Regenerate stage-4 ingest artifacts' \
+	'  make stage4-validate        Validate stage-4 ingest artifacts' \
+	'  make stage5-build           Build release bins via helper script' \
+	'  make stage5-test            Run cargo test regression set' \
+	'  make stage5-golden          Run CLI golden verification' \
+	'' \
+	'Manual verification:' \
+	'  make stage5-demo           Render fallback demo artifacts' \
+	'  make stage5-validate       Validate fallback demo artifacts' \
+	'  make stage5-stream         Render looped stream demo artifacts' \
+	'  make stage5-stream-check   Validate looped stream demo artifacts' \
+	'  make stage5-stream-play    Play looped demo WAV with ffplay' \
+	'  make stage5-sf2            Render looped SoundFont demo artifacts' \
+	'  make stage5-sf2-check      Validate looped SoundFont demo artifacts' \
+	'  make stage5-profile-show   Show default synth profile path' \
+	'' \
+	'Utilities:' \
+	'  make stage5-all            fmt + test + golden + stream render + validate' \
+	'  make plans-open            Print manual test guide path' \
+	'  make clean-out             Remove generated artifact dirs used by Makefile' \
+	'' \
+	'Variables:' \
+	'  SOUND_FONT=/path/to/file.sf2       Override SoundFont for stage5-sf2' \
+	'  SYNTH_PROFILE=/path/to/profile.json Override synth routing profile' \
+	'  LOOP_COUNT=4                       Override loop count for stream targets' \
+	'  ANALYSIS_WINDOW_MS=40              Override analyzer window size'
+
+.PHONY: stage2-validate
+stage2-validate:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_mother_score.py
+
+.PHONY: stage3-validate
+stage3-validate:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_rules_freeze.py
+
+.PHONY: stage4-freeze
+stage4-freeze:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/freeze_ingest.py
+
+.PHONY: stage4-validate
+stage4-validate:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_ingest_freeze.py
+
+.PHONY: stage5-build
+stage5-build:
+	cd $(ROOT) && bash src/musikalisches/tools/build_release_bins.sh
+
+.PHONY: stage5-test
+stage5-test:
+	cd $(ROOT) && $(CARGO) test
+
+.PHONY: stage5-golden
+stage5-golden:
+	cd $(ROOT) && $(CARGO) run -- verify-golden --work $(WORK_ID) --output-dir $(GOLDEN_OUT)
+
+.PHONY: stage5-demo
+stage5-demo:
+	cd $(ROOT) && $(CARGO) run -- render-audio \
+		--work $(WORK_ID) \
+		--demo-rolls \
+		--output-dir $(DEMO_OUT)
+
+.PHONY: stage5-validate
+stage5-validate:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py $(DEMO_OUT)
+
+.PHONY: stage5-stream
+stage5-stream:
+	cd $(ROOT) && $(CARGO) run -- render-audio \
+		--work $(WORK_ID) \
+		--demo-rolls \
+		--loop-count $${LOOP_COUNT:-4} \
+		--analysis-window-ms $${ANALYSIS_WINDOW_MS:-40} \
+		$(if $(SYNTH_PROFILE),--synth-profile $(SYNTH_PROFILE),) \
+		--output-dir $(STREAM_DEMO_OUT)
+
+.PHONY: stage5-stream-check
+stage5-stream-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py $(STREAM_DEMO_OUT)
+
+.PHONY: stage5-stream-play
+stage5-stream-play:
+	cd $(ROOT) && ffplay -autoexit -nodisp $(STREAM_DEMO_OUT)/offline_audio.wav
+
+.PHONY: stage5-sf2
+stage5-sf2:
+	@if [[ -n "$(SOUND_FONT)" ]]; then \
+		SF2="$(SOUND_FONT)"; \
+	elif [[ -n "$$MUSIKALISCHES_SOUNDFONT" ]]; then \
+		SF2="$$MUSIKALISCHES_SOUNDFONT"; \
+	elif [[ -f "$(DEFAULT_SOUNDFONT)" ]]; then \
+		SF2="$(DEFAULT_SOUNDFONT)"; \
+	else \
+		printf '%s\n' "missing SoundFont: set SOUND_FONT=... or MUSIKALISCHES_SOUNDFONT or place $(DEFAULT_SOUNDFONT)"; \
+		exit 1; \
+	fi; \
+	cd $(ROOT) && $(CARGO) run -- render-audio \
+		--work $(WORK_ID) \
+		--demo-rolls \
+		--loop-count $${LOOP_COUNT:-4} \
+		--analysis-window-ms $${ANALYSIS_WINDOW_MS:-40} \
+		--soundfont "$$SF2" \
+		$(if $(SYNTH_PROFILE),--synth-profile $(SYNTH_PROFILE),) \
+		--output-dir $(STREAM_SF2_OUT)
+
+.PHONY: stage5-sf2-check
+stage5-sf2-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py $(STREAM_SF2_OUT)
+
+.PHONY: stage5-profile-show
+stage5-profile-show:
+	@printf '%s\n' $(DEFAULT_SYNTH_PROFILE)
+
+.PHONY: stage5-all
+stage5-all:
+	cd $(ROOT) && $(CARGO) fmt --all
+	@$(MAKE) stage5-test
+	@$(MAKE) stage5-golden
+	@$(MAKE) stage5-stream
+	@$(MAKE) stage5-stream-check
+
+.PHONY: plans-open
+plans-open:
+	@printf '%s\n' $(ROOT)/docs/plans/260321-stage5-build-and-manual-test-guide.md
+
+.PHONY: clean-out
+clean-out:
+	rm -rf $(DEMO_OUT) $(STREAM_DEMO_OUT) $(STREAM_SF2_OUT) $(GOLDEN_OUT)

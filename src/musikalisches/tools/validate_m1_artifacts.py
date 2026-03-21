@@ -15,6 +15,9 @@ REQUIRED_FILES = {
     "note_event_sequence.json",
     "event_transition_sequence.json",
     "synth_event_sequence.json",
+    "synth_routing_profile.json",
+    "stream_loop_plan.json",
+    "analysis_window_sequence.json",
     "artifact_summary.json",
     "m1_validation_report.json",
     "offline_audio.wav",
@@ -61,6 +64,9 @@ def main() -> int:
     note_event_payload = load_json(artifact_dir / "note_event_sequence.json")
     transition_payload = load_json(artifact_dir / "event_transition_sequence.json")
     synth_event_payload = load_json(artifact_dir / "synth_event_sequence.json")
+    synth_profile_payload = load_json(artifact_dir / "synth_routing_profile.json")
+    stream_plan_payload = load_json(artifact_dir / "stream_loop_plan.json")
+    analysis_payload = load_json(artifact_dir / "analysis_window_sequence.json")
     summary_payload = load_json(artifact_dir / "artifact_summary.json")
     report_payload = load_json(artifact_dir / "m1_validation_report.json")
 
@@ -85,6 +91,12 @@ def main() -> int:
         errors.append("m1_validation_report.json event_transition_count must be > 0")
     if report_payload.get("summary", {}).get("synth_event_count", 0) <= 0:
         errors.append("m1_validation_report.json synth_event_count must be > 0")
+    if report_payload.get("summary", {}).get("loop_count", 0) <= 0:
+        errors.append("m1_validation_report.json loop_count must be > 0")
+    if report_payload.get("summary", {}).get("analysis_window_count", 0) <= 0:
+        errors.append("m1_validation_report.json analysis_window_count must be > 0")
+    if not report_payload.get("summary", {}).get("synth_routing_profile_id"):
+        errors.append("m1_validation_report.json synth_routing_profile_id must be present")
     if not report_payload.get("summary", {}).get("audio_render_backend"):
         errors.append("m1_validation_report.json audio_render_backend must be present")
 
@@ -147,6 +159,40 @@ def main() -> int:
         for index in range(len(synth_events) - 1)
     ):
         errors.append("synth_event_sequence.json must remain frame-ordered")
+    if not synth_event_payload.get("synth_routing_profile_id"):
+        errors.append("synth_event_sequence.json synth_routing_profile_id must be present")
+
+    synth_profile_groups = synth_profile_payload.get("voice_groups", [])
+    if len(synth_profile_groups) != 2:
+        errors.append("synth_routing_profile.json must contain 2 voice-group routing rules")
+    if synth_profile_payload.get("profile_id") != report_payload.get("summary", {}).get("synth_routing_profile_id"):
+        errors.append("synth_routing_profile.json profile_id must match validation summary")
+    if len({entry.get("channel") for entry in synth_profile_groups}) != len(synth_profile_groups):
+        errors.append("synth_routing_profile.json channels must be unique")
+
+    if stream_plan_payload.get("loop_count", 0) <= 0:
+        errors.append("stream_loop_plan.json loop_count must be > 0")
+    if len(stream_plan_payload.get("cycles", [])) != stream_plan_payload.get("loop_count"):
+        errors.append("stream_loop_plan.json cycles length must match loop_count")
+    if not stream_plan_payload.get("synth_routing_profile_id"):
+        errors.append("stream_loop_plan.json synth_routing_profile_id must be present")
+    if len(stream_plan_payload.get("buses", [])) < 2:
+        errors.append("stream_loop_plan.json must declare audio and analysis buses")
+
+    analysis_windows = analysis_payload.get("windows", [])
+    if not analysis_windows:
+        errors.append("analysis_window_sequence.json must contain windows")
+    if analysis_payload.get("summary", {}).get("window_count") != len(analysis_windows):
+        errors.append("analysis_window_sequence.json window_count summary mismatch")
+    if analysis_payload.get("loop_count") != stream_plan_payload.get("loop_count"):
+        errors.append("analysis_window_sequence.json loop_count must match stream_loop_plan.json")
+    if analysis_payload.get("render_backend") != report_payload.get("summary", {}).get("audio_render_backend"):
+        errors.append("analysis_window_sequence.json render_backend must match validation summary")
+    if any(
+        analysis_windows[index]["clock_frame"] > analysis_windows[index + 1]["clock_frame"]
+        for index in range(len(analysis_windows) - 1)
+    ):
+        errors.append("analysis_window_sequence.json must remain clock-ordered")
 
     if fragments and note_events:
         total_duration = realized_payload.get("total_duration_quarter_length")
@@ -174,6 +220,12 @@ def main() -> int:
         errors.append("artifact_summary.json event_transition_count mismatch")
     if summary_payload.get("synth_event_count") != len(synth_events):
         errors.append("artifact_summary.json synth_event_count mismatch")
+    if summary_payload.get("analysis_window_count") != len(analysis_windows):
+        errors.append("artifact_summary.json analysis_window_count mismatch")
+    if summary_payload.get("loop_count") != stream_plan_payload.get("loop_count"):
+        errors.append("artifact_summary.json loop_count mismatch")
+    if summary_payload.get("synth_routing_profile_id") != synth_profile_payload.get("profile_id"):
+        errors.append("artifact_summary.json synth_routing_profile_id mismatch")
     if summary_payload.get("voice_group_count") != 2:
         errors.append("artifact_summary.json voice_group_count must equal 2")
     if summary_payload.get("audio_present") is not True:
@@ -191,6 +243,7 @@ def main() -> int:
     print(f"note_event_count: {len(note_events)}")
     print(f"event_transition_count: {len(transitions)}")
     print(f"synth_event_count: {len(synth_events)}")
+    print(f"analysis_window_count: {len(analysis_windows)}")
     print(f"audio_frames: {frames}")
     print(f"audio_file: {wav_path}")
     return 0

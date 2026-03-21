@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::env;
 use std::f64::consts::PI;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,15 +21,30 @@ const FRAGMENTS_PATH: &str =
 const RULES_PATH: &str =
     "docs/study/music_dice_games_package/mozart_dicegame_print_1790s/rules.json";
 const GOLDEN_CASES_PATH: &str = "src/musikalisches/runtime/golden_cases/stage5_m1_cases.json";
+const DEFAULT_SYNTH_PROFILE_PATH: &str =
+    "src/musikalisches/runtime/config/stage5_default_synth_profile.json";
 const REALIZED_FRAGMENT_SEQUENCE_FILE: &str = "realized_fragment_sequence.json";
 const NOTE_EVENT_SEQUENCE_FILE: &str = "note_event_sequence.json";
 const EVENT_TRANSITION_SEQUENCE_FILE: &str = "event_transition_sequence.json";
 const SYNTH_EVENT_SEQUENCE_FILE: &str = "synth_event_sequence.json";
+const SYNTH_ROUTING_PROFILE_FILE: &str = "synth_routing_profile.json";
+const STREAM_LOOP_PLAN_FILE: &str = "stream_loop_plan.json";
+const ANALYSIS_WINDOW_SEQUENCE_FILE: &str = "analysis_window_sequence.json";
 const ARTIFACT_SUMMARY_FILE: &str = "artifact_summary.json";
 const GOLDEN_VERIFICATION_REPORT_FILE: &str = "golden_verification_report.json";
 const RENDER_REQUEST_FILE: &str = "render_request.json";
 const M1_VALIDATION_REPORT_FILE: &str = "m1_validation_report.json";
 const OFFLINE_AUDIO_FILE: &str = "offline_audio.wav";
+const DEFAULT_LOOP_COUNT: usize = 1;
+const DEFAULT_ANALYSIS_WINDOW_MS: u32 = 40;
+const SOUNDFONT_ENV_VAR: &str = "MUSIKALISCHES_SOUNDFONT";
+const DEFAULT_REPO_SOUNDFONT_PATH: &str = "ops/assets/soundfonts/default.sf2";
+const DEFAULT_SYSTEM_SOUNDFONTS: [&str; 4] = [
+    "/usr/share/sounds/sf2/TimGM6mb.sf2",
+    "/usr/share/sounds/sf2/FluidR3_GM.sf2",
+    "/usr/share/sounds/sf2/FluidR3Mono_GM.sf2",
+    "/usr/local/share/sounds/sf2/default.sf2",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandKind {
@@ -45,7 +61,10 @@ pub struct CliConfig {
     pub rolls: Vec<u8>,
     pub tempo_bpm: f64,
     pub sample_rate: u32,
+    pub loop_count: usize,
+    pub analysis_window_ms: u32,
     pub soundfont_path: Option<PathBuf>,
+    pub synth_profile_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,9 +74,12 @@ pub struct ArtifactPaths {
     pub note_event_sequence: PathBuf,
     pub event_transition_sequence: PathBuf,
     pub synth_event_sequence: PathBuf,
+    pub synth_routing_profile: PathBuf,
+    pub stream_loop_plan: PathBuf,
     pub artifact_summary: PathBuf,
     pub render_request: PathBuf,
     pub validation_report: PathBuf,
+    pub analysis_window_sequence: Option<PathBuf>,
     pub offline_audio: Option<PathBuf>,
 }
 
@@ -172,9 +194,48 @@ pub struct RenderRequest {
     pub rolls: Vec<u8>,
     pub tempo_bpm: f64,
     pub sample_rate: u32,
+    pub loop_count: usize,
+    pub analysis_window_ms: u32,
     pub soundfont_path: Option<String>,
+    pub soundfont_source: String,
+    pub synth_routing_profile_id: String,
+    pub synth_routing_profile_source: String,
+    pub synth_routing_profile_path: Option<String>,
     pub selector_count: usize,
     pub output_dir: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SynthRoutingProfileFile {
+    pub profile_id: String,
+    pub description: String,
+    pub voice_groups: Vec<SynthRoutingRule>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SynthRoutingProfile {
+    pub profile_id: String,
+    pub description: String,
+    pub source: String,
+    pub source_path: Option<String>,
+    pub voice_groups: Vec<SynthRoutingRule>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SynthRoutingRule {
+    pub part_index: u8,
+    pub channel: u8,
+    pub program: u8,
+    pub velocity: u8,
+    pub base_amplitude: f64,
+    pub left_gain: f64,
+    pub right_gain: f64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SoundfontResolution {
+    pub resolved_path: Option<String>,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -291,7 +352,10 @@ pub struct SynthEventSequence {
     pub rolls: Vec<u8>,
     pub tempo_bpm: f64,
     pub sample_rate: u32,
+    pub loop_count: usize,
     pub soundfont_path: Option<String>,
+    pub soundfont_source: String,
+    pub synth_routing_profile_id: String,
     pub total_duration_quarter_length: f64,
     pub total_duration_seconds: f64,
     pub voice_groups: Vec<VoiceGroupSummary>,
@@ -386,6 +450,7 @@ pub struct ArtifactSummary {
     pub work_id: String,
     pub command: String,
     pub rolls: Vec<u8>,
+    pub loop_count: usize,
     pub fragment_ids: Vec<u16>,
     pub position_labels: Vec<String>,
     pub unique_fragment_count: usize,
@@ -396,6 +461,9 @@ pub struct ArtifactSummary {
     pub distinct_pitch_count: usize,
     pub total_duration_quarter_length: f64,
     pub total_duration_seconds: f64,
+    pub analysis_window_count: usize,
+    pub synth_routing_profile_id: String,
+    pub soundfont_source: String,
     pub audio_present: bool,
     pub audio: Option<AudioRenderSummary>,
     pub voice_groups: Vec<VoiceGroupSummary>,
@@ -478,6 +546,7 @@ pub struct ValidationCheck {
 #[derive(Debug, Clone, Serialize)]
 pub struct ValidationSummary {
     pub selector_count: usize,
+    pub loop_count: usize,
     pub fragment_count: usize,
     pub note_event_count: usize,
     pub event_transition_count: usize,
@@ -489,6 +558,9 @@ pub struct ValidationSummary {
     pub sample_rate: u32,
     pub checks_passed: usize,
     pub checks_failed: usize,
+    pub analysis_window_count: usize,
+    pub synth_routing_profile_id: String,
+    pub soundfont_source: String,
     pub audio_render_backend: Option<String>,
     pub audio_frames: Option<u32>,
     pub peak_amplitude: Option<f64>,
@@ -501,8 +573,11 @@ pub struct OutputFiles {
     pub note_event_sequence: String,
     pub event_transition_sequence: String,
     pub synth_event_sequence: String,
+    pub synth_routing_profile: String,
+    pub stream_loop_plan: String,
     pub artifact_summary: String,
     pub validation_report: String,
+    pub analysis_window_sequence: Option<String>,
     pub offline_audio: Option<String>,
 }
 
@@ -511,12 +586,105 @@ pub struct AudioRenderSummary {
     pub path: String,
     pub render_backend: String,
     pub soundfont_path: Option<String>,
+    pub soundfont_source: String,
     pub sample_rate: u32,
     pub channels: u16,
     pub frames: u32,
     pub duration_seconds: f64,
     pub peak_amplitude: f64,
     pub normalization_gain: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StreamLoopPlan {
+    pub work_id: String,
+    pub command: String,
+    pub rolls: Vec<u8>,
+    pub tempo_bpm: f64,
+    pub sample_rate: u32,
+    pub loop_count: usize,
+    pub cycle_duration_quarter_length: f64,
+    pub cycle_duration_seconds: f64,
+    pub cycle_duration_frames: usize,
+    pub total_duration_quarter_length: f64,
+    pub total_duration_seconds: f64,
+    pub total_duration_frames: usize,
+    pub synth_routing_profile_id: String,
+    pub soundfont_path: Option<String>,
+    pub soundfont_source: String,
+    pub buses: Vec<StreamBus>,
+    pub cycles: Vec<StreamLoopCycle>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StreamBus {
+    pub bus_id: String,
+    pub bus_kind: String,
+    pub target_file: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StreamLoopCycle {
+    pub cycle_index: usize,
+    pub start_quarter_length: f64,
+    pub end_quarter_length: f64,
+    pub start_seconds: f64,
+    pub end_seconds: f64,
+    pub start_frame: usize,
+    pub end_frame: usize,
+    pub fragment_ids: Vec<u16>,
+    pub note_event_count: usize,
+    pub synth_event_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnalysisWindowSequence {
+    pub work_id: String,
+    pub command: String,
+    pub sample_rate: u32,
+    pub render_backend: String,
+    pub soundfont_path: Option<String>,
+    pub soundfont_source: String,
+    pub loop_count: usize,
+    pub cycle_duration_frames: usize,
+    pub window_size_frames: usize,
+    pub hop_size_frames: usize,
+    pub total_frames: usize,
+    pub total_duration_seconds: f64,
+    pub windows: Vec<AnalysisWindow>,
+    pub summary: AnalysisWindowSummary,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnalysisWindow {
+    pub window_index: usize,
+    pub cycle_index: usize,
+    pub start_frame: usize,
+    pub end_frame: usize,
+    pub clock_frame: usize,
+    pub start_seconds: f64,
+    pub end_seconds: f64,
+    pub clock_seconds: f64,
+    pub peak_amplitude: f64,
+    pub rms_amplitude: f64,
+    pub envelope_amplitude: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnalysisWindowSummary {
+    pub window_count: usize,
+    pub max_peak_amplitude: f64,
+    pub max_rms_amplitude: f64,
+    pub max_envelope_amplitude: f64,
+}
+
+struct PcmRender {
+    left: Vec<f32>,
+    right: Vec<f32>,
+    render_backend: String,
+    soundfont_path: Option<String>,
+    soundfont_source: String,
+    total_duration_seconds: f64,
 }
 
 pub fn run_cli<I>(args: I) -> Result<()>
@@ -559,7 +727,10 @@ fn print_usage() {
            --output-dir <dir>\n\
            --rolls 2,3,4,...,12\n\
            --demo-rolls\n\
+           --loop-count 4\n\
+           --analysis-window-ms 40\n\
            --soundfont /path/to/file.sf2\n\
+           --synth-profile /path/to/profile.json\n\
            --tempo-bpm 120\n\
            --sample-rate 44100\n"
     );
@@ -580,7 +751,10 @@ pub fn parse_cli(args: Vec<String>) -> Result<CliConfig> {
     let mut use_demo_rolls = false;
     let mut tempo_bpm = DEFAULT_TEMPO_BPM;
     let mut sample_rate = DEFAULT_SAMPLE_RATE;
+    let mut loop_count = DEFAULT_LOOP_COUNT;
+    let mut analysis_window_ms = DEFAULT_ANALYSIS_WINDOW_MS;
     let mut soundfont_path = None;
+    let mut synth_profile_path = None;
 
     let mut index = 1;
     while index < args.len() {
@@ -617,10 +791,33 @@ pub fn parse_cli(args: Vec<String>) -> Result<CliConfig> {
                     .parse::<u32>()
                     .with_context(|| format!("invalid sample rate: {value}"))?;
             }
+            "--loop-count" => {
+                index += 1;
+                let value = args.get(index).context("--loop-count requires a value")?;
+                loop_count = value
+                    .parse::<usize>()
+                    .with_context(|| format!("invalid loop count: {value}"))?;
+            }
+            "--analysis-window-ms" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .context("--analysis-window-ms requires a value")?;
+                analysis_window_ms = value
+                    .parse::<u32>()
+                    .with_context(|| format!("invalid analysis window ms: {value}"))?;
+            }
             "--soundfont" => {
                 index += 1;
                 let value = args.get(index).context("--soundfont requires a value")?;
                 soundfont_path = Some(PathBuf::from(value));
+            }
+            "--synth-profile" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .context("--synth-profile requires a value")?;
+                synth_profile_path = Some(PathBuf::from(value));
             }
             flag => bail!("unsupported flag: {flag}"),
         }
@@ -636,6 +833,12 @@ pub fn parse_cli(args: Vec<String>) -> Result<CliConfig> {
     if sample_rate < 8_000 {
         bail!("sample rate must be >= 8000");
     }
+    if loop_count == 0 {
+        bail!("loop count must be >= 1");
+    }
+    if analysis_window_ms == 0 {
+        bail!("analysis window ms must be >= 1");
+    }
 
     if use_demo_rolls && rolls.is_some() {
         bail!("use either --rolls or --demo-rolls, not both");
@@ -645,8 +848,14 @@ pub fn parse_cli(args: Vec<String>) -> Result<CliConfig> {
             if use_demo_rolls || rolls.is_some() {
                 bail!("verify-golden does not accept --rolls or --demo-rolls");
             }
-            if soundfont_path.is_some() {
-                bail!("verify-golden does not accept --soundfont");
+            if soundfont_path.is_some()
+                || synth_profile_path.is_some()
+                || loop_count != DEFAULT_LOOP_COUNT
+                || analysis_window_ms != DEFAULT_ANALYSIS_WINDOW_MS
+            {
+                bail!(
+                    "verify-golden does not accept --soundfont, --synth-profile, --loop-count, or --analysis-window-ms"
+                );
             }
             Vec::new()
         }
@@ -666,7 +875,10 @@ pub fn parse_cli(args: Vec<String>) -> Result<CliConfig> {
         rolls,
         tempo_bpm,
         sample_rate,
+        loop_count,
+        analysis_window_ms,
         soundfont_path,
+        synth_profile_path,
     })
 }
 
@@ -691,6 +903,8 @@ pub fn parse_rolls(value: &str) -> Result<Vec<u8>> {
 
 pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
     let contracts = load_contracts(&config.work_id)?;
+    let synth_profile = resolve_synth_routing_profile(config.synth_profile_path.as_ref())?;
+    let soundfont_resolution = resolve_soundfont_path(config.soundfont_path.as_ref())?;
     let realization = realize_sequence(&contracts, &config.rolls, config.tempo_bpm)?;
     let note_events = build_note_event_sequence(
         &contracts,
@@ -709,9 +923,19 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
         &config.rolls,
         config.tempo_bpm,
         config.sample_rate,
-        config.soundfont_path.as_ref(),
+        config.loop_count,
+        &soundfont_resolution,
+        &synth_profile,
         &realization,
         &transitions,
+    );
+    let stream_plan = build_stream_loop_plan(
+        config,
+        &realization,
+        &note_events,
+        &synth_events,
+        &synth_profile,
+        &soundfont_resolution,
     );
     let replay = realize_sequence(&contracts, &config.rolls, config.tempo_bpm)?;
     let replay_events = build_note_event_sequence(
@@ -731,7 +955,9 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
         &config.rolls,
         config.tempo_bpm,
         config.sample_rate,
-        config.soundfont_path.as_ref(),
+        config.loop_count,
+        &soundfont_resolution,
+        &synth_profile,
         &replay,
         &replay_transitions,
     );
@@ -742,10 +968,13 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
         rolls: config.rolls.clone(),
         tempo_bpm: config.tempo_bpm,
         sample_rate: config.sample_rate,
-        soundfont_path: config
-            .soundfont_path
-            .as_ref()
-            .map(|path| path.display().to_string()),
+        loop_count: config.loop_count,
+        analysis_window_ms: config.analysis_window_ms,
+        soundfont_path: soundfont_resolution.resolved_path.clone(),
+        soundfont_source: soundfont_resolution.source.clone(),
+        synth_routing_profile_id: synth_profile.profile_id.clone(),
+        synth_routing_profile_source: synth_profile.source.clone(),
+        synth_routing_profile_path: synth_profile.source_path.clone(),
         selector_count: config.rolls.len(),
         output_dir: config.output_dir.display().to_string(),
     };
@@ -757,6 +986,8 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
     let note_event_path = config.output_dir.join(NOTE_EVENT_SEQUENCE_FILE);
     let transition_path = config.output_dir.join(EVENT_TRANSITION_SEQUENCE_FILE);
     let synth_event_path = config.output_dir.join(SYNTH_EVENT_SEQUENCE_FILE);
+    let synth_profile_path = config.output_dir.join(SYNTH_ROUTING_PROFILE_FILE);
+    let stream_plan_path = config.output_dir.join(STREAM_LOOP_PLAN_FILE);
     let summary_path = config.output_dir.join(ARTIFACT_SUMMARY_FILE);
     let request_path = config.output_dir.join(RENDER_REQUEST_FILE);
     let validation_path = config.output_dir.join(M1_VALIDATION_REPORT_FILE);
@@ -766,20 +997,32 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
     write_json(&note_event_path, &note_events)?;
     write_json(&transition_path, &transitions)?;
     write_json(&synth_event_path, &synth_events)?;
+    write_json(&synth_profile_path, &synth_profile)?;
+    write_json(&stream_plan_path, &stream_plan)?;
 
-    let audio_summary = match config.command {
+    let (audio_summary, analysis_sequence) = match config.command {
         CommandKind::Realize => None,
         CommandKind::RenderAudio => {
+            let looped_note_events = expand_note_event_sequence(&note_events, config.loop_count);
+            let looped_synth_events = expand_synth_event_sequence(&synth_events, config.loop_count);
             let path = config.output_dir.join(OFFLINE_AUDIO_FILE);
-            Some(render_wav(
-                &note_events,
-                &synth_events,
+            let rendered = render_wav(
+                config,
+                &looped_note_events,
+                &looped_synth_events,
+                &stream_plan,
+                &synth_profile,
                 &path,
-                config.sample_rate,
-            )?)
+            )?;
+            let analysis_path = config.output_dir.join(ANALYSIS_WINDOW_SEQUENCE_FILE);
+            write_json(&analysis_path, &rendered.1)?;
+            Some((rendered.0, rendered.1))
         }
         CommandKind::VerifyGolden => unreachable!("verify-golden does not use run_command"),
-    };
+    }
+    .map_or((None, None), |(audio, analysis)| {
+        (Some(audio), Some(analysis))
+    });
 
     let report = build_validation_report(
         config,
@@ -788,11 +1031,14 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
         &note_events,
         &transitions,
         &synth_events,
+        &synth_profile,
+        &stream_plan,
         replay == realization,
         replay_events == note_events,
         replay_transitions == transitions,
         replay_synth_events == synth_events,
         audio_summary.as_ref(),
+        analysis_sequence.as_ref(),
     );
     write_json(&validation_path, &report)?;
 
@@ -802,7 +1048,10 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
         &note_events,
         &transitions,
         &synth_events,
+        &synth_profile,
+        &soundfont_resolution,
         audio_summary.as_ref(),
+        analysis_sequence.as_ref(),
     );
     write_json(&summary_path, &artifact_summary)?;
 
@@ -812,9 +1061,14 @@ pub fn run_command(config: &CliConfig) -> Result<ArtifactPaths> {
         note_event_sequence: note_event_path,
         event_transition_sequence: transition_path,
         synth_event_sequence: synth_event_path,
+        synth_routing_profile: synth_profile_path,
+        stream_loop_plan: stream_plan_path,
         artifact_summary: summary_path,
         render_request: request_path,
         validation_report: validation_path,
+        analysis_window_sequence: analysis_sequence
+            .as_ref()
+            .map(|_| config.output_dir.join(ANALYSIS_WINDOW_SEQUENCE_FILE)),
         offline_audio: audio_summary.map(|summary| config.output_dir.join(summary.path)),
     })
 }
@@ -1349,7 +1603,9 @@ pub fn build_synth_event_sequence(
     rolls: &[u8],
     tempo_bpm: f64,
     sample_rate: u32,
-    soundfont_path: Option<&PathBuf>,
+    loop_count: usize,
+    soundfont_resolution: &SoundfontResolution,
+    synth_profile: &SynthRoutingProfile,
     realization: &RealizedFragmentSequence,
     transitions: &EventTransitionSequence,
 ) -> SynthEventSequence {
@@ -1357,18 +1613,18 @@ pub fn build_synth_event_sequence(
         Vec::with_capacity(transitions.transitions.len() + transitions.voice_groups.len());
 
     for voice_group in &transitions.voice_groups {
-        let channel = synth_channel_for_part(voice_group.part_index);
+        let routing = synth_routing_rule_for_part(synth_profile, voice_group.part_index);
         synth_events.push(SynthEvent {
             synth_event_index: 0,
             source_kind: "channel_setup".to_string(),
             transition_index: None,
             note_event_index: None,
-            channel,
+            channel: routing.channel,
             voice_group_id: voice_group.voice_group_id.clone(),
             voice_group_label: voice_group.voice_group_label.clone(),
             voice_group_kind: voice_group.voice_group_kind.clone(),
             midi_command: "program_change".to_string(),
-            data1: synth_program_for_part(voice_group.part_index),
+            data1: routing.program,
             data2: 0,
             at_quarter_length: 0.0,
             at_seconds: 0.0,
@@ -1377,13 +1633,9 @@ pub fn build_synth_event_sequence(
     }
 
     for transition in &transitions.transitions {
-        let channel = synth_channel_for_part(transition.part_index);
+        let routing = synth_routing_rule_for_part(synth_profile, transition.part_index);
         let (midi_command, data1, data2) = match transition.transition_kind.as_str() {
-            "note_on" => (
-                "note_on".to_string(),
-                transition.midi,
-                synth_velocity_for_part(transition.part_index),
-            ),
+            "note_on" => ("note_on".to_string(), transition.midi, routing.velocity),
             "note_off" => ("note_off".to_string(), transition.midi, 0),
             _ => ("unknown".to_string(), transition.midi, 0),
         };
@@ -1392,7 +1644,7 @@ pub fn build_synth_event_sequence(
             source_kind: "event_transition".to_string(),
             transition_index: Some(transition.transition_index),
             note_event_index: Some(transition.note_event_index),
-            channel,
+            channel: routing.channel,
             voice_group_id: transition.voice_group_id.clone(),
             voice_group_label: transition.voice_group_label.clone(),
             voice_group_kind: transition.voice_group_kind.clone(),
@@ -1438,7 +1690,10 @@ pub fn build_synth_event_sequence(
         rolls: rolls.to_vec(),
         tempo_bpm,
         sample_rate,
-        soundfont_path: soundfont_path.map(|path| path.display().to_string()),
+        loop_count,
+        soundfont_path: soundfont_resolution.resolved_path.clone(),
+        soundfont_source: soundfont_resolution.source.clone(),
+        synth_routing_profile_id: synth_profile.profile_id.clone(),
         total_duration_quarter_length: realization.total_duration_quarter_length,
         total_duration_seconds: realization.total_duration_seconds,
         voice_groups: transitions.voice_groups.clone(),
@@ -1457,22 +1712,31 @@ pub fn build_synth_event_sequence(
 }
 
 pub fn render_wav(
+    config: &CliConfig,
     sequence: &NoteEventSequence,
     synth_events: &SynthEventSequence,
+    stream_plan: &StreamLoopPlan,
+    synth_profile: &SynthRoutingProfile,
     output_path: &Path,
-    sample_rate: u32,
-) -> Result<AudioRenderSummary> {
-    if let Some(soundfont_path) = synth_events.soundfont_path.as_ref() {
-        return render_soundfont_wav(synth_events, output_path, sample_rate, soundfont_path);
-    }
-    render_fallback_wav(sequence, output_path, sample_rate)
+) -> Result<(AudioRenderSummary, AnalysisWindowSequence)> {
+    let pcm = if let Some(soundfont_path) = synth_events.soundfont_path.as_ref() {
+        render_soundfont_pcm(
+            synth_events,
+            config.sample_rate,
+            soundfont_path,
+            &synth_events.soundfont_source,
+        )?
+    } else {
+        render_fallback_pcm(sequence, config.sample_rate, synth_profile)
+    };
+    finalize_audio_render(config, stream_plan, output_path, pcm)
 }
 
-pub fn render_fallback_wav(
+fn render_fallback_pcm(
     sequence: &NoteEventSequence,
-    output_path: &Path,
     sample_rate: u32,
-) -> Result<AudioRenderSummary> {
+    synth_profile: &SynthRoutingProfile,
+) -> PcmRender {
     let total_duration_seconds = sequence.total_duration_seconds;
     let total_frames = (total_duration_seconds * sample_rate as f64).ceil() as usize;
     let mut left = vec![0.0f32; total_frames];
@@ -1486,11 +1750,8 @@ pub fn render_fallback_wav(
             continue;
         }
         let end_frame = end_frame.min(total_frames);
+        let routing = synth_routing_rule_for_part(synth_profile, event.part_index);
 
-        let (base_amplitude, left_gain, right_gain) = match event.part_index {
-            1 => (0.12_f64, 0.72_f64, 0.46_f64),
-            _ => (0.10_f64, 0.46_f64, 0.72_f64),
-        };
         let attack_frames = ((sample_rate as f64 * 0.008).round() as usize).max(1);
         let release_frames = ((sample_rate as f64 * 0.02).round() as usize).max(1);
         let duration_frames = end_frame - start_frame;
@@ -1501,43 +1762,28 @@ pub fn render_fallback_wav(
             let phase = 2.0 * PI * event.frequency_hz * time;
             let envelope = envelope(local, duration_frames, attack_frames, release_frames);
             let waveform = phase.sin() + 0.35 * (2.0 * phase).sin() + 0.15 * (3.0 * phase).sin();
-            let sample = (base_amplitude * envelope * waveform) as f32;
-            left[frame] += sample * left_gain as f32;
-            right[frame] += sample * right_gain as f32;
+            let sample = (routing.base_amplitude * envelope * waveform) as f32;
+            left[frame] += sample * routing.left_gain as f32;
+            right[frame] += sample * routing.right_gain as f32;
         }
     }
 
-    let peak = left
-        .iter()
-        .chain(right.iter())
-        .map(|sample| sample.abs())
-        .fold(0.0_f32, f32::max);
-    let normalization_gain = if peak > 0.95 { 0.95 / peak as f64 } else { 1.0 };
-
-    write_stereo_wav(output_path, sample_rate, &left, &right, normalization_gain)?;
-
-    Ok(AudioRenderSummary {
-        path: output_path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| OFFLINE_AUDIO_FILE.to_string()),
+    PcmRender {
+        left,
+        right,
         render_backend: "fallback_additive".to_string(),
         soundfont_path: None,
-        sample_rate,
-        channels: 2,
-        frames: total_frames as u32,
-        duration_seconds: round6(total_duration_seconds),
-        peak_amplitude: round6((peak as f64 * normalization_gain).min(1.0)),
-        normalization_gain: round6(normalization_gain),
-    })
+        soundfont_source: soundfont_resolution_fallback().source,
+        total_duration_seconds,
+    }
 }
 
-pub fn render_soundfont_wav(
+fn render_soundfont_pcm(
     synth_events: &SynthEventSequence,
-    output_path: &Path,
     sample_rate: u32,
     soundfont_path: &str,
-) -> Result<AudioRenderSummary> {
+    soundfont_source: &str,
+) -> Result<PcmRender> {
     let mut reader = fs::File::open(soundfont_path)
         .with_context(|| format!("failed to open soundfont {}", soundfont_path))?;
     let sound_font = Arc::new(
@@ -1571,28 +1817,418 @@ pub fn render_soundfont_wav(
         );
     }
 
-    let peak = left
+    Ok(PcmRender {
+        left,
+        right,
+        render_backend: "soundfont_rustysynth".to_string(),
+        soundfont_path: Some(soundfont_path.to_string()),
+        soundfont_source: soundfont_source.to_string(),
+        total_duration_seconds: synth_events.total_duration_seconds,
+    })
+}
+
+fn finalize_audio_render(
+    config: &CliConfig,
+    stream_plan: &StreamLoopPlan,
+    output_path: &Path,
+    pcm: PcmRender,
+) -> Result<(AudioRenderSummary, AnalysisWindowSequence)> {
+    let peak = pcm
+        .left
         .iter()
-        .chain(right.iter())
+        .chain(pcm.right.iter())
         .map(|sample| sample.abs())
         .fold(0.0_f32, f32::max);
     let normalization_gain = if peak > 0.95 { 0.95 / peak as f64 } else { 1.0 };
-    write_stereo_wav(output_path, sample_rate, &left, &right, normalization_gain)?;
+    let (left, right) = normalize_stereo_samples(&pcm.left, &pcm.right, normalization_gain);
+    write_stereo_wav_samples(output_path, config.sample_rate, &left, &right)?;
 
-    Ok(AudioRenderSummary {
+    let audio_summary = AudioRenderSummary {
         path: output_path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| OFFLINE_AUDIO_FILE.to_string()),
-        render_backend: "soundfont_rustysynth".to_string(),
-        soundfont_path: Some(soundfont_path.to_string()),
-        sample_rate,
+        render_backend: pcm.render_backend.clone(),
+        soundfont_path: pcm.soundfont_path.clone(),
+        soundfont_source: pcm.soundfont_source.clone(),
+        sample_rate: config.sample_rate,
         channels: 2,
-        frames: total_frames as u32,
-        duration_seconds: round6(synth_events.total_duration_seconds),
+        frames: left.len().min(right.len()) as u32,
+        duration_seconds: round6(pcm.total_duration_seconds),
         peak_amplitude: round6((peak as f64 * normalization_gain).min(1.0)),
         normalization_gain: round6(normalization_gain),
+    };
+    let analysis =
+        build_analysis_window_sequence(config, stream_plan, &audio_summary, &left, &right);
+    Ok((audio_summary, analysis))
+}
+
+pub fn resolve_synth_routing_profile(
+    profile_path: Option<&PathBuf>,
+) -> Result<SynthRoutingProfile> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let (path, source) = match profile_path {
+        Some(path) => (path.clone(), "cli".to_string()),
+        None => (
+            root.join(DEFAULT_SYNTH_PROFILE_PATH),
+            "repo_default".to_string(),
+        ),
+    };
+    let payload: SynthRoutingProfileFile = read_json(&path)?;
+    if payload.voice_groups.is_empty() {
+        bail!("synth profile must define at least one voice group");
+    }
+    let mut seen_parts = BTreeSet::new();
+    let mut seen_channels = BTreeSet::new();
+    for rule in &payload.voice_groups {
+        if !seen_parts.insert(rule.part_index) {
+            bail!("synth profile repeats part_index {}", rule.part_index);
+        }
+        if !seen_channels.insert(rule.channel) {
+            bail!("synth profile repeats channel {}", rule.channel);
+        }
+        if rule.left_gain < 0.0 || rule.right_gain < 0.0 || rule.base_amplitude < 0.0 {
+            bail!("synth profile gain values must be >= 0");
+        }
+    }
+    Ok(SynthRoutingProfile {
+        profile_id: payload.profile_id,
+        description: payload.description,
+        source,
+        source_path: Some(path.display().to_string()),
+        voice_groups: payload.voice_groups,
     })
+}
+
+pub fn resolve_soundfont_path(soundfont_path: Option<&PathBuf>) -> Result<SoundfontResolution> {
+    if let Some(path) = soundfont_path {
+        if !path.is_file() {
+            bail!("soundfont path does not exist: {}", path.display());
+        }
+        return Ok(SoundfontResolution {
+            resolved_path: Some(path.display().to_string()),
+            source: "cli".to_string(),
+        });
+    }
+    if let Some(value) = env::var_os(SOUNDFONT_ENV_VAR) {
+        let path = PathBuf::from(value);
+        if !path.is_file() {
+            bail!(
+                "soundfont path from {} does not exist: {}",
+                SOUNDFONT_ENV_VAR,
+                path.display()
+            );
+        }
+        return Ok(SoundfontResolution {
+            resolved_path: Some(path.display().to_string()),
+            source: "env".to_string(),
+        });
+    }
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_default = root.join(DEFAULT_REPO_SOUNDFONT_PATH);
+    if repo_default.is_file() {
+        return Ok(SoundfontResolution {
+            resolved_path: Some(repo_default.display().to_string()),
+            source: "repo_default".to_string(),
+        });
+    }
+    for candidate in DEFAULT_SYSTEM_SOUNDFONTS {
+        let path = PathBuf::from(candidate);
+        if path.is_file() {
+            return Ok(SoundfontResolution {
+                resolved_path: Some(path.display().to_string()),
+                source: "system_default".to_string(),
+            });
+        }
+    }
+    Ok(soundfont_resolution_fallback())
+}
+
+fn soundfont_resolution_fallback() -> SoundfontResolution {
+    SoundfontResolution {
+        resolved_path: None,
+        source: "fallback_none".to_string(),
+    }
+}
+
+pub fn build_stream_loop_plan(
+    config: &CliConfig,
+    realization: &RealizedFragmentSequence,
+    note_events: &NoteEventSequence,
+    synth_events: &SynthEventSequence,
+    synth_profile: &SynthRoutingProfile,
+    soundfont_resolution: &SoundfontResolution,
+) -> StreamLoopPlan {
+    let cycle_duration_frames =
+        seconds_to_frame(realization.total_duration_seconds, config.sample_rate);
+    let total_duration_quarter_length =
+        round6(realization.total_duration_quarter_length * config.loop_count as f64);
+    let total_duration_seconds =
+        round6(realization.total_duration_seconds * config.loop_count as f64);
+    let total_duration_frames = cycle_duration_frames * config.loop_count;
+
+    let cycles = (0..config.loop_count)
+        .map(|cycle_index| {
+            let cycle_offset_quarter =
+                realization.total_duration_quarter_length * cycle_index as f64;
+            let cycle_offset_seconds = realization.total_duration_seconds * cycle_index as f64;
+            let cycle_offset_frames = cycle_duration_frames * cycle_index;
+            StreamLoopCycle {
+                cycle_index: cycle_index + 1,
+                start_quarter_length: round6(cycle_offset_quarter),
+                end_quarter_length: round6(
+                    cycle_offset_quarter + realization.total_duration_quarter_length,
+                ),
+                start_seconds: round6(cycle_offset_seconds),
+                end_seconds: round6(cycle_offset_seconds + realization.total_duration_seconds),
+                start_frame: cycle_offset_frames,
+                end_frame: cycle_offset_frames + cycle_duration_frames,
+                fragment_ids: realization
+                    .fragments
+                    .iter()
+                    .map(|step| step.fragment_id)
+                    .collect(),
+                note_event_count: note_events.note_events.len(),
+                synth_event_count: synth_events.summary.synth_event_count,
+            }
+        })
+        .collect();
+
+    StreamLoopPlan {
+        work_id: config.work_id.clone(),
+        command: command_name(&config.command).to_string(),
+        rolls: config.rolls.clone(),
+        tempo_bpm: config.tempo_bpm,
+        sample_rate: config.sample_rate,
+        loop_count: config.loop_count,
+        cycle_duration_quarter_length: realization.total_duration_quarter_length,
+        cycle_duration_seconds: realization.total_duration_seconds,
+        cycle_duration_frames,
+        total_duration_quarter_length,
+        total_duration_seconds,
+        total_duration_frames,
+        synth_routing_profile_id: synth_profile.profile_id.clone(),
+        soundfont_path: soundfont_resolution.resolved_path.clone(),
+        soundfont_source: soundfont_resolution.source.clone(),
+        buses: vec![
+            StreamBus {
+                bus_id: "main_audio_mix".to_string(),
+                bus_kind: "audio".to_string(),
+                target_file: OFFLINE_AUDIO_FILE.to_string(),
+            },
+            StreamBus {
+                bus_id: "analyzer_clock".to_string(),
+                bus_kind: "analysis".to_string(),
+                target_file: ANALYSIS_WINDOW_SEQUENCE_FILE.to_string(),
+            },
+        ],
+        cycles,
+    }
+}
+
+pub fn expand_note_event_sequence(
+    sequence: &NoteEventSequence,
+    loop_count: usize,
+) -> NoteEventSequence {
+    if loop_count <= 1 {
+        return sequence.clone();
+    }
+    let cycle_duration_quarter = sequence.total_duration_quarter_length;
+    let cycle_duration_seconds = sequence.total_duration_seconds;
+    let base_counts: BTreeMap<String, usize> = sequence
+        .voice_groups
+        .iter()
+        .map(|group| (group.voice_group_id.clone(), group.note_event_count))
+        .collect();
+    let mut note_events = Vec::with_capacity(sequence.note_events.len() * loop_count);
+    for cycle_index in 0..loop_count {
+        let quarter_offset = cycle_duration_quarter * cycle_index as f64;
+        let second_offset = cycle_duration_seconds * cycle_index as f64;
+        for event in &sequence.note_events {
+            let mut expanded = event.clone();
+            expanded.note_event_index = note_events.len() + 1;
+            let base_voice_count = base_counts
+                .get(&event.voice_group_id)
+                .copied()
+                .unwrap_or_default();
+            expanded.voice_event_index_in_group =
+                event.voice_event_index_in_group + base_voice_count * cycle_index;
+            expanded.start_quarter_length = round6(event.start_quarter_length + quarter_offset);
+            expanded.end_quarter_length = round6(event.end_quarter_length + quarter_offset);
+            expanded.start_seconds = round6(event.start_seconds + second_offset);
+            expanded.end_seconds = round6(event.end_seconds + second_offset);
+            note_events.push(expanded);
+        }
+    }
+    let voice_groups = build_voice_group_summaries(&note_events);
+    NoteEventSequence {
+        work_id: sequence.work_id.clone(),
+        command: sequence.command.clone(),
+        rolls: sequence.rolls.clone(),
+        tempo_bpm: sequence.tempo_bpm,
+        sample_rate: sequence.sample_rate,
+        total_duration_quarter_length: round6(cycle_duration_quarter * loop_count as f64),
+        total_duration_seconds: round6(cycle_duration_seconds * loop_count as f64),
+        voice_groups: voice_groups.clone(),
+        note_events,
+        summary: NoteEventSummary {
+            note_event_count: sequence.summary.note_event_count * loop_count,
+            fragment_count: sequence.summary.fragment_count * loop_count,
+            voice_group_count: voice_groups.len(),
+            distinct_pitch_count: sequence.summary.distinct_pitch_count,
+            total_duration_quarter_length: round6(cycle_duration_quarter * loop_count as f64),
+            total_duration_seconds: round6(cycle_duration_seconds * loop_count as f64),
+        },
+    }
+}
+
+pub fn expand_synth_event_sequence(
+    sequence: &SynthEventSequence,
+    loop_count: usize,
+) -> SynthEventSequence {
+    if loop_count <= 1 {
+        return sequence.clone();
+    }
+    let cycle_duration_quarter = sequence.total_duration_quarter_length;
+    let cycle_duration_seconds = sequence.total_duration_seconds;
+    let cycle_duration_frames = seconds_to_frame(cycle_duration_seconds, sequence.sample_rate);
+    let mut synth_events = Vec::with_capacity(sequence.synth_events.len() * loop_count);
+    for cycle_index in 0..loop_count {
+        let quarter_offset = cycle_duration_quarter * cycle_index as f64;
+        let second_offset = cycle_duration_seconds * cycle_index as f64;
+        let frame_offset = cycle_duration_frames * cycle_index;
+        for event in &sequence.synth_events {
+            let mut expanded = event.clone();
+            expanded.synth_event_index = synth_events.len() + 1;
+            expanded.at_quarter_length = round6(event.at_quarter_length + quarter_offset);
+            expanded.at_seconds = round6(event.at_seconds + second_offset);
+            expanded.at_frame = event.at_frame + frame_offset;
+            synth_events.push(expanded);
+        }
+    }
+    SynthEventSequence {
+        work_id: sequence.work_id.clone(),
+        command: sequence.command.clone(),
+        rolls: sequence.rolls.clone(),
+        tempo_bpm: sequence.tempo_bpm,
+        sample_rate: sequence.sample_rate,
+        loop_count,
+        soundfont_path: sequence.soundfont_path.clone(),
+        soundfont_source: sequence.soundfont_source.clone(),
+        synth_routing_profile_id: sequence.synth_routing_profile_id.clone(),
+        total_duration_quarter_length: round6(cycle_duration_quarter * loop_count as f64),
+        total_duration_seconds: round6(cycle_duration_seconds * loop_count as f64),
+        voice_groups: sequence.voice_groups.clone(),
+        synth_events,
+        summary: SynthEventSummary {
+            synth_event_count: sequence.summary.synth_event_count * loop_count,
+            program_change_count: sequence.summary.program_change_count * loop_count,
+            note_on_count: sequence.summary.note_on_count * loop_count,
+            note_off_count: sequence.summary.note_off_count * loop_count,
+            voice_group_count: sequence.summary.voice_group_count,
+            fragment_count: sequence.summary.fragment_count * loop_count,
+            total_duration_quarter_length: round6(cycle_duration_quarter * loop_count as f64),
+            total_duration_seconds: round6(cycle_duration_seconds * loop_count as f64),
+        },
+    }
+}
+
+pub fn build_analysis_window_sequence(
+    config: &CliConfig,
+    stream_plan: &StreamLoopPlan,
+    audio_summary: &AudioRenderSummary,
+    left: &[f32],
+    right: &[f32],
+) -> AnalysisWindowSequence {
+    let total_frames = left.len().min(right.len());
+    let window_size_frames =
+        ((config.analysis_window_ms as f64 / 1_000.0) * config.sample_rate as f64).round() as usize;
+    let window_size_frames = window_size_frames.max(1);
+    let hop_size_frames = window_size_frames;
+    let mut windows = Vec::new();
+    let mut start = 0usize;
+    while start < total_frames {
+        let end = (start + window_size_frames).min(total_frames);
+        let clock_frame = start + (end - start) / 2;
+        let mut peak = 0.0_f64;
+        let mut square_sum = 0.0_f64;
+        let mut abs_sum = 0.0_f64;
+        let mut count = 0usize;
+        for frame in start..end {
+            let mono = ((left[frame].abs() + right[frame].abs()) * 0.5) as f64;
+            peak = peak.max(mono);
+            square_sum += mono * mono;
+            abs_sum += mono;
+            count += 1;
+        }
+        let rms = if count == 0 {
+            0.0
+        } else {
+            (square_sum / count as f64).sqrt()
+        };
+        let envelope = if count == 0 {
+            0.0
+        } else {
+            abs_sum / count as f64
+        };
+        let cycle_index = if stream_plan.cycle_duration_frames == 0 {
+            1
+        } else {
+            (start / stream_plan.cycle_duration_frames) + 1
+        };
+        windows.push(AnalysisWindow {
+            window_index: windows.len() + 1,
+            cycle_index,
+            start_frame: start,
+            end_frame: end,
+            clock_frame,
+            start_seconds: round6(start as f64 / config.sample_rate as f64),
+            end_seconds: round6(end as f64 / config.sample_rate as f64),
+            clock_seconds: round6(clock_frame as f64 / config.sample_rate as f64),
+            peak_amplitude: round6(peak),
+            rms_amplitude: round6(rms),
+            envelope_amplitude: round6(envelope),
+        });
+        start = end;
+    }
+
+    AnalysisWindowSequence {
+        work_id: config.work_id.clone(),
+        command: command_name(&config.command).to_string(),
+        sample_rate: config.sample_rate,
+        render_backend: audio_summary.render_backend.clone(),
+        soundfont_path: audio_summary.soundfont_path.clone(),
+        soundfont_source: audio_summary.soundfont_source.clone(),
+        loop_count: config.loop_count,
+        cycle_duration_frames: stream_plan.cycle_duration_frames,
+        window_size_frames,
+        hop_size_frames,
+        total_frames,
+        total_duration_seconds: audio_summary.duration_seconds,
+        summary: AnalysisWindowSummary {
+            window_count: windows.len(),
+            max_peak_amplitude: round6(
+                windows
+                    .iter()
+                    .map(|window| window.peak_amplitude)
+                    .fold(0.0_f64, f64::max),
+            ),
+            max_rms_amplitude: round6(
+                windows
+                    .iter()
+                    .map(|window| window.rms_amplitude)
+                    .fold(0.0_f64, f64::max),
+            ),
+            max_envelope_amplitude: round6(
+                windows
+                    .iter()
+                    .map(|window| window.envelope_amplitude)
+                    .fold(0.0_f64, f64::max),
+            ),
+        },
+        windows,
+    }
 }
 
 pub fn build_validation_report(
@@ -1602,11 +2238,14 @@ pub fn build_validation_report(
     note_events: &NoteEventSequence,
     transitions: &EventTransitionSequence,
     synth_events: &SynthEventSequence,
+    synth_profile: &SynthRoutingProfile,
+    stream_plan: &StreamLoopPlan,
     replay_matches: bool,
     replay_note_events_match: bool,
     replay_transitions_match: bool,
     replay_synth_events_match: bool,
     audio_summary: Option<&AudioRenderSummary>,
+    analysis_sequence: Option<&AnalysisWindowSequence>,
 ) -> M1ValidationReport {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
@@ -1686,6 +2325,30 @@ pub fn build_validation_report(
             == synth_events.summary.program_change_count
                 + synth_events.summary.note_on_count
                 + synth_events.summary.note_off_count;
+    let synth_profile_contract = synth_profile.voice_groups.len() == note_events.voice_groups.len()
+        && synth_profile
+            .voice_groups
+            .iter()
+            .all(|rule| rule.channel <= 15 && rule.velocity > 0);
+    let stream_plan_contract = stream_plan.loop_count == config.loop_count
+        && stream_plan.cycles.len() == config.loop_count
+        && round6(stream_plan.total_duration_seconds)
+            == round6(realization.total_duration_seconds * config.loop_count as f64);
+    let analysis_contract = if matches!(config.command, CommandKind::RenderAudio) {
+        analysis_sequence
+            .map(|sequence| {
+                !sequence.windows.is_empty()
+                    && sequence.summary.window_count == sequence.windows.len()
+                    && sequence.loop_count == config.loop_count
+                    && sequence.render_backend
+                        == audio_summary
+                            .map(|summary| summary.render_backend.clone())
+                            .unwrap_or_default()
+            })
+            .unwrap_or(false)
+    } else {
+        analysis_sequence.is_none()
+    };
     if !duration_closure {
         errors.push("note-event sequence overruns the realized timeline".to_string());
     }
@@ -1753,7 +2416,10 @@ pub fn build_validation_report(
     ));
     checks.push(validation_check(
         "deterministic_replay",
-        replay_matches && replay_note_events_match && replay_transitions_match,
+        replay_matches
+            && replay_note_events_match
+            && replay_transitions_match
+            && replay_synth_events_match,
         serde_json::json!({
             "fragment_sequence_replayed_identically": replay_matches,
             "note_events_replayed_identically": replay_note_events_match,
@@ -1831,6 +2497,41 @@ pub fn build_validation_report(
         &mut errors,
         "synth events must remain aligned with transition counts and voice-group setup",
     ));
+    checks.push(validation_check(
+        "synth_routing_profile",
+        synth_profile_contract,
+        serde_json::json!({
+            "profile_id": synth_profile.profile_id,
+            "profile_source": synth_profile.source,
+            "voice_group_count": synth_profile.voice_groups.len(),
+            "voice_groups": &synth_profile.voice_groups,
+        }),
+        &mut errors,
+        "synth profile must define one valid routing rule per voice group",
+    ));
+    checks.push(validation_check(
+        "stream_loop_plan",
+        stream_plan_contract,
+        serde_json::json!({
+            "loop_count": stream_plan.loop_count,
+            "cycle_count": stream_plan.cycles.len(),
+            "cycle_duration_seconds": stream_plan.cycle_duration_seconds,
+            "total_duration_seconds": stream_plan.total_duration_seconds,
+        }),
+        &mut errors,
+        "stream loop plan must match the requested loop count and total duration",
+    ));
+    checks.push(validation_check(
+        "analysis_window_sequence",
+        analysis_contract,
+        serde_json::json!({
+            "analysis_window_count": analysis_sequence.map(|sequence| sequence.summary.window_count),
+            "analysis_window_ms": config.analysis_window_ms,
+            "loop_count": config.loop_count,
+        }),
+        &mut errors,
+        "rendered audio must export analyzer windows on the unified stream clock",
+    ));
     checks.push(ValidationCheck {
         check_id: "offline_audio_output".to_string(),
         status: if audio_summary.is_some() {
@@ -1868,6 +2569,7 @@ pub fn build_validation_report(
         warnings,
         summary: ValidationSummary {
             selector_count: config.rolls.len(),
+            loop_count: config.loop_count,
             fragment_count: realization.fragments.len(),
             note_event_count: note_events.note_events.len(),
             event_transition_count: transitions.summary.transition_count,
@@ -1879,6 +2581,11 @@ pub fn build_validation_report(
             sample_rate: config.sample_rate,
             checks_passed,
             checks_failed,
+            analysis_window_count: analysis_sequence
+                .map(|sequence| sequence.summary.window_count)
+                .unwrap_or(0),
+            synth_routing_profile_id: synth_profile.profile_id.clone(),
+            soundfont_source: synth_events.soundfont_source.clone(),
             audio_render_backend: audio_summary.map(|summary| summary.render_backend.clone()),
             audio_frames: audio_summary.map(|summary| summary.frames),
             peak_amplitude: audio_summary.map(|summary| summary.peak_amplitude),
@@ -1889,8 +2596,12 @@ pub fn build_validation_report(
             note_event_sequence: NOTE_EVENT_SEQUENCE_FILE.to_string(),
             event_transition_sequence: EVENT_TRANSITION_SEQUENCE_FILE.to_string(),
             synth_event_sequence: SYNTH_EVENT_SEQUENCE_FILE.to_string(),
+            synth_routing_profile: SYNTH_ROUTING_PROFILE_FILE.to_string(),
+            stream_loop_plan: STREAM_LOOP_PLAN_FILE.to_string(),
             artifact_summary: ARTIFACT_SUMMARY_FILE.to_string(),
             validation_report: M1_VALIDATION_REPORT_FILE.to_string(),
+            analysis_window_sequence: analysis_sequence
+                .map(|_| ANALYSIS_WINDOW_SEQUENCE_FILE.to_string()),
             offline_audio: audio_summary.map(|summary| summary.path.clone()),
         },
     }
@@ -1902,12 +2613,16 @@ pub fn build_artifact_summary(
     note_events: &NoteEventSequence,
     transitions: &EventTransitionSequence,
     synth_events: &SynthEventSequence,
+    synth_profile: &SynthRoutingProfile,
+    soundfont_resolution: &SoundfontResolution,
     audio_summary: Option<&AudioRenderSummary>,
+    analysis_sequence: Option<&AnalysisWindowSequence>,
 ) -> ArtifactSummary {
     ArtifactSummary {
         work_id: config.work_id.clone(),
         command: command_name(&config.command).to_string(),
         rolls: config.rolls.clone(),
+        loop_count: config.loop_count,
         fragment_ids: realization
             .fragments
             .iter()
@@ -1926,6 +2641,11 @@ pub fn build_artifact_summary(
         distinct_pitch_count: note_events.summary.distinct_pitch_count,
         total_duration_quarter_length: realization.total_duration_quarter_length,
         total_duration_seconds: realization.total_duration_seconds,
+        analysis_window_count: analysis_sequence
+            .map(|sequence| sequence.summary.window_count)
+            .unwrap_or(0),
+        synth_routing_profile_id: synth_profile.profile_id.clone(),
+        soundfont_source: soundfont_resolution.source.clone(),
         audio_present: audio_summary.is_some(),
         audio: audio_summary.cloned(),
         voice_groups: note_events.voice_groups.clone(),
@@ -1935,8 +2655,12 @@ pub fn build_artifact_summary(
             note_event_sequence: NOTE_EVENT_SEQUENCE_FILE.to_string(),
             event_transition_sequence: EVENT_TRANSITION_SEQUENCE_FILE.to_string(),
             synth_event_sequence: SYNTH_EVENT_SEQUENCE_FILE.to_string(),
+            synth_routing_profile: SYNTH_ROUTING_PROFILE_FILE.to_string(),
+            stream_loop_plan: STREAM_LOOP_PLAN_FILE.to_string(),
             artifact_summary: ARTIFACT_SUMMARY_FILE.to_string(),
             validation_report: M1_VALIDATION_REPORT_FILE.to_string(),
+            analysis_window_sequence: analysis_sequence
+                .map(|_| ANALYSIS_WINDOW_SEQUENCE_FILE.to_string()),
             offline_audio: audio_summary.map(|summary| summary.path.clone()),
         },
     }
@@ -2003,15 +2727,20 @@ fn print_summary(config: &CliConfig, artifacts: &ArtifactPaths) {
     println!("rolls: {}", format_rolls(&config.rolls));
     println!("output_dir: {}", artifacts.output_dir.display());
     println!(
-        "artifacts: {}, {}, {}, {}, {}, {}, {}",
+        "artifacts: {}, {}, {}, {}, {}, {}, {}, {}, {}",
         artifacts.render_request.display(),
         artifacts.realized_fragment_sequence.display(),
         artifacts.note_event_sequence.display(),
         artifacts.event_transition_sequence.display(),
         artifacts.synth_event_sequence.display(),
+        artifacts.synth_routing_profile.display(),
+        artifacts.stream_loop_plan.display(),
         artifacts.artifact_summary.display(),
         artifacts.validation_report.display()
     );
+    if let Some(path) = &artifacts.analysis_window_sequence {
+        println!("analysis: {}", path.display());
+    }
     if let Some(path) = &artifacts.offline_audio {
         println!("audio: {}", path.display());
     }
@@ -2049,20 +2778,20 @@ fn synth_event_rank(command: &str) -> u8 {
     }
 }
 
-fn synth_channel_for_part(part_index: u8) -> u8 {
-    part_index.saturating_sub(1).min(15)
-}
-
-fn synth_program_for_part(_part_index: u8) -> u8 {
-    0
-}
-
-fn synth_velocity_for_part(part_index: u8) -> u8 {
-    match part_index {
-        1 => 92,
-        2 => 84,
-        _ => 88,
-    }
+fn synth_routing_rule_for_part<'a>(
+    synth_profile: &'a SynthRoutingProfile,
+    part_index: u8,
+) -> &'a SynthRoutingRule {
+    synth_profile
+        .voice_groups
+        .iter()
+        .find(|rule| rule.part_index == part_index)
+        .unwrap_or_else(|| {
+            panic!(
+                "synth routing profile {} is missing part_index {}",
+                synth_profile.profile_id, part_index
+            )
+        })
 }
 
 fn seconds_to_frame(seconds: f64, sample_rate: u32) -> usize {
@@ -2082,12 +2811,27 @@ fn apply_synth_event(synthesizer: &mut Synthesizer, event: &SynthEvent) {
     }
 }
 
-fn write_stereo_wav(
+fn normalize_stereo_samples(
+    left: &[f32],
+    right: &[f32],
+    normalization_gain: f64,
+) -> (Vec<f32>, Vec<f32>) {
+    let left = left
+        .iter()
+        .map(|sample| ((*sample as f64) * normalization_gain).clamp(-1.0, 1.0) as f32)
+        .collect();
+    let right = right
+        .iter()
+        .map(|sample| ((*sample as f64) * normalization_gain).clamp(-1.0, 1.0) as f32)
+        .collect();
+    (left, right)
+}
+
+fn write_stereo_wav_samples(
     output_path: &Path,
     sample_rate: u32,
     left: &[f32],
     right: &[f32],
-    normalization_gain: f64,
 ) -> Result<()> {
     let spec = WavSpec {
         channels: 2,
@@ -2098,8 +2842,8 @@ fn write_stereo_wav(
     let mut writer = WavWriter::create(output_path, spec)
         .with_context(|| format!("failed to create {}", output_path.display()))?;
     for frame in 0..left.len().min(right.len()) {
-        let left_sample = (left[frame] as f64 * normalization_gain).clamp(-1.0, 1.0);
-        let right_sample = (right[frame] as f64 * normalization_gain).clamp(-1.0, 1.0);
+        let left_sample = left[frame] as f64;
+        let right_sample = right[frame] as f64;
         writer.write_sample(float_to_i16(left_sample))?;
         writer.write_sample(float_to_i16(right_sample))?;
     }
@@ -2284,6 +3028,8 @@ mod tests {
             config.soundfont_path,
             Some(PathBuf::from("/tmp/example.sf2"))
         );
+        assert_eq!(config.loop_count, DEFAULT_LOOP_COUNT);
+        assert_eq!(config.analysis_window_ms, DEFAULT_ANALYSIS_WINDOW_MS);
     }
 
     #[test]
@@ -2347,6 +3093,8 @@ mod tests {
     #[test]
     fn synth_events_are_deterministic_for_demo_rolls() {
         let contracts = load_contracts(CANONICAL_WORK_ID).unwrap();
+        let synth_profile = resolve_synth_routing_profile(None).unwrap();
+        let soundfont_resolution = soundfont_resolution_fallback();
         let realization = realize_sequence(&contracts, &DEMO_ROLLS, DEFAULT_TEMPO_BPM).unwrap();
         let notes = build_note_event_sequence(
             &contracts,
@@ -2366,7 +3114,9 @@ mod tests {
             &DEMO_ROLLS,
             DEFAULT_TEMPO_BPM,
             DEFAULT_SAMPLE_RATE,
-            None,
+            DEFAULT_LOOP_COUNT,
+            &soundfont_resolution,
+            &synth_profile,
             &realization,
             &transitions,
         );
@@ -2374,7 +3124,9 @@ mod tests {
             &DEMO_ROLLS,
             DEFAULT_TEMPO_BPM,
             DEFAULT_SAMPLE_RATE,
-            None,
+            DEFAULT_LOOP_COUNT,
+            &soundfont_resolution,
+            &synth_profile,
             &realization,
             &transitions,
         );
@@ -2385,6 +3137,52 @@ mod tests {
         assert_eq!(
             synth_a.summary.synth_event_count,
             notes.note_events.len() * 2 + 2
+        );
+    }
+
+    #[test]
+    fn expand_stream_sequences_scale_with_loop_count() {
+        let contracts = load_contracts(CANONICAL_WORK_ID).unwrap();
+        let synth_profile = resolve_synth_routing_profile(None).unwrap();
+        let soundfont_resolution = soundfont_resolution_fallback();
+        let realization = realize_sequence(&contracts, &DEMO_ROLLS, DEFAULT_TEMPO_BPM).unwrap();
+        let notes = build_note_event_sequence(
+            &contracts,
+            &realization,
+            &DEMO_ROLLS,
+            DEFAULT_TEMPO_BPM,
+            DEFAULT_SAMPLE_RATE,
+        )
+        .unwrap();
+        let transitions = build_event_transition_sequence(
+            &DEMO_ROLLS,
+            DEFAULT_TEMPO_BPM,
+            DEFAULT_SAMPLE_RATE,
+            &notes,
+        );
+        let synth = build_synth_event_sequence(
+            &DEMO_ROLLS,
+            DEFAULT_TEMPO_BPM,
+            DEFAULT_SAMPLE_RATE,
+            DEFAULT_LOOP_COUNT,
+            &soundfont_resolution,
+            &synth_profile,
+            &realization,
+            &transitions,
+        );
+        let expanded_notes = expand_note_event_sequence(&notes, 4);
+        let expanded_synth = expand_synth_event_sequence(&synth, 4);
+        assert_eq!(
+            expanded_notes.note_events.len(),
+            notes.note_events.len() * 4
+        );
+        assert_eq!(
+            expanded_synth.summary.synth_event_count,
+            synth.summary.synth_event_count * 4
+        );
+        assert_eq!(
+            expanded_synth.total_duration_seconds,
+            round6(synth.total_duration_seconds * 4.0)
         );
     }
 }

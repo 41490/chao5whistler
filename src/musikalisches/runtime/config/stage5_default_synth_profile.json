@@ -1,0 +1,24 @@
+{
+  "profile_id": "stage5_default_dual_voice",
+  "description": "Default stage-5 routing for the dual-voice K.516f runtime skeleton.",
+  "voice_groups": [
+    {
+      "part_index": 1,
+      "channel": 0,
+      "program": 0,
+      "velocity": 92,
+      "base_amplitude": 0.12,
+      "left_gain": 0.72,
+      "right_gain": 0.46
+    },
+    {
+      "part_index": 2,
+      "channel": 1,
+      "program": 0,
+      "velocity": 84,
+      "base_amplitude": 0.1,
+      "left_gain": 0.46,
+      "right_gain": 0.72
+    }
+  ]
+}

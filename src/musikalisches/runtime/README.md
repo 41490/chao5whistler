@@ -113,6 +113,11 @@ The default scene profile lives at:
 
 - `src/musikalisches/runtime/config/stage6_default_scene_profile.json`
 
+Additional schema-compatible profile variants live at:
+
+- `src/musikalisches/runtime/config/stage6_orbital_sunrise_scene_profile.json`
+- `src/musikalisches/runtime/config/stage6_blueprint_nocturne_scene_profile.json`
+
 If you already have a SoundFont-based stage-5 artifact set, you can also run:
 
 ```bash
@@ -128,6 +133,25 @@ The stub artifacts land in `ops/out/video-stub` and currently include:
 - `video_stub_preview.svg`
 - `stage6_validation_report.json`
 
+The stage-6 render-video skeleton can then derive an offline frame contract and
+local mp4 preview from that stub scene:
+
+```bash
+make -C src/musikalisches stage6-scene-profile-check-all
+make -C src/musikalisches stage6-video-render
+make -C src/musikalisches stage6-video-render-check
+```
+
+Those render artifacts land in `ops/out/video-render` and include:
+
+- `visual_scene_profile.json`
+- `video_render_manifest.json`
+- `offline_frame_sequence.json`
+- `video_render_poster.ppm`
+- `offline_preview.mp4`
+- `stage6_render_validation_report.json`
+
 Manual inspection notes live in:
 
 - `docs/plans/260321-stage6-video-stub-guide.md`
+- `docs/plans/260321-stage6-render-video-guide.md`

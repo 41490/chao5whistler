@@ -3,6 +3,7 @@ mod archive;
 mod cli;
 mod config;
 mod model;
+mod replay;
 
 use std::process;
 

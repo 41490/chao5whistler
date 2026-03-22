@@ -126,3 +126,7 @@ make -C src/musikalisches stage6-video-stub \
 - stage 6 stub validation 通过
 - 视觉侧只依赖 analyzer / loop-plan / synth-profile，不反向读取音频合成内部状态
 - palette / motion / lane-layout 三类规则已能在 stub 中稳定导出
+
+当前这些门槛已满足，后续 render-video skeleton 入口见：
+
+- `docs/plans/260321-stage6-render-video-guide.md`

@@ -5,6 +5,8 @@ MANIFEST := $(ROOT)/src/songh/Cargo.toml
 TRACKED_TEMPLATE := $(ROOT)/docs/plans/260321-songh-template.toml
 STAGE2_FIXTURE_ROOT := $(ROOT)/ops/out/songh-stage2-archive
 STAGE2_FIXTURE_DAY := 2026-03-19
+STAGE3_SAMPLE_START := 0
+STAGE3_SAMPLE_DURATION := 7200
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
 
@@ -26,7 +28,12 @@ help:
 		'  make stage2-prepare-fixture Build normalized/index/manifest from fixture raw' \
 		'  make stage2-validate-fixture Validate the generated fixture day-pack' \
 		'  make stage2-manual          Unified manual verification command' \
-		'  make stage2-all             fmt + test + fixture prepare + validate'
+		'  make stage2-all             fmt + test + fixture prepare + validate' \
+		'' \
+		'Stage 3: second-of-day replay engine' \
+		'  make stage3-sample-fixture  Run replay sample on the prepared fixture day-pack' \
+		'  make stage3-manual          Unified stage-3 manual verification command' \
+		'  make stage3-all             fmt + test + stage2-manual + replay sample'
 
 .PHONY: stage1-fmt
 stage1-fmt:
@@ -87,3 +94,22 @@ stage2-all:
 	@$(MAKE) stage2-seed-fixture
 	@$(MAKE) stage2-prepare-fixture
 	@$(MAKE) stage2-validate-fixture
+
+.PHONY: stage3-sample-fixture
+stage3-sample-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		sample-replay --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY) --start-second $(STAGE3_SAMPLE_START) \
+		--duration-secs $(STAGE3_SAMPLE_DURATION) --dump-json
+
+.PHONY: stage3-manual
+stage3-manual:
+	@$(MAKE) stage2-manual
+	@$(MAKE) stage3-sample-fixture
+
+.PHONY: stage3-all
+stage3-all:
+	@$(MAKE) stage1-fmt
+	@$(MAKE) stage1-test
+	@$(MAKE) stage2-manual
+	@$(MAKE) stage3-sample-fixture

@@ -1,0 +1,65 @@
+{
+  "profile_id": "stage6_orbital_sunrise_24fps",
+  "description": "Warm low-FPS stage-6 profile that exercises palette and motion evolution without changing the analyzer contract.",
+  "canvas": {
+    "width": 1280,
+    "height": 720,
+    "fps": 24
+  },
+  "palette": {
+    "palette_id": "orbital_sunrise",
+    "background_color": "#1b1a22",
+    "panel_color": "#2b2632",
+    "grid_color": "#6e5a69",
+    "text_color": "#f5e9db",
+    "accent_sequence": [
+      "amber",
+      "orange",
+      "coral",
+      "pink",
+      "cyan"
+    ],
+    "colors": {
+      "base03": "#1b1a22",
+      "base02": "#2b2632",
+      "base01": "#6e5a69",
+      "base00": "#b28774",
+      "base0": "#ddbea9",
+      "base1": "#f5e9db",
+      "amber": "#f4b860",
+      "orange": "#f28f3b",
+      "coral": "#ef6f6c",
+      "pink": "#f7a1c4",
+      "cyan": "#66d9ef"
+    }
+  },
+  "motion": {
+    "mode": "orbital_sunrise_pulse",
+    "clock_source": "analysis_window_sequence.clock_seconds",
+    "keyframe_source": "one_keyframe_per_analysis_window",
+    "rotation_degrees_per_second": 18.0,
+    "base_scale": 0.72,
+    "envelope_scale_range": 0.64,
+    "grid_alpha_base": 0.1,
+    "grid_alpha_range": 0.2,
+    "lane_center_y_ratio": 0.48,
+    "lane_bias_y_range_ratio": 0.07,
+    "lane_energy_base": 0.7,
+    "lane_energy_scale": 0.48,
+    "lane_wave_height_px": 14.0,
+    "lane_orbit_px": 48.0,
+    "lane_orbit_wave_px": 10.0,
+    "base_radius_px": 76.0,
+    "radius_range_px": 220.0,
+    "base_opacity": 0.24,
+    "opacity_range": 0.6,
+    "base_stroke_width_px": 2.2,
+    "stroke_width_range_px": 5.8
+  },
+  "preview": {
+    "sampled_window_limit": 144,
+    "title": "musikalisches stage6 orbital sunrise preview",
+    "geometry_label": "warm orbit pulse geometry",
+    "envelope_label": "sampled analyzer envelope in sunrise cadence"
+  }
+}

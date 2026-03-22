@@ -151,6 +151,30 @@ mod tests {
     }
 
     #[test]
+    fn local_example_merges_cleanly_with_template() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("repo root")
+            .to_path_buf();
+        let template_path = root.join("docs/plans/260321-songh-template.toml");
+        let example_path = root.join("src/songh/songh.local.toml.example");
+        let temp = tempdir().expect("tempdir");
+        let main_path = temp.path().join("songh.toml");
+        let local_path = temp.path().join("songh.local.toml");
+
+        fs::copy(&template_path, &main_path).expect("copy template");
+        fs::copy(&example_path, &local_path).expect("copy example");
+
+        let loaded = load_from_path(&main_path, None).expect("example should merge");
+        assert_eq!(loaded.config.archive.root_dir, "/tmp/songh/archive");
+        assert_eq!(
+            loaded.config.outputs.record.path,
+            "/tmp/songh/records/{date}/{label}.flv"
+        );
+    }
+
+    #[test]
     fn local_override_wins_over_main_file() {
         let temp = tempdir().expect("tempdir");
         let main_path = temp.path().join("songh.toml");

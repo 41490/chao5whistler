@@ -17,7 +17,8 @@ use crate::model::normalized_event::NormalizedEvent;
 use self::download::download_missing_raw_hours;
 use self::index::{HourMinuteIndex, MinuteOffsetRecord};
 use self::manifest::{
-    DayPackManifest, DayPackStats, FileChecksumRecord, HourManifestRecord, HourStats, IndexRecord,
+    config_fingerprint, DayPackManifest, DayPackStats, FileChecksumRecord, HourManifestRecord,
+    HourStats, IndexRecord,
 };
 use self::materialize::open_gzip_lines;
 use self::normalize::{
@@ -287,11 +288,14 @@ pub fn prepare_day_pack(
 
     let stats_record = checksum_record(&layout.stats_path, &layout.archive_root)?;
     let minute_offsets_record = checksum_record(&layout.minute_offsets_path, &layout.archive_root)?;
+    let config_fingerprint = config_fingerprint(config)?;
 
     let manifest = DayPackManifest {
-        schema_version: "stage2.manifest.v1".to_string(),
+        schema_version: "stage2.manifest.v2".to_string(),
         source_day: day.to_string(),
         generated_at_utc,
+        generator_version: env!("CARGO_PKG_VERSION").to_string(),
+        config_fingerprint,
         complete: true,
         codec: codec_name(config.archive.normalize.codec).to_string(),
         supported_event_classes: allowed_types,
@@ -361,6 +365,12 @@ pub fn validate_day_pack(
 
     if !manifest.complete {
         bail!("manifest marks day-pack as incomplete");
+    }
+    if manifest.generator_version.trim().is_empty() {
+        bail!("manifest generator_version must not be empty");
+    }
+    if manifest.config_fingerprint.trim().is_empty() {
+        bail!("manifest config_fingerprint must not be empty");
     }
     if manifest.raw_hours.len() != 24 {
         bail!("manifest must declare 24 raw hours");
@@ -470,7 +480,7 @@ pub struct DayPackLayout {
 }
 
 impl DayPackLayout {
-    fn new(archive_root: PathBuf, source_day: String) -> Self {
+    pub(crate) fn new(archive_root: PathBuf, source_day: String) -> Self {
         let day_dir = archive_root.join(&source_day);
         let raw_dir = day_dir.join("raw");
         let normalized_dir = day_dir.join("normalized");
@@ -574,7 +584,7 @@ fn build_hour_minute_index(
     }
 }
 
-fn resolve_archive_root(config: &Config, override_root: Option<&Path>) -> PathBuf {
+pub(crate) fn resolve_archive_root(config: &Config, override_root: Option<&Path>) -> PathBuf {
     override_root
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from(&config.archive.root_dir))
@@ -590,7 +600,7 @@ fn ensure_all_raw_hours_exist(layout: &DayPackLayout) -> Result<()> {
     Ok(())
 }
 
-fn validate_day(day: &str) -> Result<()> {
+pub(crate) fn validate_day(day: &str) -> Result<()> {
     let parts = day.split('-').collect::<Vec<_>>();
     if parts.len() != 3 {
         bail!("day must use YYYY-MM-DD");
@@ -617,6 +627,8 @@ fn codec_name(codec: NormalizeCodec) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use tempfile::tempdir;
 
     use super::*;
@@ -638,6 +650,11 @@ mod tests {
         assert_eq!(prepared.raw_event_count, 48);
         assert_eq!(prepared.normalized_event_count, 24);
         assert_eq!(prepared.dropped_secondary_event_count, 24);
+        let manifest: DayPackManifest =
+            toml::from_str(&fs::read_to_string(&prepared.manifest_path).expect("read manifest"))
+                .expect("parse manifest");
+        assert_eq!(manifest.generator_version, env!("CARGO_PKG_VERSION"));
+        assert!(!manifest.config_fingerprint.is_empty());
 
         let validated =
             validate_day_pack(&config, day, Some(&archive_root)).expect("validate day-pack");

@@ -1,0 +1,18 @@
+# Machine-local overrides for songh runtime.
+# Keep stream keys in SONGH_RTMP_URL whenever possible.
+
+[archive]
+root_dir = "/tmp/songh/archive"
+
+[audio.background]
+wav_path = "/tmp/songh/background.wav"
+
+[video.text]
+font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+[outputs.record]
+path = "/tmp/songh/records/{date}/{label}.flv"
+
+# Uncomment only for a local relay target without secrets.
+#[outputs.rtmp]
+#url = "rtmp://127.0.0.1/live/songh"

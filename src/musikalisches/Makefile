@@ -8,10 +8,12 @@ STREAM_SF2_OUT := $(ROOT)/ops/out/stream-sf2
 GOLDEN_OUT := $(ROOT)/ops/out/golden-check
 VIDEO_STUB_OUT := $(ROOT)/ops/out/video-stub
 VIDEO_STUB_SF2_OUT := $(ROOT)/ops/out/video-stub-sf2
+VIDEO_RENDER_OUT := $(ROOT)/ops/out/video-render
+VIDEO_RENDER_SF2_OUT := $(ROOT)/ops/out/video-render-sf2
 DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_synth_profile.json
 DEFAULT_STAGE6_SCENE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage6_default_scene_profile.json
 DEFAULT_SOUNDFONT := $(ROOT)/ops/assets/soundfonts/default.sf2
-PYTHON ?= python
+PYTHON ?= python3
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
 
@@ -42,16 +44,22 @@ help:
 	'Stage 6 preflight:' \
 	'  make stage6-video-stub    Derive visual stub artifacts from analyzer output' \
 	'  make stage6-video-check   Validate stage6 visual stub artifacts' \
+	'  make stage6-video-render  Render offline frame contract and mp4 from stage6 stub' \
+	'  make stage6-video-render-check Validate stage6 video render artifacts' \
 	'  make stage6-video-stub-sf2 Build visual stub from SoundFont artifacts' \
 	'  make stage6-video-check-sf2 Validate SoundFont visual stub artifacts' \
+	'  make stage6-video-render-sf2 Render SoundFont-derived offline frame contract and mp4' \
+	'  make stage6-video-render-check-sf2 Validate SoundFont video render artifacts' \
 	'  make stage6-scene-profile-check Validate stage6 scene profile contract' \
+	'  make stage6-scene-profile-check-all Validate all repo stage6 scene profiles' \
 	'  make stage6-scene-profile-show Show default stage6 scene profile path' \
 	'  make stage6-plan-show     Show stage6 video stub guide path' \
+	'  make stage6-render-plan-show Show stage6 render-video guide path' \
 	'' \
 	'Utilities:' \
 	'  make stage5-all            fmt + test + golden + stream render + validate' \
-	'  make stage6-all            stage5-stream + stage6 stub build + validate' \
-	'  make stage6-sf2-all        stage5-sf2 + stage6 sf2 stub build + validate' \
+	'  make stage6-all            stream + scene profile checks + stub + video render + validate' \
+	'  make stage6-sf2-all        sf2 stream + stub + video render + validate' \
 	'  make plans-open            Print manual test guide path' \
 	'  make clean-out             Remove generated artifact dirs used by Makefile' \
 	'' \
@@ -168,6 +176,21 @@ stage6-video-check:
 	fi
 	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage6_video_stub.py $(VIDEO_STUB_OUT)
 
+.PHONY: stage6-video-render
+stage6-video-render:
+	@$(MAKE) stage6-video-stub
+	@$(MAKE) stage6-video-check
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage6_video_render.py \
+		$(VIDEO_STUB_OUT) \
+		$(VIDEO_RENDER_OUT)
+
+.PHONY: stage6-video-render-check
+stage6-video-render-check:
+	@if [[ ! -f "$(VIDEO_RENDER_OUT)/offline_frame_sequence.json" ]]; then \
+		$(MAKE) stage6-video-render; \
+	fi
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage6_video_render.py $(VIDEO_RENDER_OUT)
+
 .PHONY: stage6-video-stub-sf2
 stage6-video-stub-sf2:
 	@SOURCE_DIR="$${STAGE6_SF2_SOURCE_DIR:-$(STREAM_SF2_OUT)}"; \
@@ -186,10 +209,32 @@ stage6-video-check-sf2:
 	fi
 	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage6_video_stub.py $(VIDEO_STUB_SF2_OUT)
 
+.PHONY: stage6-video-render-sf2
+stage6-video-render-sf2:
+	@$(MAKE) stage6-video-stub-sf2
+	@$(MAKE) stage6-video-check-sf2
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage6_video_render.py \
+		$(VIDEO_STUB_SF2_OUT) \
+		$(VIDEO_RENDER_SF2_OUT)
+
+.PHONY: stage6-video-render-check-sf2
+stage6-video-render-check-sf2:
+	@if [[ ! -f "$(VIDEO_RENDER_SF2_OUT)/offline_frame_sequence.json" ]]; then \
+		$(MAKE) stage6-video-render-sf2; \
+	fi
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage6_video_render.py $(VIDEO_RENDER_SF2_OUT)
+
 .PHONY: stage6-scene-profile-check
 stage6-scene-profile-check:
 	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage6_scene_profile.py \
 		"$${STAGE6_SCENE_PROFILE:-$(DEFAULT_STAGE6_SCENE_PROFILE)}"
+
+.PHONY: stage6-scene-profile-check-all
+stage6-scene-profile-check-all:
+	@for profile in $(ROOT)/src/musikalisches/runtime/config/stage6*_scene_profile.json; do \
+		printf '%s\n' "$$profile"; \
+		cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage6_scene_profile.py "$$profile" || exit $$?; \
+	done
 
 .PHONY: stage6-scene-profile-show
 stage6-scene-profile-show:
@@ -198,6 +243,10 @@ stage6-scene-profile-show:
 .PHONY: stage6-plan-show
 stage6-plan-show:
 	@printf '%s\n' $(ROOT)/docs/plans/260321-stage6-video-stub-guide.md
+
+.PHONY: stage6-render-plan-show
+stage6-render-plan-show:
+	@printf '%s\n' $(ROOT)/docs/plans/260321-stage6-render-video-guide.md
 
 .PHONY: stage5-all
 stage5-all:
@@ -210,14 +259,20 @@ stage5-all:
 .PHONY: stage6-all
 stage6-all:
 	@$(MAKE) stage5-stream
+	@$(MAKE) stage6-scene-profile-check-all
 	@$(MAKE) stage6-video-stub
 	@$(MAKE) stage6-video-check
+	@$(MAKE) stage6-video-render
+	@$(MAKE) stage6-video-render-check
 
 .PHONY: stage6-sf2-all
 stage6-sf2-all:
 	@$(MAKE) stage5-sf2
+	@$(MAKE) stage6-scene-profile-check-all
 	@$(MAKE) stage6-video-stub-sf2
 	@$(MAKE) stage6-video-check-sf2
+	@$(MAKE) stage6-video-render-sf2
+	@$(MAKE) stage6-video-render-check-sf2
 
 .PHONY: plans-open
 plans-open:
@@ -225,4 +280,4 @@ plans-open:
 
 .PHONY: clean-out
 clean-out:
-	rm -rf $(DEMO_OUT) $(STREAM_DEMO_OUT) $(STREAM_SF2_OUT) $(GOLDEN_OUT) $(VIDEO_STUB_OUT) $(VIDEO_STUB_SF2_OUT)
+	rm -rf $(DEMO_OUT) $(STREAM_DEMO_OUT) $(STREAM_SF2_OUT) $(GOLDEN_OUT) $(VIDEO_STUB_OUT) $(VIDEO_STUB_SF2_OUT) $(VIDEO_RENDER_OUT) $(VIDEO_RENDER_SF2_OUT)

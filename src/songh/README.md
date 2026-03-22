@@ -4,20 +4,33 @@
 
 当前已进入：
 
-- stage 2: `gharchive day-pack downloader + normalize pipeline`
+- stage 3: `second-of-day replay engine`
 
 当前阶段统一人工检验入口：
 
 ```bash
-make -C src/songh stage2-manual
+make -C src/songh stage3-manual
 ```
 
 当前阶段自动回归入口：
 
 ```bash
-make -C src/songh stage2-all
+make -C src/songh stage3-all
 ```
 
-下一阶段预告：
+当前已落地：
 
+- stage 2: `gharchive day-pack downloader + normalize pipeline`
 - stage 3: `second-of-day replay engine`
+
+补充说明：
+
+- `sample-replay` 已按固定规则实现：
+  - `minute_offsets.json` 驱动小时/分钟窗口定位
+  - `top-4` 稳定选择
+  - `10-minute dedupe`
+  - `overflow count`
+- `manifest.toml` 已补：
+  - `generator_version`
+  - `config_fingerprint`
+- 仓库已补 `src/songh/songh.local.toml.example` 作为本机覆盖参考

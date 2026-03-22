@@ -7,11 +7,15 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::config::schema::Config;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DayPackManifest {
     pub schema_version: String,
     pub source_day: String,
     pub generated_at_utc: String,
+    pub generator_version: String,
+    pub config_fingerprint: String,
     pub complete: bool,
     pub codec: String,
     pub supported_event_classes: Vec<String>,
@@ -113,4 +117,11 @@ pub fn checksum_record(path: &Path, archive_root: &Path) -> Result<FileChecksumR
         size_bytes: metadata.len(),
         sha256: hex::encode(hasher.finalize()),
     })
+}
+
+pub fn config_fingerprint(config: &Config) -> Result<String> {
+    let payload = serde_json::to_vec(config)?;
+    let mut hasher = Sha256::new();
+    hasher.update(payload);
+    Ok(hex::encode(hasher.finalize()))
 }

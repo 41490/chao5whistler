@@ -4,10 +4,11 @@ use anyhow::Result;
 
 use crate::archive;
 use crate::cli::{
-    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, SeedFixtureRawArgs,
-    ValidateDayPackArgs,
+    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, SampleReplayArgs,
+    SeedFixtureRawArgs, ValidateDayPackArgs,
 };
 use crate::config::{self, OutputFormat};
+use crate::replay;
 
 pub fn run<I>(args: I) -> Result<()>
 where
@@ -23,6 +24,7 @@ where
         CliCommand::SeedFixtureRaw(args) => run_seed_fixture_raw(args)?,
         CliCommand::PrepareDayPack(args) => run_prepare_day_pack(args)?,
         CliCommand::ValidateDayPack(args) => run_validate_day_pack(args)?,
+        CliCommand::SampleReplay(args) => run_sample_replay(args)?,
     }
 
     Ok(())
@@ -144,6 +146,43 @@ fn run_validate_day_pack(args: ValidateDayPackArgs) -> Result<()> {
     println!("normalized events: {}", report.normalized_event_count);
     println!("minute index hours: {}", report.minute_index_hours);
     println!("manifest checksum coverage: ok");
+    Ok(())
+}
+
+fn run_sample_replay(args: SampleReplayArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report = replay::sample_day_pack(
+        &loaded.config,
+        &args.day,
+        args.archive_root.as_deref(),
+        args.start_second,
+        args.duration_secs,
+    )?;
+
+    println!("songh stage3 replay sample passed");
+    println!("main config: {}", config_path.display());
+    println!("archive root: {}", report.archive_root.display());
+    println!("source day: {}", report.source_day);
+    println!("start second: {}", report.start_second);
+    println!("duration secs: {}", report.duration_secs);
+    println!("source events: {}", report.source_event_count);
+    println!("emitted events: {}", report.emitted_event_count);
+    println!("deduped events: {}", report.deduped_event_count);
+    println!("overflow events: {}", report.overflow_event_count);
+    println!(
+        "seconds with source/emission: {}/{}",
+        report.seconds_with_source_events, report.seconds_with_emission
+    );
+    println!("config fingerprint: {}", report.config_fingerprint);
+
+    if args.dump_json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
     Ok(())
 }
 

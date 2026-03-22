@@ -10,6 +10,12 @@ use serde::de::DeserializeOwned;
 
 use crate::config::schema::NormalizeCodec;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisitControl {
+    Continue,
+    Break,
+}
+
 pub fn open_gzip_lines(path: &Path) -> Result<impl Iterator<Item = Result<String>>> {
     let file =
         fs::File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
@@ -93,6 +99,18 @@ pub fn read_encoded_json_lines<T>(path: &Path) -> Result<Vec<T>>
 where
     T: DeserializeOwned,
 {
+    let mut items = Vec::new();
+    visit_encoded_lines(path, |_, line| {
+        items.push(serde_json::from_str(line)?);
+        Ok(VisitControl::Continue)
+    })?;
+    Ok(items)
+}
+
+pub fn visit_encoded_lines<F>(path: &Path, mut visitor: F) -> Result<()>
+where
+    F: FnMut(u64, &str) -> Result<VisitControl>,
+{
     let file =
         fs::File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let extension = path
@@ -100,16 +118,27 @@ where
         .and_then(|value| value.to_str())
         .unwrap_or_default();
 
-    let reader: Box<dyn BufRead> = match extension {
+    let mut reader: Box<dyn BufRead> = match extension {
         "gz" => Box::new(BufReader::new(GzDecoder::new(file))),
         "zst" => Box::new(BufReader::new(zstd::stream::read::Decoder::new(file)?)),
         other => anyhow::bail!("unsupported encoded extension: {other}"),
     };
 
-    let mut items = Vec::new();
-    for line in reader.lines() {
-        let line = line?;
-        items.push(serde_json::from_str(&line)?);
+    let mut line = String::new();
+    let mut line_index = 0_u64;
+    loop {
+        line.clear();
+        let read = reader.read_line(&mut line)?;
+        if read == 0 {
+            break;
+        }
+        let line = line.trim_end_matches(['\r', '\n']);
+        match visitor(line_index, line)? {
+            VisitControl::Continue => {
+                line_index += 1;
+            }
+            VisitControl::Break => break,
+        }
     }
-    Ok(items)
+    Ok(())
 }

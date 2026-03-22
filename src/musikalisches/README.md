@@ -35,12 +35,13 @@
 - note-event / transition 契约已显式带出 `voice_group` 元数据，可为后续合成器/分析器对接保留分组边界
 - `render-audio` 已可在提供 `--soundfont` 时走 `rustysynth` 真实合成；未提供时按 `--soundfont` > `MUSIKALISCHES_SOUNDFONT` > repo/system default 的顺序发现，找不到才回退到内置 deterministic fallback
 - stage 5 已补 `loop_count` 连续播放骨架、`synth_profile` 路由配置、以及统一 analyzer 时钟输出，便于进入视频/直播链路前先做人工检验
-- stage 6 已补 analyzer -> video stub 预演入口，可把 stage 5 分析输出转成 Solarized Dark 的视觉 stub 契约与静态预览
-- stage 6 已把默认 visual scene profile 收敛到 repo 配置文件，并补了单独的 SF2 visual smoke path
+- stage 6 已补 analyzer -> video stub 预演入口，可把 stage 5 分析输出转成视觉 stub 契约与静态预览
+- stage 6 已进入 `render-video` skeleton，可把 stub scene 进一步冻结为离线 frame contract 和本地 mp4 preview
+- stage 6 已把默认 visual scene profile 收敛到 repo 配置文件，并补了 2 个可版本化 profile 变体以及单独的 SF2 visual smoke path
 
 当前仍未完成：
 
-- stage 6 视觉层
+- stage 6 正式高性能视频编码器
 - stage 7 FFmpeg / RTMP bridge
 - stage 8 soak / operations
 
@@ -70,8 +71,8 @@ make -C src/musikalisches help
 如需重新生成并校验 stage 4 ingest 产物：
 
 ```bash
-python src/musikalisches/tools/freeze_ingest.py
-python src/musikalisches/tools/validate_ingest_freeze.py
+python3 src/musikalisches/tools/freeze_ingest.py
+python3 src/musikalisches/tools/validate_ingest_freeze.py
 ```
 
 ## stage 5 M1
@@ -116,7 +117,7 @@ cargo run -- render-audio \
 验收这套样例产物：
 
 ```bash
-python src/musikalisches/tools/validate_m1_artifacts.py ops/out/m1-demo
+python3 src/musikalisches/tools/validate_m1_artifacts.py ops/out/m1-demo
 ```
 
 人工构建与分流输出检验说明见：
@@ -131,8 +132,11 @@ docs/plans/260321-stage5-build-and-manual-test-guide.md
 
 ```bash
 make -C src/musikalisches stage6-scene-profile-check
+make -C src/musikalisches stage6-scene-profile-check-all
 make -C src/musikalisches stage6-video-stub
 make -C src/musikalisches stage6-video-check
+make -C src/musikalisches stage6-video-render
+make -C src/musikalisches stage6-video-render-check
 ```
 
 默认 visual scene profile:
@@ -147,23 +151,39 @@ src/musikalisches/runtime/config/stage6_default_scene_profile.json
 src/musikalisches/runtime/config/stage6_scene_profile.schema.json
 ```
 
+可版本化 profile 变体:
+
+```text
+src/musikalisches/runtime/config/stage6_orbital_sunrise_scene_profile.json
+src/musikalisches/runtime/config/stage6_blueprint_nocturne_scene_profile.json
+```
+
 如已有 SoundFont 路径样例产物，也可单独做一轮 visual smoke：
 
 ```bash
 make -C src/musikalisches stage6-video-stub-sf2
 make -C src/musikalisches stage6-video-check-sf2
+make -C src/musikalisches stage6-video-render-sf2
+make -C src/musikalisches stage6-video-render-check-sf2
 ```
 
-默认输出：
+stub 默认输出：
 
 ```text
 ops/out/video-stub
+```
+
+render-video skeleton 默认输出：
+
+```text
+ops/out/video-render
 ```
 
 说明文档见：
 
 ```text
 docs/plans/260321-stage6-video-stub-guide.md
+docs/plans/260321-stage6-render-video-guide.md
 ```
 
 运行 stage 5 golden regression：

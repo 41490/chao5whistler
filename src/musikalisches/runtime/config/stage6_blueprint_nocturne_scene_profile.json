@@ -1,0 +1,65 @@
+{
+  "profile_id": "stage6_blueprint_nocturne_1080p",
+  "description": "Wide 1080p blueprint-like stage-6 profile used to verify scene-schema evolution across resolution and palette variants.",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "palette": {
+    "palette_id": "blueprint_nocturne",
+    "background_color": "#06141f",
+    "panel_color": "#0c2433",
+    "grid_color": "#2f5f7a",
+    "text_color": "#d6f0ff",
+    "accent_sequence": [
+      "cyan",
+      "teal",
+      "mint",
+      "ice",
+      "blue"
+    ],
+    "colors": {
+      "base03": "#06141f",
+      "base02": "#0c2433",
+      "base01": "#2f5f7a",
+      "base00": "#5b8aa8",
+      "base0": "#9bc7de",
+      "base1": "#d6f0ff",
+      "cyan": "#53d8fb",
+      "teal": "#32c7b5",
+      "mint": "#83f7c3",
+      "ice": "#b5ecff",
+      "blue": "#76a9ff"
+    }
+  },
+  "motion": {
+    "mode": "blueprint_orbit_lattice",
+    "clock_source": "analysis_window_sequence.clock_seconds",
+    "keyframe_source": "one_keyframe_per_analysis_window",
+    "rotation_degrees_per_second": 14.0,
+    "base_scale": 0.78,
+    "envelope_scale_range": 0.52,
+    "grid_alpha_base": 0.12,
+    "grid_alpha_range": 0.22,
+    "lane_center_y_ratio": 0.47,
+    "lane_bias_y_range_ratio": 0.06,
+    "lane_energy_base": 0.68,
+    "lane_energy_scale": 0.44,
+    "lane_wave_height_px": 18.0,
+    "lane_orbit_px": 60.0,
+    "lane_orbit_wave_px": 14.0,
+    "base_radius_px": 88.0,
+    "radius_range_px": 260.0,
+    "base_opacity": 0.22,
+    "opacity_range": 0.58,
+    "base_stroke_width_px": 2.4,
+    "stroke_width_range_px": 5.4
+  },
+  "preview": {
+    "sampled_window_limit": 180,
+    "title": "musikalisches stage6 blueprint nocturne preview",
+    "geometry_label": "wide orbit lattice geometry",
+    "envelope_label": "sampled analyzer envelope in blueprint cadence"
+  }
+}

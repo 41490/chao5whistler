@@ -6,8 +6,8 @@
 - `work_id`: `mozart_dicegame_print_1790s`
 - `canonical_witness_id`: `rellstab_1790`
 - `verification_witness_id`: `simrock_1793`
-- current plan stage: `stage 6: preflight + render-video skeleton`
-- first runtime milestone: `offline realization + offline audio/video preview`
+- current plan stage: `stage 7: bridge freeze + pre-stage8 hardening`
+- first runtime milestone: `offline realization + offline audio/video preview + local bridge smoke`
 
 ## boundary
 
@@ -40,11 +40,14 @@
 - stage 6 已把默认 visual scene profile 收敛到 repo 配置文件，并补了 2 个可版本化 profile 变体以及单独的 SF2 visual smoke path
 - `render-video` manifest / validator 现已显式冻结 preview video 的 `expected_frame_count` / `expected_fps` / `expected_duration_seconds`
 - 如构建机有 `ffprobe`，`video_render_manifest.json` 会额外带出 mp4 probe 元数据，供后续运维验收对账
+- stage 7 已冻结默认 `RTMPS + FLV` bridge profile，并新增 builder / validator / guide
+- stage 7 live bridge 已补 `once` / `infinite` 两种 loop mode，默认通过 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite` 连续对齐 stage5 loop plan 与 stage6 render duration
+- stage 7 runtime 已补 redacted stderr log / exit report / failure taxonomy，可区分 `handshake_failure` / `auth_failure` / `network_jitter` / `remote_disconnect` / `ingest_configuration_failure`
+- stage 7 已基于当前 bridge manifest 生成 `stage7_soak_plan.json`，并提供 `stage7-soak-check` 作为进入 stage 8 前的长时 soak gate
 
 当前仍未完成：
 
 - stage 6 正式高性能视频编码器
-- stage 7 FFmpeg / RTMP bridge
 - stage 8 soak / operations
 
 在 stage 5 之前，不应把这里描述成“已经开始实现 K.516f 无限直播工具”。
@@ -100,7 +103,7 @@ make -C src/musikalisches help
 - 没有 `ffmpeg` 时，`stage6-video-render` 仍可生成 frame contract / poster，但 mp4 会被标记为 skipped
 - 有 `ffmpeg` 但没有 `ffprobe` 时，可以出 mp4；但 preview video contract 无法做完整探测，运维机仍建议成对安装
 - 推荐用 `rustup` 安装最新 stable Rust；不要依赖 Debian 仓库内过旧的 `rustc` / `cargo`
-- 当前 README 只覆盖到 stage 6 本地离线预演；stage 7 `FFmpeg / RTMP bridge` 仍未进入正式运维说明
+- stage 7 默认只产出本地 `flv` smoke 与 redacted live command，不默认发起真实推流
 
 ## ops quickstart
 
@@ -114,6 +117,9 @@ make -C src/musikalisches stage6-video-stub
 make -C src/musikalisches stage6-video-check
 make -C src/musikalisches stage6-video-render
 make -C src/musikalisches stage6-video-render-check
+make -C src/musikalisches stage7-bridge
+make -C src/musikalisches stage7-bridge-check
+make -C src/musikalisches stage7-soak-check
 ```
 
 如需走 SoundFont smoke：
@@ -268,6 +274,63 @@ ops/out/video-render/stage6_render_validation_report.json
 ```text
 docs/plans/260321-stage6-video-stub-guide.md
 docs/plans/260321-stage6-render-video-guide.md
+docs/plans/260322-stage7-stream-bridge-guide.md
+```
+
+## stage 7 bridge freeze
+
+当前 stage 7 默认冻结为：
+
+- ingest：`RTMPS + FLV`
+- 视频：`1280x720 @ 30fps`
+- 视频编码：`H.264 / libx264`
+- preset：`ultrafast`
+- 视频码率：`4000 Kbps CBR`
+- keyframe：`2 seconds`
+- 音频：`AAC stereo @ 44.1 KHz / 128 Kbps`
+- 真实推流地址通过 `MUSIKALISCHES_RTMP_URL` 注入，不写入 manifest
+
+当前 stage 7 会生成：
+
+- `stage7_bridge_profile.json`
+- `stream_bridge_manifest.json`
+- `stream_bridge_ffmpeg_args.json`
+- `stage7_failure_taxonomy.json`
+- `stage7_soak_plan.json`
+- `run_stage7_stream_bridge.sh`
+- `stage7_bridge_smoke.flv`
+- `stage7_bridge_validation_report.json`
+- `stage7_soak_validation_report.json`
+
+默认输出目录：
+
+```text
+ops/out/stream-bridge
+```
+
+当前 runtime / ops 约定：
+
+- `run_stage7_stream_bridge.sh` 默认使用 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`
+- 如需只跑单次有限输入，可设置 `MUSIKALISCHES_STAGE7_LOOP_MODE=once`
+- 如需做受控长时 bridge / soak 预演，可设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
+- runtime 会把 `stderr` 写到 `logs/stage7_bridge_latest.stderr.log`
+- runtime 会把退出分类写到 `logs/stage7_bridge_exit_report.json`
+
+失败分类当前至少覆盖：
+
+- `handshake_failure`
+- `auth_failure`
+- `ingest_configuration_failure`
+- `network_jitter`
+- `remote_disconnect`
+- `unknown_failure`
+
+进入 stage 8 前，推荐最小验收顺序：
+
+```bash
+make -C src/musikalisches stage7-bridge
+make -C src/musikalisches stage7-bridge-check
+make -C src/musikalisches stage7-soak-check
 ```
 
 运行 stage 5 golden regression：

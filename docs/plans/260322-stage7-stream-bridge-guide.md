@@ -1,0 +1,77 @@
+# stage7 stream bridge guide
+
+这一步冻结的是 `FFmpeg / RTMPS bridge` contract，并把进入 stage 8 前必须具备的 loop / failure taxonomy / soak gate 一并落到仓库工件里。
+
+当前默认目标：
+
+- 协议：`RTMPS`
+- mux/container：`flv`
+- 视频：`1280x720 @ 30fps`
+- 视频编码：`H.264 / libx264`
+- preset：`ultrafast`
+- 视频码率：`4000 Kbps CBR`
+- keyframe：`2 seconds`
+- 音频：`AAC stereo`
+- 音频采样率：`44.1 KHz`
+- 音频码率：`128 Kbps`
+
+本地工件入口：
+
+```bash
+make -C src/musikalisches stage7-bridge
+make -C src/musikalisches stage7-bridge-check
+make -C src/musikalisches stage7-soak-check
+```
+
+默认输入：
+
+- stage5 音频工件：`ops/out/stream-demo`
+- stage6 视频工件：`ops/out/video-render`
+
+默认输出：
+
+- `ops/out/stream-bridge`
+
+生成内容：
+
+- `stage7_bridge_profile.json`
+- `stream_bridge_manifest.json`
+- `stream_bridge_ffmpeg_args.json`
+- `stage7_failure_taxonomy.json`
+- `stage7_soak_plan.json`
+- `run_stage7_stream_bridge.sh`
+- `stage7_bridge_smoke.flv`
+- `stage7_bridge_validation_report.json`
+- `stage7_soak_validation_report.json`
+
+当前补齐的 pre-stage8 优化：
+
+- `loop bridge`: 默认 live mode 为 `infinite`，通过 `MUSIKALISCHES_STAGE7_LOOP_MODE` 在 `once` / `infinite` 间切换
+- `failure taxonomy`: 运行时会写 redacted `stderr` 与 `exit report`，至少区分 `handshake_failure` / `auth_failure` / `network_jitter` / `remote_disconnect` / `ingest_configuration_failure`
+- `soak gate`: 基于 bridge manifest 生成 `stage7_soak_plan.json`，并以 `stage7-soak-check` 验证进入 stage 8 前的最小条件
+
+运行脚本约定：
+
+- 必需：`MUSIKALISCHES_RTMP_URL`
+- 可选：`MUSIKALISCHES_STAGE7_LOOP_MODE=once|infinite`
+- 可选：`MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
+
+示例：
+
+```bash
+export MUSIKALISCHES_RTMP_URL='rtmps://...'
+export MUSIKALISCHES_STAGE7_LOOP_MODE=infinite
+export MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=60
+ops/out/stream-bridge/run_stage7_stream_bridge.sh
+```
+
+运行后的观测文件：
+
+- `ops/out/stream-bridge/logs/stage7_bridge_latest.stderr.log`
+- `ops/out/stream-bridge/logs/stage7_bridge_exit_report.json`
+
+边界：
+
+- 默认流程只做本地 `flv` smoke，不默认发起真实推流
+- 真正的直播 URL 不进入仓库文件，也不写入 manifest
+- `stage7_soak_check` 现在验证的是进入 stage 8 前的 readiness contract，不是 8h-24h 实际长跑结果本身

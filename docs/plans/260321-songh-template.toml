@@ -21,7 +21,9 @@ label = "songh"
 # - "dry_run"
 mode = "archive_replay"
 
-# V1 only supports "realtime_day".
+# Allowed:
+# - "realtime_day"
+# - "fast"
 clock = "realtime_day"
 
 # Start on the next whole second so A/V clocks align cleanly.
@@ -88,7 +90,7 @@ max_events_per_second = 4
 dedupe_window_secs = 600
 
 # Stable selection order when a second contains more than 4 events.
-selection_order = ["weight_desc", "created_at_asc", "event_id_asc"]
+selection_order = ["weight_desc", "event_id_asc"]
 
 # V1 drops overflow events after counting them.
 overflow_policy = "drop_and_count"
@@ -318,8 +320,8 @@ pan = 0.0
 
 [video.canvas]
 # Fully configurable render resolution.
-width = 1920
-height = 1080
+width = 1280
+height = 720
 fps = 30
 
 [video.palette]
@@ -374,6 +376,12 @@ enable_local_record = true
 
 # Single encode, multi-output policy.
 tee_muxer = true
+
+[outputs.encode]
+# Frozen target profile from the latest Issue decision.
+video_codec = "h264"
+video_preset = "ultrafast"
+audio_bitrate_kbps = 128
 
 [outputs.rtmp]
 # Leave empty in tracked config.

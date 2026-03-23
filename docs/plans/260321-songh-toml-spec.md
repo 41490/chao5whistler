@@ -117,6 +117,7 @@
 [video.text]
 [video.motion]
 [outputs]
+[outputs.encode]
 [outputs.rtmp]
 [outputs.record]
 [observe]
@@ -158,12 +159,13 @@
 - required: yes
 - allowed:
   - `"realtime_day"`
+  - `"fast"`
 - default: `"realtime_day"`
 
 冻结说明：
 
-- V1 只支持 `realtime_day`
-- 不支持加速回放、不支持慢放
+- `realtime_day` 用于实际直播
+- `fast` 用于 replay 验收和离线 dry-run
 
 #### `start_policy`
 
@@ -298,7 +300,6 @@
 - required: yes
 - default:
   - `"weight_desc"`
-  - `"created_at_asc"`
   - `"event_id_asc"`
 
 #### `overflow_policy`
@@ -592,14 +593,14 @@
 
 - type: `integer`
 - required: yes
-- default: `1920`
+- default: `1280`
 - min: `320`
 
 #### `height`
 
 - type: `integer`
 - required: yes
-- default: `1080`
+- default: `720`
 - min: `240`
 
 #### `fps`
@@ -762,6 +763,31 @@
 
 - V1 默认单次编码，多路输出
 
+### `[outputs.encode]`
+
+#### `video_codec`
+
+- type: `string`
+- required: yes
+- allowed:
+  - `"h264"`
+- default: `"h264"`
+
+#### `video_preset`
+
+- type: `string`
+- required: yes
+- allowed:
+  - `"ultrafast"`
+- default: `"ultrafast"`
+
+#### `audio_bitrate_kbps`
+
+- type: `integer`
+- required: yes
+- default: `128`
+- fixed: `128`
+
 ### `[outputs.rtmp]`
 
 #### `url`
@@ -902,9 +928,11 @@ V1 明确不支持：
 - `dedupe_window_secs = 600`
 - `fallback.density_scale = 0.5`
 - `sample_rate = 48000`
-- `video.canvas = 1920x1080@30`
+- `video.canvas = 1280x720@30`
 - `video.motion.mode = "vertical"`
 - `text.template = "{repo}/{hash:8}"`
+- `outputs.encode.video_preset = "ultrafast"`
+- `outputs.encode.audio_bitrate_kbps = 128`
 - `outputs.record.container = "flv"`
 
 ## paired artifact

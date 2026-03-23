@@ -30,6 +30,11 @@ make -C src/songh stage3-all
   - `top-4` 稳定选择
   - `10-minute dedupe`
   - `overflow count`
+- stage 3 冻结决策已同步到配置层：
+  - `runtime.clock` 允许 `realtime_day | fast`
+  - `replay.selection_order` 固定为 `weight_desc -> event_id_asc`
+  - `video.canvas` 默认值更新为 `1280x720@30`
+  - `outputs.encode` 冻结为 `h264 / ultrafast / 128 kbps`
 - `manifest.toml` 已补：
   - `generator_version`
   - `config_fingerprint`

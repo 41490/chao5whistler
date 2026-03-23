@@ -74,6 +74,7 @@ impl RuntimeMode {
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeClock {
     RealtimeDay,
+    Fast,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -221,7 +222,6 @@ impl Default for ReplayConfig {
             dedupe_window_secs: 600,
             selection_order: vec![
                 ReplaySelectionKey::WeightDesc,
-                ReplaySelectionKey::CreatedAtAsc,
                 ReplaySelectionKey::EventIdAsc,
             ],
             overflow_policy: OverflowPolicy::DropAndCount,
@@ -485,8 +485,8 @@ pub struct VideoCanvasConfig {
 impl Default for VideoCanvasConfig {
     fn default() -> Self {
         Self {
-            width: 1920,
-            height: 1080,
+            width: 1280,
+            height: 720,
             fps: 30,
         }
     }
@@ -580,6 +580,7 @@ pub struct OutputsConfig {
     pub enable_rtmp: bool,
     pub enable_local_record: bool,
     pub tee_muxer: bool,
+    pub encode: OutputEncodeConfig,
     pub rtmp: RtmpOutputConfig,
     pub record: RecordOutputConfig,
 }
@@ -590,8 +591,27 @@ impl Default for OutputsConfig {
             enable_rtmp: false,
             enable_local_record: true,
             tee_muxer: true,
+            encode: OutputEncodeConfig::default(),
             rtmp: RtmpOutputConfig::default(),
             record: RecordOutputConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct OutputEncodeConfig {
+    pub video_codec: String,
+    pub video_preset: String,
+    pub audio_bitrate_kbps: u32,
+}
+
+impl Default for OutputEncodeConfig {
+    fn default() -> Self {
+        Self {
+            video_codec: "h264".to_string(),
+            video_preset: "ultrafast".to_string(),
+            audio_bitrate_kbps: 128,
         }
     }
 }

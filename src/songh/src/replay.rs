@@ -401,7 +401,6 @@ mod tests {
             600,
             &[
                 ReplaySelectionKey::WeightDesc,
-                ReplaySelectionKey::CreatedAtAsc,
                 ReplaySelectionKey::EventIdAsc,
             ],
             &mut dedupe,
@@ -418,6 +417,33 @@ mod tests {
                 .map(|event| event.event_id.as_str())
                 .collect::<Vec<_>>(),
             vec!["e2", "e3", "e4", "e5"]
+        );
+    }
+
+    #[test]
+    fn selection_uses_event_id_as_deterministic_tiebreak() {
+        let bucket = select_second_events(
+            100,
+            vec![
+                sample_event("b-event", 80, "2026-03-19T00:01:42Z"),
+                sample_event("a-event", 80, "2026-03-19T00:01:44Z"),
+            ],
+            4,
+            600,
+            &[
+                ReplaySelectionKey::WeightDesc,
+                ReplaySelectionKey::EventIdAsc,
+            ],
+            &mut DedupeState::default(),
+        );
+
+        assert_eq!(
+            bucket
+                .emitted_events
+                .iter()
+                .map(|event| event.event_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a-event", "b-event"]
         );
     }
 

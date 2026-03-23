@@ -147,6 +147,11 @@ mod tests {
         let config_path = root.join("docs/plans/260321-songh-template.toml");
         let loaded = load_from_path(&config_path, None).expect("template should validate");
         assert_eq!(loaded.config.text.template, "{repo}/{hash:8}");
+        assert_eq!(loaded.config.video.canvas.width, 1280);
+        assert_eq!(loaded.config.video.canvas.height, 720);
+        assert_eq!(loaded.config.outputs.encode.video_codec, "h264");
+        assert_eq!(loaded.config.outputs.encode.video_preset, "ultrafast");
+        assert_eq!(loaded.config.outputs.encode.audio_bitrate_kbps, 128);
         assert!(loaded.report.warnings.is_empty());
     }
 
@@ -261,5 +266,24 @@ template = "{repo}/{missing}"
 
         let error = load_from_path(&main_path, None).expect_err("unknown template field must fail");
         assert!(error.to_string().contains("text.template"));
+    }
+
+    #[test]
+    fn fast_runtime_clock_is_allowed() {
+        let temp = tempdir().expect("tempdir");
+        let main_path = temp.path().join("songh.toml");
+        fs::write(
+            &main_path,
+            r#"[runtime]
+clock = "fast"
+"#,
+        )
+        .expect("write main");
+
+        let loaded = load_from_path(&main_path, None).expect("fast clock should validate");
+        assert!(matches!(
+            loaded.config.runtime.clock,
+            crate::config::schema::RuntimeClock::Fast
+        ));
     }
 }

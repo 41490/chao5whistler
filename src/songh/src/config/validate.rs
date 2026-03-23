@@ -26,8 +26,11 @@ pub fn validate(config: &Config) -> Result<Vec<String>> {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
-    if config.runtime.clock != RuntimeClock::RealtimeDay {
-        errors.push("runtime.clock must stay fixed at realtime_day".to_string());
+    if !matches!(
+        config.runtime.clock,
+        RuntimeClock::RealtimeDay | RuntimeClock::Fast
+    ) {
+        errors.push("runtime.clock must remain one of [realtime_day, fast]".to_string());
     }
 
     if config.archive.selector == ArchiveSelector::FixedDay {
@@ -60,14 +63,10 @@ pub fn validate(config: &Config) -> Result<Vec<String>> {
     if config.replay.selection_order
         != vec![
             ReplaySelectionKey::WeightDesc,
-            ReplaySelectionKey::CreatedAtAsc,
             ReplaySelectionKey::EventIdAsc,
         ]
     {
-        errors.push(
-            "replay.selection_order must remain [weight_desc, created_at_asc, event_id_asc]"
-                .to_string(),
-        );
+        errors.push("replay.selection_order must remain [weight_desc, event_id_asc]".to_string());
     }
 
     if !(0.0..=1.0).contains(&config.fallback.density_scale) {
@@ -205,6 +204,15 @@ pub fn validate(config: &Config) -> Result<Vec<String>> {
     }
     if config.outputs.record.container != OutputContainer::Flv {
         errors.push("outputs.record.container must remain flv".to_string());
+    }
+    if config.outputs.encode.video_codec != "h264" {
+        errors.push("outputs.encode.video_codec must remain h264".to_string());
+    }
+    if config.outputs.encode.video_preset != "ultrafast" {
+        errors.push("outputs.encode.video_preset must remain ultrafast".to_string());
+    }
+    if config.outputs.encode.audio_bitrate_kbps != 128 {
+        errors.push("outputs.encode.audio_bitrate_kbps must remain 128".to_string());
     }
 
     if !config.outputs.enable_rtmp && !config.outputs.enable_local_record {

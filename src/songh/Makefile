@@ -7,6 +7,9 @@ STAGE2_FIXTURE_ROOT := $(ROOT)/ops/out/songh-stage2-archive
 STAGE2_FIXTURE_DAY := 2026-03-19
 STAGE3_SAMPLE_START := 0
 STAGE3_SAMPLE_DURATION := 7200
+STAGE3_ROLLOVER_NEXT_DAY := 2026-03-20
+STAGE3_ROLLOVER_START := 86390
+STAGE3_ROLLOVER_DURATION := 20
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
 
@@ -32,9 +35,10 @@ help:
 		'' \
 	'Stage 3: second-of-day replay engine' \
 	'  make stage3-dry-run         Emit continuous ReplayTick JSON from the prepared fixture day-pack' \
+	'  make stage3-rollover-smoke  Verify cross-midnight rollover into the next prepared fixture day-pack' \
 	'  make stage3-sample-fixture  Run replay sample on the prepared fixture day-pack' \
 	'  make stage3-manual          Unified stage-3 manual verification command' \
-	'  make stage3-all             fmt + test + stage2-manual + replay sample'
+	'  make stage3-all             fmt + test + stage2-manual + replay sample + rollover smoke'
 
 .PHONY: stage1-fmt
 stage1-fmt:
@@ -110,10 +114,42 @@ stage3-dry-run:
 		--day $(STAGE2_FIXTURE_DAY) --start-second $(STAGE3_SAMPLE_START) \
 		--duration-secs 30 --dump-json
 
+.PHONY: stage3-seed-rollover-fixture
+stage3-seed-rollover-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		seed-fixture-raw --archive-root $(STAGE2_FIXTURE_ROOT) --day $(STAGE2_FIXTURE_DAY) --force
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		seed-fixture-raw --archive-root $(STAGE2_FIXTURE_ROOT) --day $(STAGE3_ROLLOVER_NEXT_DAY) --force
+
+.PHONY: stage3-prepare-rollover-fixture
+stage3-prepare-rollover-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		prepare-day-pack --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY) --skip-download --force
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		prepare-day-pack --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE3_ROLLOVER_NEXT_DAY) --skip-download --force
+
+.PHONY: stage3-rollover-smoke
+stage3-rollover-smoke:
+	@$(MAKE) stage3-seed-rollover-fixture
+	@$(MAKE) stage3-prepare-rollover-fixture
+	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		replay-dry-run --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY) --start-second $(STAGE3_ROLLOVER_START) \
+		--duration-secs $(STAGE3_ROLLOVER_DURATION) --dump-json > "$$tmp"; \
+	rg -q '"source_day": "$(STAGE2_FIXTURE_DAY)"' "$$tmp"; \
+	rg -q '"source_day": "$(STAGE3_ROLLOVER_NEXT_DAY)"' "$$tmp"; \
+	printf 'songh stage3 rollover smoke passed\n'; \
+	printf 'source day rollover: %s -> %s\n' "$(STAGE2_FIXTURE_DAY)" "$(STAGE3_ROLLOVER_NEXT_DAY)"; \
+	printf 'start second: %s, duration secs: %s\n' "$(STAGE3_ROLLOVER_START)" "$(STAGE3_ROLLOVER_DURATION)"
+
 .PHONY: stage3-manual
 stage3-manual:
 	@$(MAKE) stage2-manual
 	@$(MAKE) stage3-sample-fixture
+	@$(MAKE) stage3-rollover-smoke
 
 .PHONY: stage3-all
 stage3-all:
@@ -121,3 +157,4 @@ stage3-all:
 	@$(MAKE) stage1-test
 	@$(MAKE) stage2-manual
 	@$(MAKE) stage3-sample-fixture
+	@$(MAKE) stage3-rollover-smoke

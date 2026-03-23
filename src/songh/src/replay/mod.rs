@@ -365,4 +365,38 @@ mod tests {
             "2026-03-20-00-primary"
         );
     }
+
+    #[test]
+    fn replay_dry_run_reports_both_days_across_midnight() {
+        let temp = tempdir().expect("tempdir");
+        let archive_root = temp.path().join("archive");
+        let first_day = "2026-03-19";
+        let second_day = "2026-03-20";
+
+        archive::seed_fixture_raw(&archive_root, first_day, true).expect("seed first fixture");
+        archive::seed_fixture_raw(&archive_root, second_day, true).expect("seed second fixture");
+
+        let mut config = Config::default();
+        config.archive.root_dir = archive_root.display().to_string();
+        archive::prepare_day_pack(&config, first_day, Some(&archive_root), true, true)
+            .expect("prepare first day");
+        archive::prepare_day_pack(&config, second_day, Some(&archive_root), true, true)
+            .expect("prepare second day");
+
+        let report = dry_run_day_pack(&config, first_day, Some(&archive_root), 86_390, 20)
+            .expect("dry run across midnight");
+
+        assert_eq!(report.duration_secs, 20);
+        assert_eq!(
+            report.ticks.first().expect("first tick").source_day,
+            first_day
+        );
+        assert_eq!(report.ticks[10].source_day, second_day);
+        assert_eq!(report.ticks[10].second_of_day, 0);
+        assert_eq!(
+            report.ticks.last().expect("last tick").source_day,
+            second_day
+        );
+        assert_eq!(report.ticks.last().expect("last tick").second_of_day, 9);
+    }
 }

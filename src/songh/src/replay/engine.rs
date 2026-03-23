@@ -37,7 +37,7 @@ pub struct ReplayEngine {
     current_second_of_day: u32,
     current_day: LoadedDayPack,
     dedupe: DedupeState,
-    buffered_hour: Option<u32>,
+    buffered_minute: Option<u32>,
     buffered_events: BTreeMap<u32, Vec<NormalizedEvent>>,
     exhausted: bool,
 }
@@ -66,7 +66,7 @@ impl ReplayEngine {
             current_second_of_day: start_second,
             current_day,
             dedupe: DedupeState::default(),
-            buffered_hour: None,
+            buffered_minute: None,
             buffered_events: BTreeMap::new(),
             exhausted: false,
         })
@@ -81,7 +81,7 @@ impl ReplayEngine {
             return Ok(None);
         }
 
-        self.ensure_hour_buffer()?;
+        self.ensure_minute_buffer()?;
 
         let source_day = self.current_day.day.clone();
         let second_of_day = self.current_second_of_day;
@@ -107,22 +107,22 @@ impl ReplayEngine {
         Ok(Some(tick))
     }
 
-    fn ensure_hour_buffer(&mut self) -> Result<()> {
-        let hour = self.current_second_of_day / 3600;
-        if self.buffered_hour == Some(hour) {
+    fn ensure_minute_buffer(&mut self) -> Result<()> {
+        let minute = self.current_second_of_day / 60;
+        if self.buffered_minute == Some(minute) {
             return Ok(());
         }
 
-        let hour_start = hour * 3600;
-        let hour_end = (hour_start + 3600).min(86_400);
+        let minute_start = minute * 60;
+        let minute_end = (minute_start + 60).min(86_400);
         self.buffered_events = load_events_by_second(
             &self.archive_root,
             &self.current_day.manifest,
             &self.current_day.minute_offsets,
-            hour_start,
-            hour_end,
+            minute_start,
+            minute_end,
         )?;
-        self.buffered_hour = Some(hour);
+        self.buffered_minute = Some(minute);
         Ok(())
     }
 
@@ -135,7 +135,7 @@ impl ReplayEngine {
         if let Some(next_day) = self.find_next_complete_day()? {
             self.current_day = LoadedDayPack::load(&self.archive_root, &next_day)?;
             self.current_second_of_day = 0;
-            self.buffered_hour = None;
+            self.buffered_minute = None;
             self.buffered_events.clear();
         } else {
             self.exhausted = true;
@@ -370,6 +370,30 @@ mod tests {
         assert_eq!(last_tick.second_of_day, 86_399);
         assert_eq!(next_tick.source_day, second_day);
         assert_eq!(next_tick.second_of_day, 0);
+    }
+
+    #[test]
+    fn engine_refreshes_buffer_when_crossing_minute_boundary() {
+        let temp = tempdir().expect("tempdir");
+        let archive_root = temp.path().join("archive");
+        let day = "2026-03-19";
+
+        archive::seed_fixture_raw(&archive_root, day, true).expect("seed fixture");
+
+        let mut config = Config::default();
+        config.archive.root_dir = archive_root.display().to_string();
+        archive::prepare_day_pack(&config, day, Some(&archive_root), true, true).expect("prepare");
+
+        let mut engine = ReplayEngine::open(&config, day, Some(&archive_root), 779).expect("open");
+
+        assert_eq!(engine.buffered_minute, None);
+        let tick_before_boundary = engine.next_tick().expect("tick").expect("tick exists");
+        assert_eq!(tick_before_boundary.second_of_day, 779);
+        assert_eq!(engine.buffered_minute, Some(12));
+
+        let tick_after_boundary = engine.next_tick().expect("tick").expect("tick exists");
+        assert_eq!(tick_after_boundary.second_of_day, 780);
+        assert_eq!(engine.buffered_minute, Some(13));
     }
 
     fn sample_event(

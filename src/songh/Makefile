@@ -30,10 +30,11 @@ help:
 		'  make stage2-manual          Unified manual verification command' \
 		'  make stage2-all             fmt + test + fixture prepare + validate' \
 		'' \
-		'Stage 3: second-of-day replay engine' \
-		'  make stage3-sample-fixture  Run replay sample on the prepared fixture day-pack' \
-		'  make stage3-manual          Unified stage-3 manual verification command' \
-		'  make stage3-all             fmt + test + stage2-manual + replay sample'
+	'Stage 3: second-of-day replay engine' \
+	'  make stage3-dry-run         Emit continuous ReplayTick JSON from the prepared fixture day-pack' \
+	'  make stage3-sample-fixture  Run replay sample on the prepared fixture day-pack' \
+	'  make stage3-manual          Unified stage-3 manual verification command' \
+	'  make stage3-all             fmt + test + stage2-manual + replay sample'
 
 .PHONY: stage1-fmt
 stage1-fmt:
@@ -101,6 +102,13 @@ stage3-sample-fixture:
 		sample-replay --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
 		--day $(STAGE2_FIXTURE_DAY) --start-second $(STAGE3_SAMPLE_START) \
 		--duration-secs $(STAGE3_SAMPLE_DURATION) --dump-json
+
+.PHONY: stage3-dry-run
+stage3-dry-run:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		replay-dry-run --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY) --start-second $(STAGE3_SAMPLE_START) \
+		--duration-secs 30 --dump-json
 
 .PHONY: stage3-manual
 stage3-manual:

@@ -18,6 +18,12 @@ make -C src/songh stage3-manual
 make -C src/songh stage3-all
 ```
 
+当前阶段连续 tick 观察入口：
+
+```bash
+make -C src/songh stage3-dry-run
+```
+
 当前已落地：
 
 - stage 2: `gharchive day-pack downloader + normalize pipeline`
@@ -25,11 +31,15 @@ make -C src/songh stage3-all
 
 补充说明：
 
-- `sample-replay` 已按固定规则实现：
-  - `minute_offsets.json` 驱动小时/分钟窗口定位
+- `sample-replay` 现在复用 `ReplayEngine` / `ReplayTick` runtime API：
+  - 每秒推进一个 tick
   - `top-4` 稳定选择
   - `10-minute dedupe`
   - `overflow count`
+  - 跨 midnight 自动轮换到下一个 complete day-pack
+- runtime tick 事件已冻结为共享契约：
+  - `src/songh/src/model/runtime_event.rs`
+  - 后续 archive replay / fallback synthetic / audio / video 共用这一层
 - stage 3 冻结决策已同步到配置层：
   - `runtime.clock` 允许 `realtime_day | fast`
   - `replay.selection_order` 固定为 `weight_desc -> event_id_asc`

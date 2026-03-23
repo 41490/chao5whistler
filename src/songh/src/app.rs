@@ -4,8 +4,8 @@ use anyhow::Result;
 
 use crate::archive;
 use crate::cli::{
-    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, SampleReplayArgs,
-    SeedFixtureRawArgs, ValidateDayPackArgs,
+    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, ReplayDryRunArgs,
+    SampleReplayArgs, SeedFixtureRawArgs, ValidateDayPackArgs,
 };
 use crate::config::{self, OutputFormat};
 use crate::replay;
@@ -25,6 +25,7 @@ where
         CliCommand::PrepareDayPack(args) => run_prepare_day_pack(args)?,
         CliCommand::ValidateDayPack(args) => run_validate_day_pack(args)?,
         CliCommand::SampleReplay(args) => run_sample_replay(args)?,
+        CliCommand::ReplayDryRun(args) => run_replay_dry_run(args)?,
     }
 
     Ok(())
@@ -178,6 +179,35 @@ fn run_sample_replay(args: SampleReplayArgs) -> Result<()> {
         report.seconds_with_source_events, report.seconds_with_emission
     );
     println!("config fingerprint: {}", report.config_fingerprint);
+
+    if args.dump_json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    Ok(())
+}
+
+fn run_replay_dry_run(args: ReplayDryRunArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report = replay::dry_run_day_pack(
+        &loaded.config,
+        &args.day,
+        args.archive_root.as_deref(),
+        args.start_second,
+        args.duration_secs,
+    )?;
+
+    println!("songh stage3 replay dry-run passed");
+    println!("main config: {}", config_path.display());
+    println!("archive root: {}", report.archive_root.display());
+    println!("source day: {}", report.source_day);
+    println!("start second: {}", report.start_second);
+    println!("duration secs: {}", report.duration_secs);
+    println!("ticks emitted: {}", report.ticks.len());
 
     if args.dump_json {
         println!("{}", serde_json::to_string_pretty(&report)?);

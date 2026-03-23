@@ -17,6 +17,10 @@ REQUIRED_FILES = {
     "offline_frame_sequence.json",
     "video_render_poster.ppm",
 }
+EXPECTED_STAGE6_VIDEO_CODEC = "h264"
+EXPECTED_STAGE6_VIDEO_ENCODER = "libx264"
+EXPECTED_STAGE6_VIDEO_PRESET = "ultrafast"
+EXPECTED_STAGE6_PIXEL_FORMAT = "yuv420p"
 
 
 def load_json(path: Path) -> dict:
@@ -49,6 +53,9 @@ def write_report(output_dir: Path, frame_sequence: dict, checks: list[dict]) -> 
             "frame_count": frame_sequence.get("summary", {}).get("frame_count", 0),
             "cycle_count": frame_sequence.get("summary", {}).get("cycle_count", 0),
             "lane_count": frame_sequence.get("summary", {}).get("lane_count", 0),
+            "render_duration_seconds": frame_sequence.get("summary", {}).get(
+                "render_duration_seconds"
+            ),
             "total_duration_seconds": frame_sequence.get("summary", {}).get(
                 "total_duration_seconds"
             ),
@@ -72,9 +79,9 @@ def probe_mp4(path: Path) -> dict | None:
             "-v",
             "error",
             "-show_entries",
-            "stream=width,height,avg_frame_rate",
+            "stream=width,height,avg_frame_rate,r_frame_rate,nb_frames",
             "-show_entries",
-            "format=duration",
+            "format=duration,size",
             "-of",
             "json",
             str(path),
@@ -86,6 +93,31 @@ def probe_mp4(path: Path) -> dict | None:
     if result.returncode != 0:
         return None
     return json.loads(result.stdout)
+
+
+def parse_rate(value: str | None) -> float | None:
+    if not value:
+        return None
+    if "/" in value:
+        numerator, denominator = value.split("/", 1)
+        try:
+            numerator_value = float(numerator)
+            denominator_value = float(denominator)
+        except ValueError:
+            return None
+        if denominator_value == 0:
+            return None
+        return numerator_value / denominator_value
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def float_close(left: float | None, right: float | None, tolerance: float) -> bool:
+    if left is None or right is None:
+        return False
+    return abs(left - right) <= tolerance
 
 
 def ppm_header(path: Path) -> tuple[str, int, int, int] | None:
@@ -135,7 +167,48 @@ def main() -> int:
     canvas = frame_sequence.get("canvas", {})
     mp4_generated = manifest.get("mp4_generation", {}).get("generated", False)
     mp4_path = artifact_dir / "offline_preview.mp4"
-    mp4_probe = probe_mp4(mp4_path) if mp4_generated else None
+    manifest_probe = manifest.get("mp4_generation", {}).get("probe")
+    local_probe = probe_mp4(mp4_path) if mp4_generated else None
+    mp4_probe = local_probe or manifest_probe
+    probe_source = (
+        "local_ffprobe"
+        if local_probe is not None
+        else "manifest"
+        if manifest_probe is not None
+        else "none"
+    )
+    expected_frame_count = manifest.get("mp4_generation", {}).get(
+        "expected_frame_count",
+        frame_sequence.get("summary", {}).get("frame_count"),
+    )
+    expected_fps = manifest.get("mp4_generation", {}).get(
+        "expected_fps",
+        canvas.get("fps"),
+    )
+    expected_duration = manifest.get("mp4_generation", {}).get(
+        "expected_duration_seconds",
+        frame_sequence.get("summary", {}).get("render_duration_seconds"),
+    )
+    duration_tolerance = max(0.05, 1.5 / canvas.get("fps", 1)) if canvas.get("fps") else 0.05
+    probed_stream = (
+        mp4_probe.get("streams", [{}])[0]
+        if isinstance(mp4_probe, dict) and "streams" in mp4_probe
+        else {}
+    )
+    if isinstance(mp4_probe, dict) and mp4_probe.get("status") == "ok":
+        mp4_width = mp4_probe.get("width")
+        mp4_height = mp4_probe.get("height")
+        mp4_avg_fps = mp4_probe.get("avg_frame_rate_value")
+        mp4_duration = mp4_probe.get("duration_seconds")
+    else:
+        mp4_width = probed_stream.get("width")
+        mp4_height = probed_stream.get("height")
+        mp4_avg_fps = parse_rate(probed_stream.get("avg_frame_rate"))
+        mp4_duration = parse_rate(
+            mp4_probe.get("format", {}).get("duration")
+            if isinstance(mp4_probe, dict)
+            else None
+        )
 
     checks.append(
         build_check(
@@ -200,6 +273,65 @@ def main() -> int:
             {
                 "frame_canvas": canvas,
                 "profile_canvas": scene_profile.get("canvas", {}),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "render_duration_contract",
+            frame_sequence.get("summary", {}).get("render_duration_seconds")
+            == round(
+                frame_sequence.get("summary", {}).get("frame_count", 0)
+                / max(1, canvas.get("fps", 1)),
+                6,
+            ),
+            {
+                "summary_render_duration_seconds": frame_sequence.get("summary", {}).get(
+                    "render_duration_seconds"
+                ),
+                "expected_render_duration_seconds": round(
+                    frame_sequence.get("summary", {}).get("frame_count", 0)
+                    / max(1, canvas.get("fps", 1)),
+                    6,
+                ),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "mp4_expectation_contract",
+            expected_frame_count == frame_sequence.get("summary", {}).get("frame_count")
+            and expected_fps == canvas.get("fps")
+            and expected_duration == frame_sequence.get("summary", {}).get(
+                "render_duration_seconds"
+            ),
+            {
+                "expected_frame_count": expected_frame_count,
+                "summary_frame_count": frame_sequence.get("summary", {}).get("frame_count"),
+                "expected_fps": expected_fps,
+                "canvas_fps": canvas.get("fps"),
+                "expected_duration_seconds": expected_duration,
+                "summary_render_duration_seconds": frame_sequence.get("summary", {}).get(
+                    "render_duration_seconds"
+                ),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "mp4_profile_contract",
+            manifest.get("mp4_generation", {}).get("video_codec") == EXPECTED_STAGE6_VIDEO_CODEC
+            and manifest.get("mp4_generation", {}).get("video_encoder")
+            == EXPECTED_STAGE6_VIDEO_ENCODER
+            and manifest.get("mp4_generation", {}).get("video_preset")
+            == EXPECTED_STAGE6_VIDEO_PRESET
+            and manifest.get("mp4_generation", {}).get("pixel_format")
+            == EXPECTED_STAGE6_PIXEL_FORMAT,
+            {
+                "video_codec": manifest.get("mp4_generation", {}).get("video_codec"),
+                "video_encoder": manifest.get("mp4_generation", {}).get("video_encoder"),
+                "video_preset": manifest.get("mp4_generation", {}).get("video_preset"),
+                "pixel_format": manifest.get("mp4_generation", {}).get("pixel_format"),
             },
         )
     )
@@ -273,13 +405,24 @@ def main() -> int:
                 mp4_generated
                 and mp4_path.exists()
                 and mp4_probe is not None
-                and mp4_probe.get("streams", [{}])[0].get("width") == canvas.get("width")
-                and mp4_probe.get("streams", [{}])[0].get("height") == canvas.get("height")
+                and mp4_width == canvas.get("width")
+                and mp4_height == canvas.get("height")
+                and float_close(mp4_avg_fps, float(expected_fps), 0.01)
+                and float_close(mp4_duration, float(expected_duration), duration_tolerance)
             ),
             {
                 "mp4_generated": mp4_generated,
                 "mp4_exists": mp4_path.exists(),
                 "mp4_probe": mp4_probe,
+                "probe_source": probe_source,
+                "expected_frame_count": expected_frame_count,
+                "expected_fps": expected_fps,
+                "expected_duration_seconds": expected_duration,
+                "duration_tolerance_seconds": duration_tolerance,
+                "probed_width": mp4_width,
+                "probed_height": mp4_height,
+                "probed_avg_fps": mp4_avg_fps,
+                "probed_duration_seconds": mp4_duration,
             },
         )
     )

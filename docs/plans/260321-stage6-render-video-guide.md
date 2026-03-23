@@ -1,6 +1,6 @@
 # Stage 6 Render-Video Guide
 
-日期: `2026-03-21`  
+日期: `2026-03-22`  
 定位: `stage 6 render-video skeleton`
 
 ## 1. 当前结论
@@ -8,6 +8,8 @@
 - stage 6 不再只停在 stub
 - 现在已补 `scene JSON -> offline frame sequence -> mp4 preview` 骨架
 - 这条链路只消费 stage 6 stub scene，不反向依赖 stage 5 合成细节，也不进入 stage 7 RTMP bridge
+- `2026-03-22` 起，默认运维规格收敛为 `1280x720 @ 30fps`
+- 当前 stage 6 preview mp4 编码路径收敛为 `H.264 / libx264 / ultrafast`
 
 结论:
 
@@ -82,6 +84,19 @@ make -C src/musikalisches stage6-video-render
 
 但 manifest 会把 mp4 标记为 skipped。
 
+默认 preview 视频规格：
+
+- `canvas = 1280x720`
+- `fps = 30`
+- `video codec = H.264`
+- `ffmpeg encoder = libx264`
+- `preset = ultrafast`
+
+说明：
+
+- 当前 stage 6 preview 仍然没有正式音轨
+- `audio bitrate = 128 Kbps` 是后续 stage 7 bridge 的目标规格，不在本阶段 mp4 preview 内实现
+
 ## 4. 人工检查点
 
 - `offline_frame_sequence.json`
@@ -92,6 +107,8 @@ make -C src/musikalisches stage6-video-render
   - `source_stage = stage6_video_stub`
   - `visual_scene_profile_*` 必须与 scene profile 一致
   - `mp4_generation.generated` 与实际文件存在性一致
+  - `mp4_generation.video_codec = h264`
+  - `mp4_generation.video_preset = ultrafast`
 - `video_render_poster.ppm`
   - 分辨率必须与 profile `canvas` 一致
   - 能看见当前 cycle accent 条和 lane pulse 圆环
@@ -102,11 +119,11 @@ make -C src/musikalisches stage6-video-render
 ## 5. 已补的 profile 变体
 
 - `src/musikalisches/runtime/config/stage6_default_scene_profile.json`
-  - 默认 Solarized Dark 720p@30
+  - 默认运维规格，Solarized Dark 720p@30
 - `src/musikalisches/runtime/config/stage6_orbital_sunrise_scene_profile.json`
-  - 暖色 720p@24
+  - 暖色 720p@24，仅用于 contract 演化/回归
 - `src/musikalisches/runtime/config/stage6_blueprint_nocturne_scene_profile.json`
-  - 宽屏 1080p@30
+  - 宽屏 1080p@30，仅用于 contract 演化/回归
 
 这三份 profile 共享同一 schema，用来验证：
 

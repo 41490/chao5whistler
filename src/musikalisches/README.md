@@ -6,8 +6,8 @@
 - `work_id`: `mozart_dicegame_print_1790s`
 - `canonical_witness_id`: `rellstab_1790`
 - `verification_witness_id`: `simrock_1793`
-- current plan stage: `stage 5: milestone M1`
-- first runtime milestone: `offline realization + offline audio render`
+- current plan stage: `stage 6: preflight + render-video skeleton`
+- first runtime milestone: `offline realization + offline audio/video preview`
 
 ## boundary
 
@@ -38,6 +38,8 @@
 - stage 6 已补 analyzer -> video stub 预演入口，可把 stage 5 分析输出转成视觉 stub 契约与静态预览
 - stage 6 已进入 `render-video` skeleton，可把 stub scene 进一步冻结为离线 frame contract 和本地 mp4 preview
 - stage 6 已把默认 visual scene profile 收敛到 repo 配置文件，并补了 2 个可版本化 profile 变体以及单独的 SF2 visual smoke path
+- `render-video` manifest / validator 现已显式冻结 preview video 的 `expected_frame_count` / `expected_fps` / `expected_duration_seconds`
+- 如构建机有 `ffprobe`，`video_render_manifest.json` 会额外带出 mp4 probe 元数据，供后续运维验收对账
 
 当前仍未完成：
 
@@ -64,6 +66,65 @@
 
 ```bash
 make -C src/musikalisches help
+```
+
+## frozen ops target
+
+根据 `2026-03-22` 的 issue comment，当前运维优先冻结为：
+
+- 分辨率：`1280x720`
+- 帧率：`30 fps`
+- 视频编码：`H.264`
+- 视频 preset：`ultrafast`
+- stage 7 目标音频码率：`128 Kbps`
+
+边界说明：
+
+- stage 6 当前产出的 `offline_preview.mp4` 仍是视频-only 本地预览，不含正式直播音轨
+- 因此 `128 Kbps` 音频目标属于后续 stage 7 `FFmpeg / RTMP bridge` 的桥接规格，不是当前 stage 6 已完成能力
+
+## ops prerequisites
+
+推荐最小依赖：
+
+- `python3`
+- `rustup` stable / `cargo`
+- `ffmpeg` + `ffprobe`
+
+可选依赖：
+
+- `MUSIKALISCHES_SOUNDFONT` 或 `SOUND_FONT=/path/to/*.sf2`
+
+说明：
+
+- 没有 `ffmpeg` 时，`stage6-video-render` 仍可生成 frame contract / poster，但 mp4 会被标记为 skipped
+- 有 `ffmpeg` 但没有 `ffprobe` 时，可以出 mp4；但 preview video contract 无法做完整探测，运维机仍建议成对安装
+- 推荐用 `rustup` 安装最新 stable Rust；不要依赖 Debian 仓库内过旧的 `rustc` / `cargo`
+- 当前 README 只覆盖到 stage 6 本地离线预演；stage 7 `FFmpeg / RTMP bridge` 仍未进入正式运维说明
+
+## ops quickstart
+
+最小推荐顺序：
+
+```bash
+make -C src/musikalisches stage6-scene-profile-check-all
+make -C src/musikalisches stage5-stream
+make -C src/musikalisches stage5-stream-check
+make -C src/musikalisches stage6-video-stub
+make -C src/musikalisches stage6-video-check
+make -C src/musikalisches stage6-video-render
+make -C src/musikalisches stage6-video-render-check
+```
+
+如需走 SoundFont smoke：
+
+```bash
+make -C src/musikalisches stage5-sf2
+make -C src/musikalisches stage5-sf2-check
+make -C src/musikalisches stage6-video-stub-sf2
+make -C src/musikalisches stage6-video-check-sf2
+make -C src/musikalisches stage6-video-render-sf2
+make -C src/musikalisches stage6-video-render-check-sf2
 ```
 
 ## stage 4 refresh
@@ -139,6 +200,12 @@ make -C src/musikalisches stage6-video-render
 make -C src/musikalisches stage6-video-render-check
 ```
 
+推荐验收顺序：
+
+1. 先跑 `stage6-scene-profile-check-all`，确保 repo 内全部 profile 都过 contract
+2. 再跑 `stage6-video-stub` + `stage6-video-check`，确认 analyzer -> scene 没有断口
+3. 最后跑 `stage6-video-render` + `stage6-video-render-check`，确认 frame/mp4 preview contract 自洽
+
 默认 visual scene profile:
 
 ```text
@@ -178,6 +245,23 @@ render-video skeleton 默认输出：
 ```text
 ops/out/video-render
 ```
+
+render-video 重点验收文件：
+
+```text
+ops/out/video-render/video_render_manifest.json
+ops/out/video-render/offline_frame_sequence.json
+ops/out/video-render/video_render_poster.ppm
+ops/out/video-render/stage6_render_validation_report.json
+```
+
+其中：
+
+- `offline_frame_sequence.json.summary` 会显式带出 `frame_count` / `fps` / `frame_interval_seconds` / `render_duration_seconds`
+- `video_render_manifest.json.mp4_generation` 会显式带出 `expected_frame_count` / `expected_fps` / `expected_duration_seconds` / `video_codec` / `video_preset`
+- 如本机可用 `ffprobe`，manifest 还会带出 preview mp4 的 probe 元数据，便于把编码结果和 contract 对齐
+- 默认 ops 目标应优先使用 `stage6_default_scene_profile.json`，即 `1280x720 @ 30fps`
+- 其它 scene profile 变体主要用于 contract 演化/回归，不应替代默认运维规格
 
 说明文档见：
 

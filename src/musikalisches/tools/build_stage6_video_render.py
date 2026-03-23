@@ -6,6 +6,7 @@ import argparse
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from stage6_scene_profile import validate_scene_profile_payload
@@ -17,6 +18,10 @@ REQUIRED_INPUT_FILES = {
     "video_stub_scene.json",
     "stage6_validation_report.json",
 }
+MP4_VIDEO_CODEC = "h264"
+MP4_VIDEO_ENCODER = "libx264"
+MP4_VIDEO_PRESET = "ultrafast"
+MP4_PIXEL_FORMAT = "yuv420p"
 
 
 def load_json(path: Path) -> dict:
@@ -38,6 +43,25 @@ def write_ppm(path: Path, width: int, height: int, payload: bytes) -> None:
 
 def round6(value: float) -> float:
     return round(value, 6)
+
+
+def parse_rate(value: str | None) -> float | None:
+    if not value:
+        return None
+    if "/" in value:
+        numerator, denominator = value.split("/", 1)
+        try:
+            numerator_value = float(numerator)
+            denominator_value = float(denominator)
+        except ValueError:
+            return None
+        if denominator_value == 0:
+            return None
+        return numerator_value / denominator_value
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def clamp(value: float, lower: float, upper: float) -> float:
@@ -203,6 +227,8 @@ def build_frame_sequence(scene: dict) -> dict:
             "cycle_count": scene["summary"]["cycle_count"],
             "window_count": scene["summary"]["window_count"],
             "fps": scene["canvas"]["fps"],
+            "frame_interval_seconds": round6(1.0 / scene["canvas"]["fps"]),
+            "render_duration_seconds": round6(len(frames) / scene["canvas"]["fps"]),
             "total_duration_seconds": scene["summary"]["total_duration_seconds"],
             "sample_rate": scene["summary"]["sample_rate"],
         },
@@ -441,26 +467,76 @@ def encode_mp4(
         "-",
         "-an",
         "-c:v",
-        "libx264",
+        MP4_VIDEO_ENCODER,
+        "-preset",
+        MP4_VIDEO_PRESET,
         "-pix_fmt",
-        "yuv420p",
+        MP4_PIXEL_FORMAT,
         "-movflags",
         "+faststart",
         str(output_path),
     ]
-    process = subprocess.Popen(
-        command,
-        stdin=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    with tempfile.TemporaryFile() as stderr_handle:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stderr=stderr_handle,
+        )
+        assert process.stdin is not None
+        for frame in frame_sequence["frames"]:
+            process.stdin.write(render_frame_bytes(scene, frame, base_canvas))
+        process.stdin.close()
+        exit_code = process.wait()
+        if exit_code != 0:
+            stderr_handle.seek(0)
+            stderr = stderr_handle.read().decode("utf-8", errors="replace")
+            raise SystemExit(f"ffmpeg failed with exit code {exit_code}:\n{stderr}")
+
+
+def probe_mp4(ffprobe_bin: str | None, output_path: Path) -> dict | None:
+    if not ffprobe_bin or not output_path.exists():
+        return None
+    result = subprocess.run(
+        [
+            ffprobe_bin,
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=width,height,avg_frame_rate,r_frame_rate,nb_frames",
+            "-show_entries",
+            "format=duration,size",
+            "-of",
+            "json",
+            str(output_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
     )
-    assert process.stdin is not None
-    for frame in frame_sequence["frames"]:
-        process.stdin.write(render_frame_bytes(scene, frame, base_canvas))
-    process.stdin.close()
-    stderr = process.stderr.read().decode("utf-8", errors="replace")
-    exit_code = process.wait()
-    if exit_code != 0:
-        raise SystemExit(f"ffmpeg failed with exit code {exit_code}:\n{stderr}")
+    if result.returncode != 0:
+        return {
+            "status": "ffprobe_failed",
+            "exit_code": result.returncode,
+            "stderr": result.stderr.strip(),
+        }
+
+    raw_probe = json.loads(result.stdout)
+    stream = raw_probe.get("streams", [{}])[0]
+    format_payload = raw_probe.get("format", {})
+    return {
+        "status": "ok",
+        "width": stream.get("width"),
+        "height": stream.get("height"),
+        "avg_frame_rate": stream.get("avg_frame_rate"),
+        "avg_frame_rate_value": parse_rate(stream.get("avg_frame_rate")),
+        "r_frame_rate": stream.get("r_frame_rate"),
+        "r_frame_rate_value": parse_rate(stream.get("r_frame_rate")),
+        "nb_frames": stream.get("nb_frames"),
+        "duration_seconds": parse_rate(format_payload.get("duration")),
+        "file_size_bytes": int(format_payload["size"])
+        if str(format_payload.get("size", "")).isdigit()
+        else None,
+    }
 
 
 def main() -> int:
@@ -540,8 +616,10 @@ def main() -> int:
     mp4_path = output_dir / "offline_preview.mp4"
     mp4_requested = not args.skip_mp4
     ffmpeg_path = shutil.which(args.ffmpeg_bin) if mp4_requested else None
+    ffprobe_path = shutil.which("ffprobe") if mp4_requested else None
     mp4_generated = False
     mp4_reason = None
+    mp4_probe = None
     if mp4_requested and not ffmpeg_path:
         mp4_reason = f"ffmpeg binary not found: {args.ffmpeg_bin}"
     elif mp4_requested:
@@ -557,6 +635,7 @@ def main() -> int:
         )
         mp4_generated = True
         mp4_reason = "encoded_with_ffmpeg"
+        mp4_probe = probe_mp4(ffprobe_path, mp4_path)
     else:
         mp4_reason = "skipped_by_flag"
 
@@ -587,6 +666,8 @@ def main() -> int:
             "window_count": frame_sequence["summary"]["window_count"],
             "cycle_count": frame_sequence["summary"]["cycle_count"],
             "lane_count": frame_sequence["summary"]["lane_count"],
+            "frame_interval_seconds": frame_sequence["summary"]["frame_interval_seconds"],
+            "render_duration_seconds": frame_sequence["summary"]["render_duration_seconds"],
             "total_duration_seconds": frame_sequence["summary"]["total_duration_seconds"],
             "canvas": f"{width}x{height}",
             "fps": fps,
@@ -594,12 +675,25 @@ def main() -> int:
             "palette_id": frame_sequence["palette"]["palette_id"],
             "render_backend": "python_rgb24_ffmpeg" if mp4_generated else "python_contract_only",
             "mp4_generated": mp4_generated,
+            "video_codec": MP4_VIDEO_CODEC,
+            "video_encoder": MP4_VIDEO_ENCODER,
+            "video_preset": MP4_VIDEO_PRESET,
+            "poster_frame_index": poster_frame["frame_index"],
         },
         "mp4_generation": {
             "requested": mp4_requested,
             "generated": mp4_generated,
             "ffmpeg_bin": ffmpeg_path,
+            "ffprobe_bin": ffprobe_path,
             "reason": mp4_reason,
+            "expected_frame_count": frame_sequence["summary"]["frame_count"],
+            "expected_fps": fps,
+            "expected_duration_seconds": frame_sequence["summary"]["render_duration_seconds"],
+            "video_codec": MP4_VIDEO_CODEC,
+            "video_encoder": MP4_VIDEO_ENCODER,
+            "video_preset": MP4_VIDEO_PRESET,
+            "pixel_format": MP4_PIXEL_FORMAT,
+            "probe": mp4_probe,
         },
     }
     write_json(output_dir / "video_render_manifest.json", manifest)

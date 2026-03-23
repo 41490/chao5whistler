@@ -323,6 +323,14 @@
 - FFmpeg 参数模板
 - 启动/失败日志策略
 
+冻结规格：
+
+- 默认分辨率：`1280x720`
+- 默认帧率：`30fps`
+- 视频编码：`H.264`
+- FFmpeg preset：`ultrafast`
+- 音频码率：`128 Kbps`
+
 验收门槛：
 
 - 不泄漏 stream key
@@ -409,6 +417,11 @@
 
 - offline video sample
 
+默认规格：
+
+- 默认 profile 以 `1280x720 @ 30fps` 为运维优先目标
+- 其它 profile 只作为 contract 演化与回归样本
+
 完成定义：
 
 - 视频只依赖已冻结的分析层
@@ -427,6 +440,13 @@
 输出：
 
 - RTMP bridge draft
+
+默认 bridge 规格：
+
+- `H.264 + AAC`
+- `1280x720 @ 30fps`
+- `video preset = ultrafast`
+- `audio bitrate = 128 Kbps`
 
 完成定义：
 

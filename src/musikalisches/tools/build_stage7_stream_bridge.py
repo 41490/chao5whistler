@@ -36,10 +36,16 @@ MAX_RUNTIME_ENV = "MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS"
 LOG_DIR_NAME = "logs"
 STDERR_LOG_FILE = "stage7_bridge_latest.stderr.log"
 EXIT_REPORT_FILE = "stage7_bridge_exit_report.json"
+PREFLIGHT_LOG_FILE = "stage7_bridge_preflight.stderr.log"
+PREFLIGHT_REPORT_FILE = "stage7_bridge_preflight_report.json"
+RUNTIME_REPORT_FILE = "stage7_bridge_runtime_report.json"
+ATTEMPT_LOG_PATTERN = "stage7_bridge_attempt_{attempt:03d}.stderr.log"
+ATTEMPT_REPORT_PATTERN = "stage7_bridge_attempt_{attempt:03d}.exit_report.json"
 FAILURE_TAXONOMY_FILE = "stage7_failure_taxonomy.json"
 SOAK_PLAN_FILE = "stage7_soak_plan.json"
 SOAK_VALIDATION_REPORT_FILE = "stage7_soak_validation_report.json"
 CLASSIFIER_TOOL_PATH = Path(__file__).resolve().parent / "classify_stage7_bridge_failure.py"
+RUNTIME_TOOL_PATH = Path(__file__).resolve().parent / "run_stage7_stream_bridge_runtime.py"
 LOOP_MODE_SPECS = {
     "once": {
         "stream_loop": None,
@@ -355,6 +361,7 @@ def build_failure_taxonomy(url_env_var: str) -> dict:
                     "403 forbidden",
                     "401 unauthorized",
                     "authentication failed",
+                    "authorization failed",
                     "invalid stream key",
                     "permission denied",
                     "publishing not permitted",
@@ -369,6 +376,8 @@ def build_failure_taxonomy(url_env_var: str) -> dict:
                     "protocol not found",
                     "unknown protocol",
                     "option not found",
+                    "unknown encoder",
+                    "encoder not found",
                 ],
                 "match_exit_codes": [],
             },
@@ -380,6 +389,9 @@ def build_failure_taxonomy(url_env_var: str) -> dict:
                     "timed out",
                     "network is unreachable",
                     "temporary failure in name resolution",
+                    "name or service not known",
+                    "nodename nor servname provided",
+                    "no address associated with hostname",
                     "connection refused",
                     "resource temporarily unavailable",
                 ],
@@ -442,6 +454,20 @@ def build_soak_plan(
             "max_abs_drift_seconds_per_hour": DRIFT_TOLERANCE_SECONDS_PER_HOUR,
             "measurement_basis": "compare live loop boundary cadence against frozen source duration",
         },
+        "preflight_policy": {
+            "required_checks": [
+                "protocol_support",
+                "dns_resolution",
+                "tcp_connectivity",
+                "publish_probe",
+            ],
+            "failure_class_hints": {
+                "protocol_support": "ingest_configuration_failure",
+                "dns_resolution": "network_jitter",
+                "tcp_connectivity": "network_jitter",
+                "publish_probe": "auth_failure",
+            },
+        },
         "reconnect_policy": {
             "retryable_classes": retryable_classes,
             "non_retryable_classes": non_retryable_classes,
@@ -449,8 +475,11 @@ def build_soak_plan(
             "backoff_seconds": RECONNECT_BACKOFF_SECONDS,
         },
         "required_runtime_files": [
+            f"{LOG_DIR_NAME}/{PREFLIGHT_LOG_FILE}",
+            f"{LOG_DIR_NAME}/{PREFLIGHT_REPORT_FILE}",
             f"{LOG_DIR_NAME}/{STDERR_LOG_FILE}",
             f"{LOG_DIR_NAME}/{EXIT_REPORT_FILE}",
+            f"{LOG_DIR_NAME}/{RUNTIME_REPORT_FILE}",
         ],
         "exit_classification_coverage": [
             entry["class_id"] for entry in failure_taxonomy["classes"]
@@ -469,22 +498,13 @@ def build_shell_array(name: str, values: list[str]) -> list[str]:
 def build_runtime_script(
     *,
     env_var: str,
-    once_args_without_output: list[str],
-    infinite_args_without_output: list[str],
+    runtime_tool_path: Path,
 ) -> str:
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         "",
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
-        f'LOG_DIR="${{SCRIPT_DIR}}/{LOG_DIR_NAME}"',
-        'mkdir -p "${LOG_DIR}"',
-        f'STDERR_LOG="${{LOG_DIR}}/{STDERR_LOG_FILE}"',
-        f'RUN_REPORT="${{LOG_DIR}}/{EXIT_REPORT_FILE}"',
-        f'TAXONOMY_FILE="${{SCRIPT_DIR}}/{FAILURE_TAXONOMY_FILE}"',
-        'TMP_LOG="$(mktemp "${TMPDIR:-/tmp}/stage7-bridge.XXXXXX.log")"',
-        'trap \'rm -f "${TMP_LOG}"\' EXIT',
-        "",
         f'LOOP_MODE="${{{LOOP_MODE_ENV}:-infinite}}"',
         f'MAX_RUNTIME_SECONDS="${{{MAX_RUNTIME_ENV}:-}}"',
         "",
@@ -493,58 +513,17 @@ def build_runtime_script(
         "  exit 1",
         "fi",
         "",
+        f'PYTHON_BIN="${{PYTHON:-python3}}"',
+        f'RUNNER={shlex.quote(str(runtime_tool_path))}',
+        'CMD=("${PYTHON_BIN}" "${RUNNER}"',
+        '  --artifact-dir "${SCRIPT_DIR}"',
+        f'  --stream-url-env {env_var}',
+        '  --loop-mode "${LOOP_MODE}"',
+        '  --max-runtime-seconds "${MAX_RUNTIME_SECONDS:-0}"',
+        ')',
+        'exec "${CMD[@]}"',
+        "",
     ]
-    lines.extend(build_shell_array("FFMPEG_ARGS_ONCE", once_args_without_output))
-    lines.append("")
-    lines.extend(build_shell_array("FFMPEG_ARGS_INFINITE", infinite_args_without_output))
-    lines.extend(
-        [
-            "",
-            'case "${LOOP_MODE}" in',
-            '  once) RUN_FFMPEG_ARGS=("${FFMPEG_ARGS_ONCE[@]}") ;;',
-            '  infinite) RUN_FFMPEG_ARGS=("${FFMPEG_ARGS_INFINITE[@]}") ;;',
-            "  *)",
-            f'    printf "%s\\n" "unsupported {LOOP_MODE_ENV}: ${{LOOP_MODE}} (expected: once|infinite)" >&2',
-            "    exit 1",
-            "    ;;",
-            "esac",
-            "",
-            f'RUN_FFMPEG_ARGS+=("${{{env_var}}}")',
-            'RUN_CMD=("${RUN_FFMPEG_ARGS[@]}")',
-            'if [[ -n "${MAX_RUNTIME_SECONDS}" ]]; then',
-            '  if ! command -v timeout >/dev/null 2>&1; then',
-            f'    printf "%s\\n" "missing timeout: set {MAX_RUNTIME_ENV} only on hosts with GNU timeout" >&2',
-            "    exit 1",
-            "  fi",
-            '  RUN_CMD=(timeout --signal=INT --kill-after=10 "${MAX_RUNTIME_SECONDS}" "${RUN_FFMPEG_ARGS[@]}")',
-            "fi",
-            "",
-            "set +e",
-            '"${RUN_CMD[@]}" 2>"${TMP_LOG}"',
-            "EXIT_CODE=$?",
-            "set -e",
-            "",
-            "printf -v RUN_CMD_SHELL '%q ' \"${RUN_CMD[@]}\"",
-            (
-                f'python3 {shlex.quote(str(CLASSIFIER_TOOL_PATH))} '
-                '--input-log "${TMP_LOG}" '
-                '--output-log "${STDERR_LOG}" '
-                '--output-report "${RUN_REPORT}" '
-                '--exit-code "${EXIT_CODE}" '
-                '--loop-mode "${LOOP_MODE}" '
-                '--max-runtime-seconds "${MAX_RUNTIME_SECONDS:-0}" '
-                '--command-shell "${RUN_CMD_SHELL% }" '
-                '--failure-taxonomy "${TAXONOMY_FILE}" '
-                f'--redact-env-var {env_var}'
-            ),
-            "",
-            'if [[ "${EXIT_CODE}" -ne 0 ]]; then',
-            '  printf "%s\\n" "stage7 bridge exited with code ${EXIT_CODE}; see ${RUN_REPORT}" >&2',
-            "fi",
-            'exit "${EXIT_CODE}"',
-            "",
-        ]
-    )
     return "\n".join(lines)
 
 
@@ -768,8 +747,33 @@ def main() -> int:
         "log_dir": LOG_DIR_NAME,
         "stderr_log_file": STDERR_LOG_FILE,
         "exit_report_file": EXIT_REPORT_FILE,
+        "preflight_log_file": PREFLIGHT_LOG_FILE,
+        "preflight_report_file": PREFLIGHT_REPORT_FILE,
+        "runtime_report_file": RUNTIME_REPORT_FILE,
+        "attempt_log_pattern": ATTEMPT_LOG_PATTERN,
+        "attempt_report_pattern": ATTEMPT_REPORT_PATTERN,
         "redact_env_vars": [bridge_profile["ingest"]["stream_url_env"]],
         "classifier_tool_path": str(CLASSIFIER_TOOL_PATH),
+        "runtime_tool_path": str(RUNTIME_TOOL_PATH),
+    }
+    preflight = {
+        "required_checks": soak_plan["preflight_policy"]["required_checks"],
+        "failure_class_hints": soak_plan["preflight_policy"]["failure_class_hints"],
+        "preflight_log_file": PREFLIGHT_LOG_FILE,
+        "preflight_report_file": PREFLIGHT_REPORT_FILE,
+        "publish_probe_mode": "ffmpeg_lightweight_publish",
+        "publish_probe_timeout_seconds": 15,
+        "tcp_connect_timeout_seconds": 5,
+    }
+    runtime_executor = {
+        "tool_path": str(RUNTIME_TOOL_PATH),
+        "runtime_report_file": RUNTIME_REPORT_FILE,
+        "attempt_log_pattern": ATTEMPT_LOG_PATTERN,
+        "attempt_report_pattern": ATTEMPT_REPORT_PATTERN,
+        "backoff_seconds": soak_plan["reconnect_policy"]["backoff_seconds"],
+        "max_consecutive_retryable_failures": soak_plan["reconnect_policy"][
+            "max_consecutive_retryable_failures"
+        ],
     }
 
     write_json(output_dir / "stage7_bridge_profile.json", bridge_profile)
@@ -784,6 +788,7 @@ def main() -> int:
             "loop_control_env": LOOP_MODE_ENV,
             "max_runtime_env": MAX_RUNTIME_ENV,
             "default_loop_mode": loop_bridge["default_loop_mode"],
+            "runtime_ffmpeg_bin": resolved_ffmpeg_path,
             "live_redacted_argv": live_args_infinite_redacted,
             "live_redacted_shell": shlex.join(live_args_infinite_redacted),
             "live_redacted_argv_by_mode": {
@@ -794,6 +799,10 @@ def main() -> int:
                 "once": shlex.join(live_args_once_redacted),
                 "infinite": shlex.join(live_args_infinite_redacted),
             },
+            "live_runtime_argv_without_target_by_mode": {
+                "once": live_args_once_runtime,
+                "infinite": live_args_infinite_runtime,
+            },
             "smoke_argv": smoke_args,
             "smoke_shell": shlex.join(smoke_args) if smoke_args else None,
         },
@@ -802,8 +811,7 @@ def main() -> int:
         output_dir / "run_stage7_stream_bridge.sh",
         build_runtime_script(
             env_var=bridge_profile["ingest"]["stream_url_env"],
-            once_args_without_output=live_args_once_runtime,
-            infinite_args_without_output=live_args_infinite_runtime,
+            runtime_tool_path=RUNTIME_TOOL_PATH,
         ),
     )
     (output_dir / "run_stage7_stream_bridge.sh").chmod(0o755)
@@ -859,6 +867,8 @@ def main() -> int:
         },
         "loop_bridge": loop_bridge,
         "runtime_observability": runtime_observability,
+        "preflight": preflight,
+        "runtime_executor": runtime_executor,
         "failure_policy": {
             "taxonomy_id": failure_taxonomy["taxonomy_id"],
             "default_class_id": failure_taxonomy["default_class_id"],
@@ -903,6 +913,10 @@ def main() -> int:
             "argv_redacted_by_mode": {
                 "once": live_args_once_redacted,
                 "infinite": live_args_infinite_redacted,
+            },
+            "runtime_argv_without_target_by_mode": {
+                "once": live_args_once_runtime,
+                "infinite": live_args_infinite_runtime,
             },
             "secrets_embedded": False,
         },

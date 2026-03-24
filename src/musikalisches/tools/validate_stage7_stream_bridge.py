@@ -30,6 +30,12 @@ REQUIRED_FAILURE_CLASSES = {
     "remote_disconnect",
     "unknown_failure",
 }
+REQUIRED_PREFLIGHT_CHECKS = {
+    "protocol_support",
+    "dns_resolution",
+    "tcp_connectivity",
+    "publish_probe",
+}
 
 
 def load_json(path: Path) -> dict:
@@ -224,6 +230,16 @@ def validate_soak_plan_payload(payload: object) -> list[str]:
         ].strip():
             errors.append("soak plan drift_budget.measurement_basis must be a non-empty string")
     reconnect_policy = payload.get("reconnect_policy")
+    preflight_policy = payload.get("preflight_policy")
+    if not isinstance(preflight_policy, dict):
+        errors.append("soak plan preflight_policy must be an object")
+    else:
+        if set(preflight_policy.get("required_checks", [])) != REQUIRED_PREFLIGHT_CHECKS:
+            errors.append("soak plan preflight_policy.required_checks must match the frozen preflight checks")
+        if not isinstance(preflight_policy.get("failure_class_hints"), dict):
+            errors.append("soak plan preflight_policy.failure_class_hints must be an object")
+        elif set(preflight_policy["failure_class_hints"]) != REQUIRED_PREFLIGHT_CHECKS:
+            errors.append("soak plan preflight_policy.failure_class_hints keys must match required_checks")
     if not isinstance(reconnect_policy, dict):
         errors.append("soak plan reconnect_policy must be an object")
     else:
@@ -287,6 +303,8 @@ def main() -> int:
     bridge_summary = manifest.get("bridge_summary", {})
     loop_bridge = manifest.get("loop_bridge", {})
     runtime_observability = manifest.get("runtime_observability", {})
+    preflight = manifest.get("preflight", {})
+    runtime_executor = manifest.get("runtime_executor", {})
     smoke_generation = manifest.get("smoke_generation", {})
     smoke_output_path = artifact_dir / smoke_generation.get("output_file", "")
     local_probe = probe_media(smoke_output_path) if smoke_generation.get("generated") else None
@@ -436,7 +454,7 @@ def main() -> int:
             and "${" + profile.get("ingest", {}).get("stream_url_env", "") + "}" in args_payload.get(
                 "live_redacted_shell_by_mode", {}
             ).get("once", "")
-            and f'"${{{profile.get("ingest", {}).get("stream_url_env", "")}}}"' in run_script
+            and f"--stream-url-env {profile.get('ingest', {}).get('stream_url_env', '')}" in run_script
             and "missing " + profile.get("ingest", {}).get("stream_url_env", "") in run_script
             and args_payload.get("loop_control_env", "") in run_script
             and args_payload.get("max_runtime_env", "") in run_script,
@@ -454,14 +472,48 @@ def main() -> int:
             runtime_observability.get("log_dir")
             and runtime_observability.get("stderr_log_file")
             and runtime_observability.get("exit_report_file")
+            and runtime_observability.get("preflight_log_file")
+            and runtime_observability.get("preflight_report_file")
+            and runtime_observability.get("runtime_report_file")
+            and runtime_observability.get("attempt_log_pattern")
+            and runtime_observability.get("attempt_report_pattern")
             and log_dir.exists()
-            and runtime_observability.get("stderr_log_file") in run_script
-            and runtime_observability.get("exit_report_file") in run_script
-            and Path(runtime_observability.get("classifier_tool_path", "")).name in run_script
-            and "stage7_failure_taxonomy.json" in run_script,
+            and Path(runtime_observability.get("runtime_tool_path", "")).name in run_script,
             {
                 "runtime_observability": runtime_observability,
                 "log_dir_exists": log_dir.exists(),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "preflight_contract",
+            set(preflight.get("required_checks", [])) == REQUIRED_PREFLIGHT_CHECKS
+            and preflight.get("preflight_log_file") == runtime_observability.get("preflight_log_file")
+            and preflight.get("preflight_report_file") == runtime_observability.get("preflight_report_file")
+            and preflight.get("publish_probe_mode") == "ffmpeg_lightweight_publish"
+            and isinstance(preflight.get("publish_probe_timeout_seconds"), int)
+            and preflight.get("publish_probe_timeout_seconds") > 0
+            and isinstance(preflight.get("tcp_connect_timeout_seconds"), int)
+            and preflight.get("tcp_connect_timeout_seconds") > 0,
+            {
+                "preflight": preflight,
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "runtime_executor",
+            runtime_executor.get("runtime_report_file") == runtime_observability.get("runtime_report_file")
+            and runtime_executor.get("attempt_log_pattern") == runtime_observability.get("attempt_log_pattern")
+            and runtime_executor.get("attempt_report_pattern")
+            == runtime_observability.get("attempt_report_pattern")
+            and runtime_executor.get("backoff_seconds")
+            == soak_plan.get("reconnect_policy", {}).get("backoff_seconds")
+            and runtime_executor.get("max_consecutive_retryable_failures")
+            == soak_plan.get("reconnect_policy", {}).get("max_consecutive_retryable_failures"),
+            {
+                "runtime_executor": runtime_executor,
             },
         )
     )
@@ -495,12 +547,17 @@ def main() -> int:
             and soak_plan.get("bridge_profile_id") == manifest.get("bridge_profile_id")
             and soak_plan.get("minimum_runtime_hours", 0) >= 8
             and soak_plan.get("expected_source_loop_iterations") == expected_source_loop_iterations
+            and set(soak_plan.get("preflight_policy", {}).get("required_checks", []))
+            == REQUIRED_PREFLIGHT_CHECKS
             and set(soak_plan.get("reconnect_policy", {}).get("retryable_classes", []))
             == set(manifest.get("failure_policy", {}).get("retryable_classes", []))
             and set(soak_plan.get("required_runtime_files", []))
             == {
+                f"{runtime_observability.get('log_dir')}/{runtime_observability.get('preflight_log_file')}",
+                f"{runtime_observability.get('log_dir')}/{runtime_observability.get('preflight_report_file')}",
                 f"{runtime_observability.get('log_dir')}/{runtime_observability.get('stderr_log_file')}",
                 f"{runtime_observability.get('log_dir')}/{runtime_observability.get('exit_report_file')}",
+                f"{runtime_observability.get('log_dir')}/{runtime_observability.get('runtime_report_file')}",
             },
             {
                 "error_count": len(soak_plan_errors),

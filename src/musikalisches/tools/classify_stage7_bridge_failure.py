@@ -55,6 +55,59 @@ def classify_exit(raw_text: str, exit_code: int, taxonomy: dict) -> tuple[dict, 
     raise SystemExit("failure taxonomy default_class_id is missing from classes")
 
 
+def classify_status(class_id: str, retryable: bool) -> str:
+    if class_id == "clean_exit":
+        return "clean_exit"
+    if class_id == "runtime_limit_reached":
+        return "runtime_limit_reached"
+    if class_id == "interrupted":
+        return "interrupted"
+    if retryable:
+        return "retryable_failure"
+    return "terminal_failure"
+
+
+def build_runtime_report_payload(
+    *,
+    raw_text: str,
+    exit_code: int,
+    taxonomy: dict,
+    loop_mode: str,
+    max_runtime_seconds: float,
+    command_shell: str,
+    redact_env_vars: list[str],
+    stage: str = "stage7_stream_bridge_runtime",
+    extra_fields: dict | None = None,
+) -> tuple[str, dict]:
+    redacted_text, applied_redactions = redact_text(raw_text, redact_env_vars)
+    redacted_command_shell, applied_command_redactions = redact_text(
+        command_shell,
+        redact_env_vars,
+    )
+    applied_redactions = sorted(set(applied_redactions) | set(applied_command_redactions))
+    matched_class, matched_tokens = classify_exit(raw_text, exit_code, taxonomy)
+    class_id = matched_class["class_id"]
+    retryable = matched_class.get("retryable", False)
+    report = {
+        "stage": stage,
+        "status": classify_status(class_id, retryable),
+        "exit_code": exit_code,
+        "exit_class_id": class_id,
+        "retryable": retryable,
+        "matched_tokens": matched_tokens,
+        "loop_mode": loop_mode,
+        "max_runtime_seconds": max_runtime_seconds,
+        "command_shell": redacted_command_shell,
+        "taxonomy_id": taxonomy.get("taxonomy_id"),
+        "log_line_count": len(redacted_text.splitlines()),
+        "redacted_env_vars_requested": redact_env_vars,
+        "redacted_env_vars_applied": applied_redactions,
+    }
+    if extra_fields:
+        report.update(extra_fields)
+    return redacted_text, report
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Classify a stage7 RTMPS bridge stderr log and persist a redacted runtime report."
@@ -88,47 +141,23 @@ def main() -> int:
     output_report = Path(args.output_report).resolve()
     taxonomy = load_json(Path(args.failure_taxonomy).resolve())
     raw_text = input_log.read_text(encoding="utf-8", errors="replace") if input_log.exists() else ""
-    redacted_text, applied_redactions = redact_text(raw_text, args.redact_env_var)
-    redacted_command_shell, applied_command_redactions = redact_text(
-        args.command_shell,
-        args.redact_env_var,
+    redacted_text, report = build_runtime_report_payload(
+        raw_text=raw_text,
+        exit_code=args.exit_code,
+        taxonomy=taxonomy,
+        loop_mode=args.loop_mode,
+        max_runtime_seconds=float(args.max_runtime_seconds or 0),
+        command_shell=args.command_shell,
+        redact_env_vars=args.redact_env_var,
+        extra_fields={
+            "log_file": str(output_log),
+        },
     )
-    applied_redactions = sorted(set(applied_redactions) | set(applied_command_redactions))
-    matched_class, matched_tokens = classify_exit(raw_text, args.exit_code, taxonomy)
-    class_id = matched_class["class_id"]
-    if class_id == "clean_exit":
-        classification_status = "clean_exit"
-    elif class_id == "runtime_limit_reached":
-        classification_status = "runtime_limit_reached"
-    elif class_id == "interrupted":
-        classification_status = "interrupted"
-    elif matched_class.get("retryable") is True:
-        classification_status = "retryable_failure"
-    else:
-        classification_status = "terminal_failure"
 
     output_log.parent.mkdir(parents=True, exist_ok=True)
     output_report.parent.mkdir(parents=True, exist_ok=True)
     output_log.write_text(redacted_text, encoding="utf-8")
-    write_json(
-        output_report,
-        {
-            "stage": "stage7_stream_bridge_runtime",
-            "status": classification_status,
-            "exit_code": args.exit_code,
-            "exit_class_id": class_id,
-            "retryable": matched_class.get("retryable", False),
-            "matched_tokens": matched_tokens,
-            "loop_mode": args.loop_mode,
-            "max_runtime_seconds": float(args.max_runtime_seconds or 0),
-            "command_shell": redacted_command_shell,
-            "taxonomy_id": taxonomy.get("taxonomy_id"),
-            "log_file": str(output_log),
-            "log_line_count": len(redacted_text.splitlines()),
-            "redacted_env_vars_requested": args.redact_env_var,
-            "redacted_env_vars_applied": applied_redactions,
-        },
-    )
+    write_json(output_report, report)
     return 0
 
 

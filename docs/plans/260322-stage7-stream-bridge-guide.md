@@ -47,7 +47,9 @@ make -C src/musikalisches stage7-soak-check
 当前补齐的 pre-stage8 优化：
 
 - `loop bridge`: 默认 live mode 为 `infinite`，通过 `MUSIKALISCHES_STAGE7_LOOP_MODE` 在 `once` / `infinite` 间切换
-- `failure taxonomy`: 运行时会写 redacted `stderr` 与 `exit report`，至少区分 `handshake_failure` / `auth_failure` / `network_jitter` / `remote_disconnect` / `ingest_configuration_failure`
+- `rtmps preflight`: 正式推流前先检查 `ffmpeg` 协议支持、DNS、TCP 连通性，以及一次轻量 publish probe，把配置/认证错误前置暴露
+- `reconnect executor`: 运行时真正执行 backoff / retry budget / 连续 retryable failure 上限，而不再只把策略停在 soak plan
+- `failure taxonomy`: 运行时会写 redacted `stderr`、`exit report` 与 aggregate runtime report，至少区分 `handshake_failure` / `auth_failure` / `network_jitter` / `remote_disconnect` / `ingest_configuration_failure`
 - `soak gate`: 基于 bridge manifest 生成 `stage7_soak_plan.json`，并以 `stage7-soak-check` 验证进入 stage 8 前的最小条件
 
 运行脚本约定：
@@ -67,8 +69,11 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 
 运行后的观测文件：
 
+- `ops/out/stream-bridge/logs/stage7_bridge_preflight.stderr.log`
+- `ops/out/stream-bridge/logs/stage7_bridge_preflight_report.json`
 - `ops/out/stream-bridge/logs/stage7_bridge_latest.stderr.log`
 - `ops/out/stream-bridge/logs/stage7_bridge_exit_report.json`
+- `ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json`
 
 边界：
 

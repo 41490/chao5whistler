@@ -143,8 +143,11 @@ def main() -> int:
         build_check(
             "reconnect_policy",
             set(soak_plan.get("reconnect_policy", {}).get("retryable_classes", [])) == retryable_class_ids
+            and set(soak_plan.get("preflight_policy", {}).get("required_checks", []))
+            == {"protocol_support", "dns_resolution", "tcp_connectivity", "publish_probe"}
             and set(soak_plan.get("exit_classification_coverage", [])) == class_ids,
             {
+                "preflight_checks": soak_plan.get("preflight_policy", {}).get("required_checks"),
                 "retryable_classes": soak_plan.get("reconnect_policy", {}).get("retryable_classes"),
                 "expected_retryable_classes": sorted(retryable_class_ids),
                 "exit_classification_coverage": soak_plan.get("exit_classification_coverage"),
@@ -158,8 +161,11 @@ def main() -> int:
             log_dir.exists()
             and set(soak_plan.get("required_runtime_files", []))
             == {
+                f"{runtime_observability.get('log_dir')}/{runtime_observability.get('preflight_log_file')}",
+                f"{runtime_observability.get('log_dir')}/{runtime_observability.get('preflight_report_file')}",
                 f"{runtime_observability.get('log_dir')}/{runtime_observability.get('stderr_log_file')}",
                 f"{runtime_observability.get('log_dir')}/{runtime_observability.get('exit_report_file')}",
+                f"{runtime_observability.get('log_dir')}/{runtime_observability.get('runtime_report_file')}",
             },
             {
                 "log_dir": str(log_dir),
@@ -182,6 +188,32 @@ def main() -> int:
                     "exit_class_id": runtime_report.get("exit_class_id"),
                     "stderr_log_file": str(stderr_log_path) if stderr_log_path else None,
                     "stderr_log_exists": stderr_log_path.exists() if stderr_log_path else False,
+                },
+            )
+        )
+
+    aggregate_runtime_report_path = (
+        log_dir / runtime_observability.get("runtime_report_file", "")
+        if runtime_observability.get("runtime_report_file")
+        else None
+    )
+    preflight_report_path = (
+        log_dir / runtime_observability.get("preflight_report_file", "")
+        if runtime_observability.get("preflight_report_file")
+        else None
+    )
+    if aggregate_runtime_report_path and aggregate_runtime_report_path.exists():
+        aggregate_runtime_report = load_json(aggregate_runtime_report_path)
+        checks.append(
+            build_check(
+                "runtime_executor_report",
+                aggregate_runtime_report.get("status")
+                in {"completed", "terminal_failure", "retry_exhausted", "runtime_limit_reached", "interrupted", "preflight_failed"}
+                and aggregate_runtime_report.get("preflight_report_file") == str(preflight_report_path),
+                {
+                    "runtime_report_file": str(aggregate_runtime_report_path),
+                    "status": aggregate_runtime_report.get("status"),
+                    "preflight_report_file": aggregate_runtime_report.get("preflight_report_file"),
                 },
             )
         )

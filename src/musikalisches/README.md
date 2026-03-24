@@ -42,7 +42,8 @@
 - 如构建机有 `ffprobe`，`video_render_manifest.json` 会额外带出 mp4 probe 元数据，供后续运维验收对账
 - stage 7 已冻结默认 `RTMPS + FLV` bridge profile，并新增 builder / validator / guide
 - stage 7 live bridge 已补 `once` / `infinite` 两种 loop mode，默认通过 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite` 连续对齐 stage5 loop plan 与 stage6 render duration
-- stage 7 runtime 已补 redacted stderr log / exit report / failure taxonomy，可区分 `handshake_failure` / `auth_failure` / `network_jitter` / `remote_disconnect` / `ingest_configuration_failure`
+- stage 7 runtime 已补 `RTMPS preflight` 与可重连执行器：正式推流前先检查协议支持 / DNS / TCP / 轻量 publish probe，运行中真正执行 backoff / retry budget / 连续失败上限
+- stage 7 runtime 已补 redacted stderr log / exit report / aggregate runtime report / failure taxonomy，可区分 `handshake_failure` / `auth_failure` / `network_jitter` / `remote_disconnect` / `ingest_configuration_failure`
 - stage 7 已基于当前 bridge manifest 生成 `stage7_soak_plan.json`，并提供 `stage7-soak-check` 作为进入 stage 8 前的长时 soak gate
 
 当前仍未完成：
@@ -313,8 +314,14 @@ ops/out/stream-bridge
 - `run_stage7_stream_bridge.sh` 默认使用 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`
 - 如需只跑单次有限输入，可设置 `MUSIKALISCHES_STAGE7_LOOP_MODE=once`
 - 如需做受控长时 bridge / soak 预演，可设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
+- runtime 会先执行 `protocol_support` / `dns_resolution` / `tcp_connectivity` / `publish_probe` 四步 preflight
+- publish probe 会对真实 `RTMPS` 地址做一次轻量 `ffmpeg` 发布试探，用来提前暴露认证或权限错误
+- retryable 失败会按 `1s -> 5s -> 15s` backoff 自动重连，达到连续失败上限后才退出
+- runtime 会把 preflight `stderr` 写到 `logs/stage7_bridge_preflight.stderr.log`
+- runtime 会把 preflight 报告写到 `logs/stage7_bridge_preflight_report.json`
 - runtime 会把 `stderr` 写到 `logs/stage7_bridge_latest.stderr.log`
 - runtime 会把退出分类写到 `logs/stage7_bridge_exit_report.json`
+- runtime 会把聚合执行结果写到 `logs/stage7_bridge_runtime_report.json`
 
 失败分类当前至少覆盖：
 

@@ -36,6 +36,12 @@ make -C src/songh stage3-rollover-smoke
 make -C src/songh stage4-manual
 ```
 
+当前阶段 stage 4 PNG 样片落盘入口：
+
+```bash
+make -C src/songh stage4-render-fixture
+```
+
 当前已落地：
 
 - stage 2: `gharchive day-pack downloader + normalize pipeline`
@@ -60,6 +66,10 @@ make -C src/songh stage4-manual
   - CLI: `sample-video`
   - 输入直接复用 `ReplayTick` / `RuntimeEvent`
   - 输出为可回归的 frame-plan JSON sample
+- stage 4 已补最小 raster/frame sink：
+  - CLI: `render-video-sample`
+  - 输出 `frame-plan.json` + `render-manifest.json` + `frames/*.png`
+  - 当前文本使用内建 bitmap glyph 先落真实帧，不依赖 ffmpeg
 - 当前已支持三类 motion mode 样片：
   - `vertical`
   - `fixed_angle`
@@ -71,6 +81,7 @@ make -C src/songh stage4-manual
   - `stage4-sample-vertical`
   - `stage4-sample-fixed`
   - `stage4-sample-random`
+  - `stage4-render-fixture`
   - `stage4-all`
 - runtime tick 事件已冻结为共享契约：
   - `src/songh/src/model/runtime_event.rs`
@@ -91,7 +102,8 @@ stage 4 当前判断：
   - 三类 motion mode 的 frame-plan sample
   - 文本模板渲染
   - 基于 canvas / speed / angle 的轨迹规划
+  - vertical motion 的 PNG 帧序列样片
 - 但 stage 4 仍未完成，当前还缺：
-  - 真实 raster/frame buffer 输出
   - 字体度量与更准确的 text layout
-  - 样片落盘到图片序列或视频容器
+  - 更高保真的文字 raster（当前为 bitmap glyph）
+  - 样片进一步落到视频容器

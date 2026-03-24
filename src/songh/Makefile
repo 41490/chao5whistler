@@ -12,6 +12,7 @@ STAGE3_ROLLOVER_START := 86390
 STAGE3_ROLLOVER_DURATION := 20
 STAGE4_SAMPLE_START := 750
 STAGE4_SAMPLE_DURATION := 8
+STAGE4_RENDER_ROOT := $(ROOT)/ops/out/songh-stage4-video-sample
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
 
@@ -46,8 +47,9 @@ help:
 	'  make stage4-sample-vertical Emit vertical motion stage4 frame-plan sample' \
 	'  make stage4-sample-fixed    Emit fixed-angle motion stage4 frame-plan sample' \
 	'  make stage4-sample-random   Emit random-angle motion stage4 frame-plan sample' \
+	'  make stage4-render-fixture  Render a vertical stage4 PNG frame sample artifact' \
 	'  make stage4-manual          Unified stage-4 sample verification command' \
-	'  make stage4-all             fmt + test + stage2-manual + all stage4 samples'
+	'  make stage4-all             fmt + test + stage2-manual + stage4 samples + PNG render'
 
 .PHONY: stage1-fmt
 stage1-fmt:
@@ -195,6 +197,15 @@ stage4-manual:
 	@$(MAKE) stage4-sample-vertical
 	@$(MAKE) stage4-sample-fixed
 	@$(MAKE) stage4-sample-random
+	@$(MAKE) stage4-render-fixture
+
+.PHONY: stage4-render-fixture
+stage4-render-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		render-video-sample --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--output-dir $(STAGE4_RENDER_ROOT) --day $(STAGE2_FIXTURE_DAY) \
+		--start-second $(STAGE4_SAMPLE_START) --duration-secs $(STAGE4_SAMPLE_DURATION) \
+		--motion-mode vertical
 
 .PHONY: stage4-all
 stage4-all:
@@ -204,3 +215,4 @@ stage4-all:
 	@$(MAKE) stage4-sample-vertical
 	@$(MAKE) stage4-sample-fixed
 	@$(MAKE) stage4-sample-random
+	@$(MAKE) stage4-render-fixture

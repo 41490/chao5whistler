@@ -4,8 +4,8 @@ use anyhow::Result;
 
 use crate::archive;
 use crate::cli::{
-    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, ReplayDryRunArgs,
-    SampleReplayArgs, SampleVideoArgs, SeedFixtureRawArgs, ValidateDayPackArgs,
+    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, RenderVideoSampleArgs,
+    ReplayDryRunArgs, SampleReplayArgs, SampleVideoArgs, SeedFixtureRawArgs, ValidateDayPackArgs,
 };
 use crate::config::{self, OutputFormat};
 use crate::replay;
@@ -28,6 +28,7 @@ where
         CliCommand::SampleReplay(args) => run_sample_replay(args)?,
         CliCommand::ReplayDryRun(args) => run_replay_dry_run(args)?,
         CliCommand::SampleVideo(args) => run_sample_video(args)?,
+        CliCommand::RenderVideoSample(args) => run_render_video_sample(args)?,
     }
 
     Ok(())
@@ -243,6 +244,44 @@ fn run_sample_video(args: SampleVideoArgs) -> Result<()> {
     println!("motion mode: {}", report.motion_mode);
     println!("emitted sprites: {}", report.emitted_sprite_count);
     println!("frames emitted: {}", report.frames.len());
+
+    if args.dump_json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    Ok(())
+}
+
+fn run_render_video_sample(args: RenderVideoSampleArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report = video::render_day_pack(
+        &loaded.config,
+        &args.day,
+        args.archive_root.as_deref(),
+        &args.output_dir,
+        args.start_second,
+        args.duration_secs,
+        args.motion_mode_override,
+        args.angle_deg_override,
+    )?;
+
+    println!("songh stage4 video render passed");
+    println!("main config: {}", config_path.display());
+    println!("archive root: {}", report.frame_plan.archive_root.display());
+    println!("source day: {}", report.frame_plan.source_day);
+    println!("output dir: {}", report.output_dir.display());
+    println!("frame-plan: {}", report.frame_plan_path.display());
+    println!("frames dir: {}", report.frames_dir.display());
+    println!("motion mode: {}", report.frame_plan.motion_mode);
+    println!("rendered frames: {}", report.rendered_frame_count);
+    println!(
+        "rendered sprites: {}",
+        report.frame_plan.emitted_sprite_count
+    );
 
     if args.dump_json {
         println!("{}", serde_json::to_string_pretty(&report)?);

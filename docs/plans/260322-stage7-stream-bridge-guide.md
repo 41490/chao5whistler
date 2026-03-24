@@ -18,6 +18,7 @@
 本地工件入口：
 
 ```bash
+make -C src/musikalisches stage7-ffmpeg-check
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-soak-check
@@ -46,6 +47,7 @@ make -C src/musikalisches stage7-soak-check
 
 当前补齐的 pre-stage8 优化：
 
+- `repo-managed ffmpeg`: 仓库内可直接构建 `ops/bin/ffmpeg` / `ops/bin/ffprobe`，固定 `libx264 + openssl + rtmps` 能力，避免系统包缺项
 - `loop bridge`: 默认 live mode 为 `infinite`，通过 `MUSIKALISCHES_STAGE7_LOOP_MODE` 在 `once` / `infinite` 间切换
 - `rtmps preflight`: 正式推流前先检查 `ffmpeg` 协议支持、DNS、TCP 连通性，以及一次轻量 publish probe，把配置/认证错误前置暴露
 - `reconnect executor`: 运行时真正执行 backoff / retry budget / 连续 retryable failure 上限，而不再只把策略停在 soak plan
@@ -57,6 +59,7 @@ make -C src/musikalisches stage7-soak-check
 - 必需：`MUSIKALISCHES_RTMP_URL`
 - 可选：`MUSIKALISCHES_STAGE7_LOOP_MODE=once|infinite`
 - 可选：`MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
+- 默认优先使用 `ops/bin/ffmpeg` / `ops/bin/ffprobe`，如存在
 
 示例：
 
@@ -80,3 +83,4 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 - 默认流程只做本地 `flv` smoke，不默认发起真实推流
 - 真正的直播 URL 不进入仓库文件，也不写入 manifest
 - `stage7_soak_check` 现在验证的是进入 stage 8 前的 readiness contract，不是 8h-24h 实际长跑结果本身
+- stage 8 人工真实 soak 流程草稿见：`docs/plans/260324-stage8-real-soak-ops-guide.md`

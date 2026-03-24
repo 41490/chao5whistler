@@ -45,6 +45,7 @@
 - stage 7 runtime 已补 `RTMPS preflight` 与可重连执行器：正式推流前先检查协议支持 / DNS / TCP / 轻量 publish probe，运行中真正执行 backoff / retry budget / 连续失败上限
 - stage 7 runtime 已补 redacted stderr log / exit report / aggregate runtime report / failure taxonomy，可区分 `handshake_failure` / `auth_failure` / `network_jitter` / `remote_disconnect` / `ingest_configuration_failure`
 - stage 7 已基于当前 bridge manifest 生成 `stage7_soak_plan.json`，并提供 `stage7-soak-check` 作为进入 stage 8 前的长时 soak gate
+- stage 7 现已补 repo-managed `ffmpeg/ffprobe` 构建入口，可在 `ops/bin/` 内固定出带 `rtmps` output 的本地 toolchain，避免依赖宿主机系统包差异
 
 当前仍未完成：
 
@@ -105,6 +106,7 @@ make -C src/musikalisches help
 - 有 `ffmpeg` 但没有 `ffprobe` 时，可以出 mp4；但 preview video contract 无法做完整探测，运维机仍建议成对安装
 - 推荐用 `rustup` 安装最新 stable Rust；不要依赖 Debian 仓库内过旧的 `rustc` / `cargo`
 - stage 7 默认只产出本地 `flv` smoke 与 redacted live command，不默认发起真实推流
+- 如系统自带 `ffmpeg` 缺少 `rtmps` output，可直接执行 `make -C src/musikalisches stage7-ffmpeg-build` 生成仓库内本地 toolchain，并由 stage6/stage7 目标自动优先使用 `ops/bin/ffmpeg` 与 `ops/bin/ffprobe`
 
 ## ops quickstart
 
@@ -118,6 +120,7 @@ make -C src/musikalisches stage6-video-stub
 make -C src/musikalisches stage6-video-check
 make -C src/musikalisches stage6-video-render
 make -C src/musikalisches stage6-video-render-check
+make -C src/musikalisches stage7-ffmpeg-check
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-soak-check
@@ -311,6 +314,8 @@ ops/out/stream-bridge
 
 当前 runtime / ops 约定：
 
+- 如 `ops/bin/ffmpeg` / `ops/bin/ffprobe` 存在，stage6 / stage7 默认优先使用 repo-managed toolchain
+- 可通过 `make -C src/musikalisches stage7-ffmpeg-build` 与 `stage7-ffmpeg-check` 显式重建并验证 `rtmps` output 能力
 - `run_stage7_stream_bridge.sh` 默认使用 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`
 - 如需只跑单次有限输入，可设置 `MUSIKALISCHES_STAGE7_LOOP_MODE=once`
 - 如需做受控长时 bridge / soak 预演，可设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
@@ -335,9 +340,16 @@ ops/out/stream-bridge
 进入 stage 8 前，推荐最小验收顺序：
 
 ```bash
+make -C src/musikalisches stage7-ffmpeg-check
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-soak-check
+```
+
+stage 8 真实 soak 的人工运维草稿见：
+
+```text
+docs/plans/260324-stage8-real-soak-ops-guide.md
 ```
 
 运行 stage 5 golden regression：

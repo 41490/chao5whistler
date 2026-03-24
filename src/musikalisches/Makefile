@@ -11,10 +11,15 @@ VIDEO_STUB_SF2_OUT := $(ROOT)/ops/out/video-stub-sf2
 VIDEO_RENDER_OUT := $(ROOT)/ops/out/video-render
 VIDEO_RENDER_SF2_OUT := $(ROOT)/ops/out/video-render-sf2
 STREAM_BRIDGE_OUT := $(ROOT)/ops/out/stream-bridge
+FFMPEG_TOOLCHAIN_OUT := $(ROOT)/ops/out/ffmpeg-rtmps-check
 DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_synth_profile.json
 DEFAULT_STAGE6_SCENE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage6_default_scene_profile.json
 DEFAULT_STAGE7_BRIDGE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage7_default_bridge_profile.json
 DEFAULT_SOUNDFONT := $(ROOT)/ops/assets/soundfonts/default.sf2
+REPO_FFMPEG_BIN := $(ROOT)/ops/bin/ffmpeg
+REPO_FFPROBE_BIN := $(ROOT)/ops/bin/ffprobe
+FFMPEG_BIN ?= $(if $(wildcard $(REPO_FFMPEG_BIN)),$(REPO_FFMPEG_BIN),ffmpeg)
+FFPROBE_BIN ?= $(if $(wildcard $(REPO_FFPROBE_BIN)),$(REPO_FFPROBE_BIN),ffprobe)
 PYTHON ?= python3
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
@@ -62,8 +67,11 @@ help:
 	'  make stage7-bridge        Freeze stage7 FFmpeg bridge contract and local FLV smoke' \
 	'  make stage7-bridge-check  Validate stage7 bridge artifacts' \
 	'  make stage7-soak-check    Validate pre-stage8 soak readiness contract' \
+	'  make stage7-ffmpeg-build  Build repo-managed ffmpeg/ffprobe with RTMPS output support' \
+	'  make stage7-ffmpeg-check  Validate repo-managed ffmpeg/ffprobe capability' \
 	'  make stage7-bridge-profile-show Show default stage7 bridge profile path' \
 	'  make stage7-plan-show     Show stage7 bridge guide path' \
+	'  make stage8-plan-show     Show stage8 real-soak ops guide path' \
 	'' \
 	'Utilities:' \
 	'  make stage5-all            fmt + test + golden + stream render + validate' \
@@ -83,7 +91,9 @@ help:
 	'  STAGE6_SCENE_PROFILE=/path/to/profile.json Override stage6 scene profile' \
 	'  STAGE7_AUDIO_SOURCE_DIR=/path/to/artifacts Override stage7 audio source dir' \
 	'  STAGE7_VIDEO_SOURCE_DIR=/path/to/artifacts Override stage7 video source dir' \
-	'  STAGE7_BRIDGE_PROFILE=/path/to/profile.json Override stage7 bridge profile'
+	'  STAGE7_BRIDGE_PROFILE=/path/to/profile.json Override stage7 bridge profile' \
+	'  FFMPEG_BIN=/path/to/ffmpeg             Override ffmpeg binary used by stage6/stage7' \
+	'  FFPROBE_BIN=/path/to/ffprobe           Override ffprobe binary used by stage7 checks'
 
 .PHONY: stage2-validate
 stage2-validate:
@@ -193,7 +203,8 @@ stage6-video-check:
 stage6-video-render:
 	@$(MAKE) stage6-video-stub
 	@$(MAKE) stage6-video-check
-	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage6_video_render.py \
+	cd $(ROOT) && PATH="$(ROOT)/ops/bin:$$PATH" $(PYTHON) src/musikalisches/tools/build_stage6_video_render.py \
+		--ffmpeg-bin "$(FFMPEG_BIN)" \
 		$(VIDEO_STUB_OUT) \
 		$(VIDEO_RENDER_OUT)
 
@@ -226,7 +237,8 @@ stage6-video-check-sf2:
 stage6-video-render-sf2:
 	@$(MAKE) stage6-video-stub-sf2
 	@$(MAKE) stage6-video-check-sf2
-	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage6_video_render.py \
+	cd $(ROOT) && PATH="$(ROOT)/ops/bin:$$PATH" $(PYTHON) src/musikalisches/tools/build_stage6_video_render.py \
+		--ffmpeg-bin "$(FFMPEG_BIN)" \
 		$(VIDEO_STUB_SF2_OUT) \
 		$(VIDEO_RENDER_SF2_OUT)
 
@@ -261,6 +273,20 @@ stage6-plan-show:
 stage6-render-plan-show:
 	@printf '%s\n' $(ROOT)/docs/plans/260321-stage6-render-video-guide.md
 
+.PHONY: stage7-ffmpeg-build
+stage7-ffmpeg-build:
+	cd $(ROOT) && bash src/musikalisches/tools/build_stage7_rtmps_ffmpeg.sh
+
+.PHONY: stage7-ffmpeg-check
+stage7-ffmpeg-check:
+	@if [[ ! -x "$(REPO_FFMPEG_BIN)" || ! -x "$(REPO_FFPROBE_BIN)" ]]; then \
+		$(MAKE) stage7-ffmpeg-build; \
+	fi
+	cd $(ROOT) && PATH="$(ROOT)/ops/bin:$$PATH" $(PYTHON) src/musikalisches/tools/validate_stage7_ffmpeg_toolchain.py \
+		--ffmpeg-bin "$(FFMPEG_BIN)" \
+		--ffprobe-bin "$(FFPROBE_BIN)" \
+		--output-dir "$(FFMPEG_TOOLCHAIN_OUT)"
+
 .PHONY: stage7-bridge
 stage7-bridge:
 	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_DEMO_OUT)}"; \
@@ -277,8 +303,10 @@ stage7-bridge:
 			break; \
 		fi; \
 	done; \
-	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage7_stream_bridge.py \
+	cd $(ROOT) && PATH="$(ROOT)/ops/bin:$$PATH" $(PYTHON) src/musikalisches/tools/build_stage7_stream_bridge.py \
 		$(if $(STAGE7_BRIDGE_PROFILE),--bridge-profile $(STAGE7_BRIDGE_PROFILE),) \
+		--ffmpeg-bin "$(FFMPEG_BIN)" \
+		--ffprobe-bin "$(FFPROBE_BIN)" \
 		"$$AUDIO_DIR" \
 		"$$VIDEO_DIR" \
 		$(STREAM_BRIDGE_OUT)
@@ -304,6 +332,10 @@ stage7-bridge-profile-show:
 .PHONY: stage7-plan-show
 stage7-plan-show:
 	@printf '%s\n' $(ROOT)/docs/plans/260322-stage7-stream-bridge-guide.md
+
+.PHONY: stage8-plan-show
+stage8-plan-show:
+	@printf '%s\n' $(ROOT)/docs/plans/260324-stage8-real-soak-ops-guide.md
 .PHONY: stage5-all
 stage5-all:
 	cd $(ROOT) && $(CARGO) fmt --all
@@ -334,6 +366,7 @@ stage6-sf2-all:
 stage7-all:
 	@$(MAKE) stage5-stream
 	@$(MAKE) stage6-video-render
+	@$(MAKE) stage7-ffmpeg-check
 	@$(MAKE) stage7-bridge
 	@$(MAKE) stage7-bridge-check
 	@$(MAKE) stage7-soak-check
@@ -343,4 +376,4 @@ plans-open:
 
 .PHONY: clean-out
 clean-out:
-	rm -rf $(DEMO_OUT) $(STREAM_DEMO_OUT) $(STREAM_SF2_OUT) $(GOLDEN_OUT) $(VIDEO_STUB_OUT) $(VIDEO_STUB_SF2_OUT) $(VIDEO_RENDER_OUT) $(VIDEO_RENDER_SF2_OUT) $(STREAM_BRIDGE_OUT)
+	rm -rf $(DEMO_OUT) $(STREAM_DEMO_OUT) $(STREAM_SF2_OUT) $(GOLDEN_OUT) $(VIDEO_STUB_OUT) $(VIDEO_STUB_SF2_OUT) $(VIDEO_RENDER_OUT) $(VIDEO_RENDER_SF2_OUT) $(STREAM_BRIDGE_OUT) $(FFMPEG_TOOLCHAIN_OUT)

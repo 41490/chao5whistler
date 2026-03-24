@@ -8,7 +8,7 @@ root_dir = "/tmp/songh/archive"
 wav_path = "/tmp/songh/background.wav"
 
 [video.text]
-font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+font_path = "ops/assets/3270NerdFontMono-Condensed.ttf"
 
 [outputs.record]
 path = "/tmp/songh/records/{date}/{label}.flv"

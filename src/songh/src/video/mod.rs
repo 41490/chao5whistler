@@ -1,18 +1,23 @@
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
-use font8x8::{UnicodeFonts, BASIC_FONTS};
+use image::imageops::{blur, rotate90};
 use image::{ImageBuffer, Rgba, RgbaImage};
+use rusttype::{point, Font, PositionedGlyph, Scale};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::config::schema::{Config, MotionMode};
-use crate::replay;
+use crate::config::schema::{Config, MotionMode, PaletteTheme};
+use crate::model::normalized_event::NormalizedEvent;
+use crate::replay::{self, ReplayTick};
 use crate::text;
 
-const BITMAP_GLYPH_WIDTH: u32 = 8;
-const BITMAP_GLYPH_HEIGHT: u32 = 8;
+const MAX_STAGE4_KEY_TEXT_SEGMENTS_PER_SECOND: usize = 9;
+const MAX_STAGE4_LIFETIME_SECS: f64 = 14.0;
+const TEXT_ROTATION_DEG: f64 = 90.0;
+const MAX_BLUR_SIGMA: f32 = 4.0;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct VideoSampleReport {
@@ -25,7 +30,9 @@ pub struct VideoSampleReport {
     pub canvas_width: u32,
     pub canvas_height: u32,
     pub fps: u32,
+    pub key_text_segment_limit_per_second: usize,
     pub emitted_sprite_count: usize,
+    pub type_color_assignments: Vec<VideoTypeColorAssignment>,
     pub sprites: Vec<VideoSpritePlan>,
     pub frames: Vec<VideoFrameSample>,
 }
@@ -42,13 +49,27 @@ pub struct VideoRenderReport {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct VideoTypeColorAssignment {
+    pub event_type: String,
+    pub window_event_count: u64,
+    pub color_hex: String,
+    pub contrast_ratio: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct VideoSpritePlan {
     pub event_id: String,
+    pub event_type: String,
     pub label: String,
+    pub color_hex: String,
     pub source_day: String,
     pub second_of_day: u32,
     pub spawn_replay_second: u64,
     pub font_size: u32,
+    pub second_type_count: u32,
+    pub second_type_rank: u32,
+    pub initial_gain_db: f64,
+    pub text_rotation_deg: f64,
     pub angle_deg: f64,
     pub spawn_x: f64,
     pub spawn_y: f64,
@@ -70,12 +91,37 @@ pub struct VideoFrameSample {
 #[derive(Debug, Clone, Serialize)]
 pub struct VideoFrameItem {
     pub event_id: String,
+    pub event_type: String,
     pub label: String,
+    pub color_hex: String,
     pub x: f64,
     pub y: f64,
     pub alpha: u32,
+    pub blur_sigma: f64,
     pub font_size: u32,
+    pub second_type_count: u32,
+    pub initial_gain_db: f64,
+    pub text_rotation_deg: f64,
     pub angle_deg: f64,
+}
+
+#[derive(Debug, Clone)]
+struct SelectedSourceEvent {
+    event: NormalizedEvent,
+    second_type_count: u32,
+    second_type_rank: u32,
+    font_size: u32,
+    initial_gain_db: f64,
+}
+
+struct LoadedFont {
+    font: Font<'static>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LabelMetrics {
+    width: f64,
+    height: f64,
 }
 
 pub fn sample_day_pack(
@@ -99,6 +145,7 @@ pub fn sample_day_pack(
         effective_config.video.motion.angle_deg = angle_deg;
     }
 
+    let font = load_font(&effective_config.video.text.font_path)?;
     let replay_report = replay::dry_run_day_pack(
         &effective_config,
         day,
@@ -108,21 +155,42 @@ pub fn sample_day_pack(
     )?;
     let motion_mode = effective_config.video.motion.mode;
     let fps = effective_config.video.canvas.fps;
+    let source_events_by_tick =
+        load_source_events_for_ticks(&replay_report.archive_root, &replay_report.ticks)?;
+    let type_color_assignments =
+        build_type_color_assignments(&effective_config, &source_events_by_tick)?;
+    let color_by_type = type_color_assignments
+        .iter()
+        .map(|entry| (entry.event_type.clone(), entry.color_hex.clone()))
+        .collect::<HashMap<_, _>>();
 
     let sprites = replay_report
         .ticks
         .iter()
         .flat_map(|tick| {
-            tick.events.iter().map(|event| {
-                VideoSpritePlan::from_runtime_event(
-                    &effective_config,
-                    motion_mode,
-                    tick.replay_second,
-                    tick.source_day.as_str(),
-                    tick.second_of_day,
-                    event,
-                )
-            })
+            let source_events = source_events_by_tick
+                .get(&(tick.source_day.clone(), tick.second_of_day))
+                .cloned()
+                .unwrap_or_default();
+            select_key_events_for_second(&effective_config, &source_events)
+                .into_iter()
+                .map(|selected| {
+                    let color_hex = color_by_type
+                        .get(&selected.event.event_type)
+                        .cloned()
+                        .unwrap_or_else(|| effective_config.video.palette.text_hex.clone());
+                    VideoSpritePlan::from_selected_event(
+                        &effective_config,
+                        &font,
+                        motion_mode,
+                        tick.replay_second,
+                        tick.source_day.as_str(),
+                        tick.second_of_day,
+                        selected,
+                        color_hex,
+                    )
+                })
+                .collect::<Vec<_>>()
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -153,7 +221,7 @@ pub fn sample_day_pack(
         .collect::<Result<Vec<_>>>()?;
 
     Ok(VideoSampleReport {
-        schema_version: "stage4.video_sample.v1".to_string(),
+        schema_version: "stage4.video_sample.v2".to_string(),
         archive_root: replay_report.archive_root,
         source_day: day.to_string(),
         start_second,
@@ -162,7 +230,9 @@ pub fn sample_day_pack(
         canvas_width: effective_config.video.canvas.width,
         canvas_height: effective_config.video.canvas.height,
         fps,
+        key_text_segment_limit_per_second: MAX_STAGE4_KEY_TEXT_SEGMENTS_PER_SECOND,
         emitted_sprite_count: sprites.len(),
+        type_color_assignments,
         sprites,
         frames,
     })
@@ -201,8 +271,10 @@ pub fn render_day_pack(
     fs::write(&frame_plan_path, serde_json::to_vec_pretty(&frame_plan)?)
         .with_context(|| format!("write stage4 frame-plan {}", frame_plan_path.display()))?;
 
+    let font = load_font(&config.video.text.font_path)?;
+    let sprite_assets = build_sprite_assets(config, &font, &frame_plan)?;
     for frame in &frame_plan.frames {
-        let image = render_frame(config, &frame_plan, frame)?;
+        let image = render_frame(config, &frame_plan, frame, &sprite_assets)?;
         let frame_path = frames_dir.join(format!("frame-{:06}.png", frame.frame_index));
         image
             .save(&frame_path)
@@ -211,7 +283,7 @@ pub fn render_day_pack(
 
     let manifest_path = output_dir.join("render-manifest.json");
     let report = VideoRenderReport {
-        schema_version: "stage4.video_render.v1".to_string(),
+        schema_version: "stage4.video_render.v2".to_string(),
         output_dir: output_dir.to_path_buf(),
         frames_dir,
         frame_plan_path,
@@ -226,24 +298,23 @@ pub fn render_day_pack(
 }
 
 impl VideoSpritePlan {
-    fn from_runtime_event(
+    fn from_selected_event(
         config: &Config,
+        font: &LoadedFont,
         motion_mode: MotionMode,
         spawn_replay_second: u64,
         source_day: &str,
         second_of_day: u32,
-        event: &crate::model::runtime_event::RuntimeEvent,
+        selected: SelectedSourceEvent,
+        color_hex: String,
     ) -> Result<Self> {
-        let label = text::render_template(&config.text, &event.text_fields)?;
-        let font_size = font_size_for_weight(
-            config.video.text.font_size_min,
-            config.video.text.font_size_max,
-            event.weight,
-        );
-        let label_width = estimate_label_width(&label, font_size);
-        let spawn_x = spawn_x(config, event, label_width);
-        let spawn_y = spawn_y(config, event);
-        let angle_deg = motion_angle_deg(config, motion_mode, event, spawn_replay_second);
+        let label = text::render_template(&config.text, &selected.event.text_fields)?;
+        let horizontal_metrics = measure_label(font, &label, selected.font_size);
+        let rendered_width = horizontal_metrics.height.max(1.0);
+        let rendered_height = horizontal_metrics.width.max(1.0);
+        let spawn_x = spawn_x(config, &selected.event.event_id, rendered_width);
+        let spawn_y = spawn_y(config, &selected.event.event_id, rendered_height);
+        let angle_deg = motion_angle_deg(config, motion_mode, &selected.event, spawn_replay_second);
         let angle_rad = angle_deg.to_radians();
         let speed = config.video.motion.speed_px_per_sec;
         let velocity_x = speed * angle_rad.sin();
@@ -252,19 +323,25 @@ impl VideoSpritePlan {
             config,
             spawn_x,
             spawn_y,
-            label_width,
-            estimate_label_height(font_size),
+            rendered_width,
+            rendered_height,
             velocity_x,
             velocity_y,
         );
 
         Ok(Self {
-            event_id: event.event_id.clone(),
+            event_id: selected.event.event_id.clone(),
+            event_type: selected.event.event_type.clone(),
             label,
+            color_hex,
             source_day: source_day.to_string(),
             second_of_day,
             spawn_replay_second,
-            font_size,
+            font_size: selected.font_size,
+            second_type_count: selected.second_type_count,
+            second_type_rank: selected.second_type_rank,
+            initial_gain_db: round2(selected.initial_gain_db),
+            text_rotation_deg: TEXT_ROTATION_DEG,
             angle_deg,
             spawn_x,
             spawn_y,
@@ -286,14 +363,21 @@ impl VideoSpritePlan {
         let alpha = ((config.video.text.initial_alpha as f64) * fade)
             .round()
             .clamp(0.0, 255.0) as u32;
+        let blur_sigma = (MAX_BLUR_SIGMA as f64) * (age_secs / self.lifetime_secs).clamp(0.0, 1.0);
 
         Some(VideoFrameItem {
             event_id: self.event_id.clone(),
+            event_type: self.event_type.clone(),
             label: self.label.clone(),
+            color_hex: self.color_hex.clone(),
             x: round2(x),
             y: round2(y),
             alpha,
+            blur_sigma: round2(blur_sigma),
             font_size: self.font_size,
+            second_type_count: self.second_type_count,
+            initial_gain_db: self.initial_gain_db,
+            text_rotation_deg: self.text_rotation_deg,
             angle_deg: round2(self.angle_deg),
         })
     }
@@ -303,10 +387,9 @@ fn render_frame(
     config: &Config,
     frame_plan: &VideoSampleReport,
     frame: &VideoFrameSample,
+    sprite_assets: &HashMap<String, RgbaImage>,
 ) -> Result<RgbaImage> {
     let background = parse_hex_color(&config.video.palette.background_hex)?;
-    let text_color = parse_hex_color(&config.video.palette.text_hex)?;
-    let accent_color = parse_hex_color(&config.video.palette.accent_hex)?;
     let mut image = ImageBuffer::from_pixel(
         frame_plan.canvas_width,
         frame_plan.canvas_height,
@@ -314,147 +397,206 @@ fn render_frame(
     );
 
     for item in &frame.active_items {
-        draw_label(
+        let base = sprite_assets
+            .get(&item.event_id)
+            .ok_or_else(|| anyhow!("missing sprite asset for {}", item.event_id))?;
+        draw_sprite(
             &mut image,
-            item,
-            text_color,
-            accent_color,
-            config.video.text.stroke_width,
+            base,
+            item.x,
+            item.y,
+            item.alpha,
+            item.blur_sigma as f32,
         );
     }
 
     Ok(image)
 }
 
-fn draw_label(
+fn build_sprite_assets(
+    config: &Config,
+    font: &LoadedFont,
+    frame_plan: &VideoSampleReport,
+) -> Result<HashMap<String, RgbaImage>> {
+    let mut assets = HashMap::new();
+    for sprite in &frame_plan.sprites {
+        let fill_color = parse_hex_color(&sprite.color_hex)?;
+        let outline_color = outline_color_for_fill(config, &sprite.color_hex)?;
+        let text_image = render_text_sprite(
+            font,
+            &sprite.label,
+            sprite.font_size,
+            fill_color,
+            outline_color,
+            config.video.text.stroke_width,
+        )?;
+        assets.insert(sprite.event_id.clone(), rotate90(&text_image));
+    }
+    Ok(assets)
+}
+
+fn draw_sprite(
     image: &mut RgbaImage,
-    item: &VideoFrameItem,
-    text_color: [u8; 3],
-    accent_color: [u8; 3],
-    stroke_width: u32,
+    base: &RgbaImage,
+    x: f64,
+    y: f64,
+    alpha: u32,
+    blur_sigma: f32,
 ) {
-    let scale = bitmap_scale(item.font_size);
-    let base_x = item.x.round() as i32;
-    let base_y = item.y.round() as i32;
-    let outline_alpha = item.alpha.min(180);
+    let mut layer = if blur_sigma > 0.0 {
+        blur(base, blur_sigma)
+    } else {
+        base.clone()
+    };
+    apply_alpha(&mut layer, alpha);
+
+    let base_x = x.round() as i32;
+    let base_y = y.round() as i32;
+    for (dx, dy, pixel) in rgba_pixels(&layer) {
+        if pixel[3] == 0 {
+            continue;
+        }
+        blend_pixel(image, base_x + dx, base_y + dy, pixel);
+    }
+}
+
+fn rgba_pixels(image: &RgbaImage) -> impl Iterator<Item = (i32, i32, [u8; 4])> + '_ {
+    image
+        .enumerate_pixels()
+        .map(|(x, y, pixel)| (x as i32, y as i32, [pixel[0], pixel[1], pixel[2], pixel[3]]))
+}
+
+fn apply_alpha(image: &mut RgbaImage, alpha: u32) {
+    let alpha_ratio = (alpha.min(255) as f32) / 255.0;
+    for pixel in image.pixels_mut() {
+        pixel.0[3] = ((pixel.0[3] as f32) * alpha_ratio)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+    }
+}
+
+fn render_text_sprite(
+    font: &LoadedFont,
+    label: &str,
+    font_size: u32,
+    fill_color: [u8; 3],
+    outline_color: [u8; 3],
+    stroke_width: u32,
+) -> Result<RgbaImage> {
+    let scale = Scale::uniform(font_size as f32);
+    let v_metrics = font.font.v_metrics(scale);
+    let glyphs = font
+        .font
+        .layout(label, scale, point(0.0, v_metrics.ascent))
+        .collect::<Vec<_>>();
+    let bounds = glyph_bounds(&glyphs).unwrap_or((0, 0, 1, v_metrics.ascent.ceil() as i32));
+    let padding = stroke_width.max(1) as i32 + 2;
+    let width = (bounds.2 - bounds.0 + padding * 2).max(1) as u32;
+    let height = (bounds.3 - bounds.1 + padding * 2).max(1) as u32;
+    let mut image = ImageBuffer::from_pixel(width, height, Rgba([0, 0, 0, 0]));
 
     if stroke_width > 0 {
-        let outline_offsets = outline_offsets(scale, stroke_width);
-        for (dx, dy) in outline_offsets {
-            draw_bitmap_text(
-                image,
-                &item.label,
-                base_x + dx,
-                base_y + dy,
-                scale,
-                accent_color,
-                outline_alpha,
+        for (dx, dy) in outline_offsets(stroke_width) {
+            draw_glyphs(
+                &mut image,
+                &glyphs,
+                bounds.0,
+                bounds.1,
+                padding,
+                dx,
+                dy,
+                outline_color,
             );
         }
     }
 
-    draw_bitmap_text(
-        image,
-        &item.label,
-        base_x,
-        base_y,
-        scale,
-        text_color,
-        item.alpha,
+    draw_glyphs(
+        &mut image, &glyphs, bounds.0, bounds.1, padding, 0, 0, fill_color,
     );
+
+    Ok(image)
 }
 
-fn draw_bitmap_text(
+fn draw_glyphs(
     image: &mut RgbaImage,
-    label: &str,
-    base_x: i32,
-    base_y: i32,
-    scale: u32,
+    glyphs: &[PositionedGlyph<'_>],
+    min_x: i32,
+    min_y: i32,
+    padding: i32,
+    dx: i32,
+    dy: i32,
     color: [u8; 3],
-    alpha: u32,
 ) {
-    let advance = (BITMAP_GLYPH_WIDTH * scale) as i32;
-    for (index, ch) in label.chars().enumerate() {
-        let glyph_x = base_x + index as i32 * advance;
-        draw_bitmap_char(image, ch, glyph_x, base_y, scale, color, alpha);
-    }
-}
-
-fn draw_bitmap_char(
-    image: &mut RgbaImage,
-    ch: char,
-    base_x: i32,
-    base_y: i32,
-    scale: u32,
-    color: [u8; 3],
-    alpha: u32,
-) {
-    let fallback = BASIC_FONTS
-        .get('?')
-        .expect("font8x8 basic font must contain ?");
-    let glyph = BASIC_FONTS.get(ch).unwrap_or(fallback);
-
-    for (row, bits) in glyph.iter().enumerate() {
-        for col in 0..BITMAP_GLYPH_WIDTH {
-            if bits & (1u8 << col) == 0 {
-                continue;
+    for glyph in glyphs {
+        let Some(bbox) = glyph.pixel_bounding_box() else {
+            continue;
+        };
+        glyph.draw(|x, y, coverage| {
+            if coverage <= 0.0 {
+                return;
             }
-            let pixel_x = base_x + col as i32 * scale as i32;
-            let pixel_y = base_y + row as i32 * scale as i32;
-            fill_rect(image, pixel_x, pixel_y, scale, scale, color, alpha);
-        }
-    }
-}
-
-fn fill_rect(
-    image: &mut RgbaImage,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-    color: [u8; 3],
-    alpha: u32,
-) {
-    for dy in 0..height {
-        for dx in 0..width {
+            let px = x as i32 + bbox.min.x - min_x + padding + dx;
+            let py = y as i32 + bbox.min.y - min_y + padding + dy;
             blend_pixel(
                 image,
-                x + dx as i32,
-                y + dy as i32,
-                [color[0], color[1], color[2], alpha.min(255) as u8],
+                px,
+                py,
+                [
+                    color[0],
+                    color[1],
+                    color[2],
+                    (coverage * 255.0).round().clamp(0.0, 255.0) as u8,
+                ],
             );
+        });
+    }
+}
+
+fn measure_label(font: &LoadedFont, label: &str, font_size: u32) -> LabelMetrics {
+    let scale = Scale::uniform(font_size as f32);
+    let v_metrics = font.font.v_metrics(scale);
+    let glyphs = font
+        .font
+        .layout(label, scale, point(0.0, v_metrics.ascent))
+        .collect::<Vec<_>>();
+    if let Some((min_x, min_y, max_x, max_y)) = glyph_bounds(&glyphs) {
+        LabelMetrics {
+            width: (max_x - min_x).max(1) as f64,
+            height: (max_y - min_y).max(1) as f64,
+        }
+    } else {
+        LabelMetrics {
+            width: 1.0,
+            height: (v_metrics.ascent - v_metrics.descent).ceil().max(1.0) as f64,
         }
     }
 }
 
-fn blend_pixel(image: &mut RgbaImage, x: i32, y: i32, top: [u8; 4]) {
-    if x < 0 || y < 0 {
-        return;
-    }
-    let Ok(x) = u32::try_from(x) else {
-        return;
-    };
-    let Ok(y) = u32::try_from(y) else {
-        return;
-    };
-    if x >= image.width() || y >= image.height() {
-        return;
+fn glyph_bounds(glyphs: &[PositionedGlyph<'_>]) -> Option<(i32, i32, i32, i32)> {
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+
+    for glyph in glyphs {
+        let Some(bbox) = glyph.pixel_bounding_box() else {
+            continue;
+        };
+        min_x = min_x.min(bbox.min.x);
+        min_y = min_y.min(bbox.min.y);
+        max_x = max_x.max(bbox.max.x);
+        max_y = max_y.max(bbox.max.y);
     }
 
-    let bottom = image.get_pixel(x, y).0;
-    let alpha = top[3] as f32 / 255.0;
-    let inv_alpha = 1.0 - alpha;
-    let blended = [
-        (top[0] as f32 * alpha + bottom[0] as f32 * inv_alpha).round() as u8,
-        (top[1] as f32 * alpha + bottom[1] as f32 * inv_alpha).round() as u8,
-        (top[2] as f32 * alpha + bottom[2] as f32 * inv_alpha).round() as u8,
-        255,
-    ];
-    image.put_pixel(x, y, Rgba(blended));
+    if min_x == i32::MAX {
+        None
+    } else {
+        Some((min_x, min_y, max_x, max_y))
+    }
 }
 
-fn outline_offsets(scale: u32, stroke_width: u32) -> Vec<(i32, i32)> {
-    let radius = (stroke_width.max(1) * scale.max(1)) as i32;
+fn outline_offsets(stroke_width: u32) -> Vec<(i32, i32)> {
+    let radius = stroke_width.max(1) as i32;
     let mut offsets = Vec::new();
     for dy in -radius..=radius {
         for dx in -radius..=radius {
@@ -469,51 +611,226 @@ fn outline_offsets(scale: u32, stroke_width: u32) -> Vec<(i32, i32)> {
     offsets
 }
 
-fn font_size_for_weight(min: u32, max: u32, weight: u8) -> u32 {
+fn load_source_events_for_ticks(
+    archive_root: &Path,
+    ticks: &[ReplayTick],
+) -> Result<BTreeMap<(String, u32), Vec<NormalizedEvent>>> {
+    let mut ranges = BTreeMap::<String, (u32, u32)>::new();
+    for tick in ticks {
+        let entry = ranges
+            .entry(tick.source_day.clone())
+            .or_insert((tick.second_of_day, tick.second_of_day + 1));
+        entry.0 = entry.0.min(tick.second_of_day);
+        entry.1 = entry.1.max((tick.second_of_day + 1).min(86_400));
+    }
+
+    let mut events_by_tick = BTreeMap::new();
+    for (day, (start_second, end_second)) in ranges {
+        let per_second =
+            replay::load_source_events_for_range(archive_root, &day, start_second, end_second)?;
+        for (second_of_day, events) in per_second {
+            events_by_tick.insert((day.clone(), second_of_day), events);
+        }
+    }
+
+    Ok(events_by_tick)
+}
+
+fn select_key_events_for_second(
+    config: &Config,
+    source_events: &[NormalizedEvent],
+) -> Vec<SelectedSourceEvent> {
+    if source_events.is_empty() {
+        return Vec::new();
+    }
+
+    let mut counts = BTreeMap::<String, u32>::new();
+    for event in source_events {
+        *counts.entry(event.event_type.clone()).or_insert(0) += 1;
+    }
+    let max_count = counts.values().copied().max().unwrap_or(1);
+
+    let mut type_order = counts
+        .iter()
+        .map(|(event_type, count)| (event_type.clone(), *count))
+        .collect::<Vec<_>>();
+    type_order.sort_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then_with(|| event_weight(config, &right.0).cmp(&event_weight(config, &left.0)))
+            .then_with(|| left.0.cmp(&right.0))
+    });
+
+    let type_rank = type_order
+        .iter()
+        .enumerate()
+        .map(|(index, (event_type, _))| (event_type.clone(), (index + 1) as u32))
+        .collect::<HashMap<_, _>>();
+
+    let mut selected = Vec::new();
+    for (event_type, count) in type_order {
+        let mut events = source_events
+            .iter()
+            .filter(|event| event.event_type == event_type)
+            .cloned()
+            .collect::<Vec<_>>();
+        events.sort_by(|left, right| {
+            right
+                .weight
+                .cmp(&left.weight)
+                .then_with(|| left.created_at_utc.cmp(&right.created_at_utc))
+                .then_with(|| left.event_id.cmp(&right.event_id))
+        });
+
+        for event in events {
+            selected.push(SelectedSourceEvent {
+                event,
+                second_type_count: count,
+                second_type_rank: *type_rank.get(&event_type).unwrap_or(&1),
+                font_size: font_size_for_type_density(
+                    config.video.text.font_size_min,
+                    config.video.text.font_size_max,
+                    count,
+                    max_count,
+                ),
+                initial_gain_db: gain_db_for_type_density(count, max_count),
+            });
+            if selected.len() >= MAX_STAGE4_KEY_TEXT_SEGMENTS_PER_SECOND {
+                return selected;
+            }
+        }
+    }
+
+    selected
+}
+
+fn build_type_color_assignments(
+    config: &Config,
+    source_events_by_tick: &BTreeMap<(String, u32), Vec<NormalizedEvent>>,
+) -> Result<Vec<VideoTypeColorAssignment>> {
+    let background = parse_hex_color(&config.video.palette.background_hex)?;
+    let mut counts = BTreeMap::<String, u64>::new();
+    for events in source_events_by_tick.values() {
+        for event in events {
+            *counts.entry(event.event_type.clone()).or_insert(0) += 1;
+        }
+    }
+
+    let mut ranked_types = counts.into_iter().collect::<Vec<_>>();
+    ranked_types.sort_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then_with(|| event_weight(config, &right.0).cmp(&event_weight(config, &left.0)))
+            .then_with(|| left.0.cmp(&right.0))
+    });
+
+    let mut color_candidates = theme_event_color_candidates(config)?;
+    color_candidates.sort_by(|left, right| {
+        let left_contrast = contrast_ratio(parse_hex_color(left).unwrap_or(background), background);
+        let right_contrast =
+            contrast_ratio(parse_hex_color(right).unwrap_or(background), background);
+        right_contrast
+            .partial_cmp(&left_contrast)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    Ok(ranked_types
+        .into_iter()
+        .enumerate()
+        .map(|(index, (event_type, window_event_count))| {
+            let color_hex = color_candidates
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| config.video.palette.text_hex.clone());
+            let contrast = contrast_ratio(
+                parse_hex_color(&color_hex).unwrap_or(background),
+                background,
+            );
+            VideoTypeColorAssignment {
+                event_type,
+                window_event_count,
+                color_hex,
+                contrast_ratio: round2(contrast),
+            }
+        })
+        .collect())
+}
+
+fn theme_event_color_candidates(config: &Config) -> Result<Vec<String>> {
+    match config.video.palette.theme {
+        PaletteTheme::SolarizedDark => Ok(dedup_preserve_order(vec![
+            config.video.palette.text_hex.clone(),
+            "#eee8d5".to_string(),
+            config.video.palette.accent_hex.clone(),
+            "#cb4b16".to_string(),
+            "#dc322f".to_string(),
+            "#d33682".to_string(),
+            "#6c71c4".to_string(),
+            "#268bd2".to_string(),
+            "#2aa198".to_string(),
+            "#859900".to_string(),
+        ])),
+    }
+}
+
+fn dedup_preserve_order(values: Vec<String>) -> Vec<String> {
+    let mut deduped = Vec::new();
+    for value in values {
+        if !deduped.contains(&value) {
+            deduped.push(value);
+        }
+    }
+    deduped
+}
+
+fn event_weight(config: &Config, event_type: &str) -> u8 {
+    config
+        .events
+        .weights
+        .iter()
+        .find(|(kind, _)| kind.as_str() == event_type)
+        .map(|(_, weight)| *weight)
+        .unwrap_or(0)
+}
+
+fn font_size_for_type_density(min: u32, max: u32, type_count: u32, max_count: u32) -> u32 {
     if max <= min {
         return min;
     }
-    let span = (max - min) as f64;
-    let ratio = (weight as f64 / 100.0).clamp(0.0, 1.0);
-    min + (span * ratio).round() as u32
+    if max_count <= 1 {
+        return min + ((max - min) / 2);
+    }
+    let ratio = (type_count.saturating_sub(1)) as f64 / (max_count.saturating_sub(1)) as f64;
+    min + (((max - min) as f64) * ratio).round() as u32
 }
 
-fn estimate_label_width(label: &str, font_size: u32) -> f64 {
-    (label.chars().count().max(1) as f64) * bitmap_advance(font_size) as f64
+fn gain_db_for_type_density(type_count: u32, max_count: u32) -> f64 {
+    if max_count <= 1 {
+        return 0.0;
+    }
+    let ratio = (type_count.saturating_sub(1)) as f64 / (max_count.saturating_sub(1)) as f64;
+    -4.0 + ratio * 10.0
 }
 
-fn estimate_label_height(font_size: u32) -> f64 {
-    (BITMAP_GLYPH_HEIGHT * bitmap_scale(font_size)) as f64
-}
-
-fn bitmap_scale(font_size: u32) -> u32 {
-    ((font_size + (BITMAP_GLYPH_HEIGHT - 1)) / BITMAP_GLYPH_HEIGHT).max(1)
-}
-
-fn bitmap_advance(font_size: u32) -> u32 {
-    BITMAP_GLYPH_WIDTH * bitmap_scale(font_size)
-}
-
-fn spawn_x(
-    config: &Config,
-    event: &crate::model::runtime_event::RuntimeEvent,
-    label_width: f64,
-) -> f64 {
+fn spawn_x(config: &Config, event_id: &str, label_width: f64) -> f64 {
     let max_x = (config.video.canvas.width as f64 - label_width).max(0.0);
-    hashed_unit_interval(&event.event_id, "spawn_x") * max_x
+    hashed_unit_interval(event_id, "spawn_x") * max_x
 }
 
-fn spawn_y(config: &Config, event: &crate::model::runtime_event::RuntimeEvent) -> f64 {
+fn spawn_y(config: &Config, event_id: &str, label_height: f64) -> f64 {
     let min = config.video.text.bottom_spawn_min_ratio;
     let max = config.video.text.bottom_spawn_max_ratio;
-    let ratio = min + (max - min) * hashed_unit_interval(&event.event_id, "spawn_y");
-    ratio.clamp(0.0, 1.0) * config.video.canvas.height as f64
+    let ratio = min + (max - min) * hashed_unit_interval(event_id, "spawn_y");
+    let max_y = (config.video.canvas.height as f64 - label_height).max(0.0);
+    ratio.clamp(0.0, 1.0) * max_y
 }
 
 fn motion_angle_deg(
     config: &Config,
     motion_mode: MotionMode,
-    event: &crate::model::runtime_event::RuntimeEvent,
+    event: &NormalizedEvent,
     spawn_replay_second: u64,
 ) -> f64 {
     match motion_mode {
@@ -550,7 +867,7 @@ fn lifetime_secs(
         config.video.canvas.height as f64 + label_height,
     );
 
-    x_exit.min(y_exit).clamp(1.0, 30.0)
+    x_exit.min(y_exit).clamp(1.0, MAX_STAGE4_LIFETIME_SECS)
 }
 
 fn time_to_exit(position: f64, velocity: f64, min_bound: f64, max_bound: f64) -> f64 {
@@ -567,6 +884,45 @@ fn hashed_unit_interval(value: &str, salt: &str) -> f64 {
     let digest = Sha256::digest(format!("{value}:{salt}").as_bytes());
     let raw = u64::from_be_bytes(digest[..8].try_into().expect("8 bytes"));
     raw as f64 / u64::MAX as f64
+}
+
+fn load_font(path: &str) -> Result<LoadedFont> {
+    let resolved_path = resolve_font_path(path)?;
+    let font_bytes = fs::read(&resolved_path)
+        .with_context(|| format!("failed to read font {}", resolved_path.display()))?;
+    let font = Font::try_from_vec(font_bytes)
+        .ok_or_else(|| anyhow!("failed to parse font {}", resolved_path.display()))?;
+    Ok(LoadedFont { font })
+}
+
+fn resolve_font_path(path: &str) -> Result<PathBuf> {
+    let candidate = PathBuf::from(path);
+    if candidate.is_absolute() && candidate.exists() {
+        return Ok(candidate);
+    }
+    if candidate.exists() {
+        return Ok(candidate);
+    }
+
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .ok_or_else(|| anyhow!("failed to resolve repo root from CARGO_MANIFEST_DIR"))?
+        .to_path_buf();
+    let repo_relative = repo_root.join(path);
+    if repo_relative.exists() {
+        return Ok(repo_relative);
+    }
+
+    bail!("video.text.font_path does not exist: {path}")
+}
+
+fn outline_color_for_fill(config: &Config, fill_hex: &str) -> Result<[u8; 3]> {
+    if fill_hex.eq_ignore_ascii_case(&config.video.palette.text_hex) {
+        parse_hex_color(&config.video.palette.accent_hex)
+    } else {
+        parse_hex_color(&config.video.palette.text_hex)
+    }
 }
 
 fn parse_hex_color(value: &str) -> Result<[u8; 3]> {
@@ -588,17 +944,63 @@ fn parse_hex_color(value: &str) -> Result<[u8; 3]> {
     ])
 }
 
+fn contrast_ratio(foreground: [u8; 3], background: [u8; 3]) -> f64 {
+    let fg = relative_luminance(foreground);
+    let bg = relative_luminance(background);
+    let (lighter, darker) = if fg >= bg { (fg, bg) } else { (bg, fg) };
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+fn relative_luminance(color: [u8; 3]) -> f64 {
+    let convert = |channel: u8| {
+        let normalized = channel as f64 / 255.0;
+        if normalized <= 0.03928 {
+            normalized / 12.92
+        } else {
+            ((normalized + 0.055) / 1.055).powf(2.4)
+        }
+    };
+
+    0.2126 * convert(color[0]) + 0.7152 * convert(color[1]) + 0.0722 * convert(color[2])
+}
+
+fn blend_pixel(image: &mut RgbaImage, x: i32, y: i32, top: [u8; 4]) {
+    if x < 0 || y < 0 {
+        return;
+    }
+    let Ok(x) = u32::try_from(x) else {
+        return;
+    };
+    let Ok(y) = u32::try_from(y) else {
+        return;
+    };
+    if x >= image.width() || y >= image.height() {
+        return;
+    }
+
+    let bottom = image.get_pixel(x, y).0;
+    let alpha = top[3] as f32 / 255.0;
+    let inv_alpha = 1.0 - alpha;
+    let blended = [
+        (top[0] as f32 * alpha + bottom[0] as f32 * inv_alpha).round() as u8,
+        (top[1] as f32 * alpha + bottom[1] as f32 * inv_alpha).round() as u8,
+        (top[2] as f32 * alpha + bottom[2] as f32 * inv_alpha).round() as u8,
+        255,
+    ];
+    image.put_pixel(x, y, Rgba(blended));
+}
+
 fn round2(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use tempfile::tempdir;
 
     use super::*;
     use crate::archive;
-
     #[test]
     fn video_sample_vertical_mode_emits_sprite_and_frames() {
         let temp = tempdir().expect("tempdir");
@@ -625,6 +1027,8 @@ mod tests {
         assert_eq!(report.emitted_sprite_count, 1);
         assert_eq!(report.frames.len(), 240);
         assert_eq!(report.sprites[0].label, "fixture/00-createevent/76168126");
+        assert_eq!(report.sprites[0].text_rotation_deg, 90.0);
+        assert_eq!(report.sprites[0].initial_gain_db, 0.0);
 
         let first_active_frame = report
             .frames
@@ -633,6 +1037,8 @@ mod tests {
             .expect("active frame");
         assert_eq!(first_active_frame.replay_second, 4);
         assert_eq!(first_active_frame.active_items[0].angle_deg, 0.0);
+        assert_eq!(first_active_frame.active_items[0].text_rotation_deg, 90.0);
+        assert!(first_active_frame.active_items[0].blur_sigma >= 0.0);
     }
 
     #[test]
@@ -671,6 +1077,94 @@ mod tests {
         assert_eq!(angle, second.sprites[0].angle_deg);
         assert!(angle >= config.video.motion.random_min_deg);
         assert!(angle <= config.video.motion.random_max_deg);
+    }
+
+    #[test]
+    fn stage4_limits_dense_seconds_and_ranks_type_density() {
+        let temp = tempdir().expect("tempdir");
+        let archive_root = temp.path().join("archive");
+        let day = "2026-03-19";
+
+        archive::seed_fixture_raw(&archive_root, day, true).expect("seed fixture");
+        let raw_path = archive_root.join(day).join("raw").join("00.json.gz");
+        let mut raw_events = Vec::new();
+
+        for index in 0..5 {
+            raw_events.push(json!({
+                "id": format!("push-{index}"),
+                "type": "PushEvent",
+                "created_at": format!("{day}T00:12:34Z"),
+                "repo": {"name": "fixture/dense-push"},
+                "actor": {"login": format!("push_actor_{index}")},
+                "payload": {"head": format!("aa11bb22cc33dd44ee55ff66778899aa00bb{index:02x}")},
+            }));
+        }
+        for index in 0..3 {
+            raw_events.push(json!({
+                "id": format!("issues-{index}"),
+                "type": "IssuesEvent",
+                "created_at": format!("{day}T00:12:34Z"),
+                "repo": {"name": "fixture/dense-issues"},
+                "actor": {"login": format!("issues_actor_{index}")},
+                "payload": {"issue": {"id": 10_000 + index}},
+            }));
+        }
+        for index in 0..2 {
+            raw_events.push(json!({
+                "id": format!("release-{index}"),
+                "type": "ReleaseEvent",
+                "created_at": format!("{day}T00:12:34Z"),
+                "repo": {"name": "fixture/dense-release"},
+                "actor": {"login": format!("release_actor_{index}")},
+                "payload": {"release": {"id": 20_000 + index}},
+            }));
+        }
+        archive::materialize::write_gzip_json_lines(&raw_path, &raw_events)
+            .expect("write dense raw");
+
+        let mut config = Config::default();
+        config.archive.root_dir = archive_root.display().to_string();
+        archive::prepare_day_pack(&config, day, Some(&archive_root), true, true).expect("prepare");
+
+        let report = sample_day_pack(
+            &config,
+            day,
+            Some(&archive_root),
+            754,
+            1,
+            Some(MotionMode::Vertical),
+            None,
+        )
+        .expect("sample dense second");
+
+        assert_eq!(report.key_text_segment_limit_per_second, 9);
+        assert_eq!(report.emitted_sprite_count, 9);
+
+        let mut per_type = BTreeMap::<String, usize>::new();
+        for sprite in &report.sprites {
+            *per_type.entry(sprite.event_type.clone()).or_insert(0) += 1;
+        }
+        assert_eq!(per_type.get("PushEvent"), Some(&5));
+        assert_eq!(per_type.get("IssuesEvent"), Some(&3));
+        assert_eq!(per_type.get("ReleaseEvent"), Some(&1));
+        assert_eq!(report.type_color_assignments[0].event_type, "PushEvent");
+        assert!(
+            report.type_color_assignments[0].contrast_ratio
+                >= report.type_color_assignments[1].contrast_ratio
+        );
+
+        let push_sprite = report
+            .sprites
+            .iter()
+            .find(|sprite| sprite.event_type == "PushEvent")
+            .expect("push sprite");
+        let release_sprite = report
+            .sprites
+            .iter()
+            .find(|sprite| sprite.event_type == "ReleaseEvent")
+            .expect("release sprite");
+        assert!(push_sprite.font_size > release_sprite.font_size);
+        assert!(push_sprite.initial_gain_db > release_sprite.initial_gain_db);
     }
 
     #[test]
@@ -728,5 +1222,12 @@ mod tests {
             .filter(|pixel| pixel.0 != background_pixel)
             .count();
         assert!(non_background_count > 0);
+    }
+
+    #[test]
+    fn default_font_path_resolves_repo_asset() {
+        let path =
+            resolve_font_path("ops/assets/3270NerdFontMono-Condensed.ttf").expect("resolve font");
+        assert!(path.ends_with("ops/assets/3270NerdFontMono-Condensed.ttf"));
     }
 }

@@ -166,6 +166,35 @@ pub fn dry_run_day_pack(
     })
 }
 
+pub(crate) fn load_source_events_for_range(
+    archive_root: &Path,
+    day: &str,
+    start_second: u32,
+    end_second: u32,
+) -> Result<BTreeMap<u32, Vec<NormalizedEvent>>> {
+    archive::validate_day(day)?;
+    if start_second >= 86_400 {
+        bail!("start_second must be within 0..86400");
+    }
+    if end_second == 0 || end_second > 86_400 {
+        bail!("end_second must be within 1..=86400");
+    }
+    if end_second <= start_second {
+        bail!("end_second must be greater than start_second");
+    }
+
+    let layout = DayPackLayout::new(archive_root.to_path_buf(), day.to_string());
+    let manifest = load_manifest(&layout)?;
+    let minute_offsets = load_minute_offsets(&layout)?;
+    load_events_by_second(
+        archive_root,
+        &manifest,
+        &minute_offsets,
+        start_second,
+        end_second,
+    )
+}
+
 impl ReplaySecondBucket {
     fn from_tick(tick: &ReplayTick) -> Self {
         Self {

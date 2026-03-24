@@ -69,7 +69,14 @@ make -C src/songh stage4-render-fixture
 - stage 4 已补最小 raster/frame sink：
   - CLI: `render-video-sample`
   - 输出 `frame-plan.json` + `render-manifest.json` + `frames/*.png`
-  - 当前文本使用内建 bitmap glyph 先落真实帧，不依赖 ffmpeg
+  - 当前文本已接真实 TTF raster，不再停留在 bitmap glyph baseline
+- stage 4 文本可视规则已补：
+  - 默认正式字体使用 `ops/assets/3270NerdFontMono-Condensed.ttf`
+  - 文本整体顺时针旋转 `90°`，形成竖直文本段
+  - 文本段统一向上漂浮，并随生命周期逐步模糊、淡出
+  - 单秒关键文本段总数固定 `< 10`，当前上限为 `9`
+  - 单秒内按事件类型数量排序，数量更高者获得更大字号和更高 `initial_gain_db` 元数据
+  - 事件类型颜色按 Solarized Dark 主题色与背景反差排序分配，数量最多的类型拿最高反差色
 - 当前已支持三类 motion mode 样片：
   - `vertical`
   - `fixed_angle`
@@ -102,8 +109,8 @@ stage 4 当前判断：
   - 三类 motion mode 的 frame-plan sample
   - 文本模板渲染
   - 基于 canvas / speed / angle 的轨迹规划
+  - 基于真实归档秒级密度的 `<10/s` 关键文本段筛选
   - vertical motion 的 PNG 帧序列样片
+  - 真实 TTF raster + 90° 文本旋转 + blur/fade 生命周期
 - 但 stage 4 仍未完成，当前还缺：
-  - 字体度量与更准确的 text layout
-  - 更高保真的文字 raster（当前为 bitmap glyph）
   - 样片进一步落到视频容器

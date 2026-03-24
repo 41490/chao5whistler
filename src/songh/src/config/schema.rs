@@ -533,7 +533,7 @@ pub struct VideoTextConfig {
 impl Default for VideoTextConfig {
     fn default() -> Self {
         Self {
-            font_path: "assets/1942.ttf".to_string(),
+            font_path: "ops/assets/3270NerdFontMono-Condensed.ttf".to_string(),
             font_size_min: 14,
             font_size_max: 42,
             stroke_width: 2,

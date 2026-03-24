@@ -333,7 +333,7 @@ accent_hex = "#b58900"
 
 [video.text]
 # Primary font for floating event text.
-font_path = "assets/1942.ttf"
+font_path = "ops/assets/3270NerdFontMono-Condensed.ttf"
 
 # Design-size bounds before runtime scaling.
 font_size_min = 14

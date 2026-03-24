@@ -4,6 +4,8 @@ mod cli;
 mod config;
 mod model;
 mod replay;
+mod text;
+mod video;
 
 use std::process;
 

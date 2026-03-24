@@ -181,6 +181,10 @@ mod tests {
 
     #[test]
     fn local_override_wins_over_main_file() {
+        let _guard = env_lock().lock().expect("env lock");
+        let saved_env = std::env::var(RTMP_URL_ENV_VAR).ok();
+        std::env::remove_var(RTMP_URL_ENV_VAR);
+
         let temp = tempdir().expect("tempdir");
         let main_path = temp.path().join("songh.toml");
         let local_path = temp.path().join("songh.local.toml");
@@ -207,6 +211,9 @@ url = "rtmp://example.invalid/live"
         .expect("write local");
 
         let loaded = load_from_path(&main_path, None).expect("load merged config");
+        if let Some(value) = saved_env {
+            std::env::set_var(RTMP_URL_ENV_VAR, value);
+        }
         assert_eq!(loaded.config.meta.label, "local");
         assert_eq!(
             loaded.config.outputs.rtmp.url,

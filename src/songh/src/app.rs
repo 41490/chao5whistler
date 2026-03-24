@@ -5,10 +5,11 @@ use anyhow::Result;
 use crate::archive;
 use crate::cli::{
     CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, ReplayDryRunArgs,
-    SampleReplayArgs, SeedFixtureRawArgs, ValidateDayPackArgs,
+    SampleReplayArgs, SampleVideoArgs, SeedFixtureRawArgs, ValidateDayPackArgs,
 };
 use crate::config::{self, OutputFormat};
 use crate::replay;
+use crate::video;
 
 pub fn run<I>(args: I) -> Result<()>
 where
@@ -26,6 +27,7 @@ where
         CliCommand::ValidateDayPack(args) => run_validate_day_pack(args)?,
         CliCommand::SampleReplay(args) => run_sample_replay(args)?,
         CliCommand::ReplayDryRun(args) => run_replay_dry_run(args)?,
+        CliCommand::SampleVideo(args) => run_sample_video(args)?,
     }
 
     Ok(())
@@ -208,6 +210,39 @@ fn run_replay_dry_run(args: ReplayDryRunArgs) -> Result<()> {
     println!("start second: {}", report.start_second);
     println!("duration secs: {}", report.duration_secs);
     println!("ticks emitted: {}", report.ticks.len());
+
+    if args.dump_json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    Ok(())
+}
+
+fn run_sample_video(args: SampleVideoArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report = video::sample_day_pack(
+        &loaded.config,
+        &args.day,
+        args.archive_root.as_deref(),
+        args.start_second,
+        args.duration_secs,
+        args.motion_mode_override,
+        args.angle_deg_override,
+    )?;
+
+    println!("songh stage4 video sample passed");
+    println!("main config: {}", config_path.display());
+    println!("archive root: {}", report.archive_root.display());
+    println!("source day: {}", report.source_day);
+    println!("start second: {}", report.start_second);
+    println!("duration secs: {}", report.duration_secs);
+    println!("motion mode: {}", report.motion_mode);
+    println!("emitted sprites: {}", report.emitted_sprite_count);
+    println!("frames emitted: {}", report.frames.len());
 
     if args.dump_json {
         println!("{}", serde_json::to_string_pretty(&report)?);

@@ -4,18 +4,18 @@
 
 当前已进入：
 
-- stage 3: `second-of-day replay engine`
+- stage 4: `video frame-plan samples`
 
 当前阶段统一人工检验入口：
 
 ```bash
-make -C src/songh stage3-manual
+make -C src/songh stage4-manual
 ```
 
 当前阶段自动回归入口：
 
 ```bash
-make -C src/songh stage3-all
+make -C src/songh stage4-all
 ```
 
 当前阶段连续 tick 观察入口：
@@ -30,10 +30,17 @@ make -C src/songh stage3-dry-run
 make -C src/songh stage3-rollover-smoke
 ```
 
+当前阶段 stage 4 样片入口：
+
+```bash
+make -C src/songh stage4-manual
+```
+
 当前已落地：
 
 - stage 2: `gharchive day-pack downloader + normalize pipeline`
 - stage 3: `second-of-day replay engine`
+- stage 4: `video frame-plan sample baseline`
 
 补充说明：
 
@@ -49,6 +56,22 @@ make -C src/songh stage3-rollover-smoke
 - `replay-dry-run` 已补跨 midnight smoke target：
   - 固定验证 `2026-03-19 23:59:50 -> 2026-03-20 00:00:09`
   - `stage3-all` / `stage3-manual` 现在都会覆盖 rollover smoke
+- stage 4 已补最小 video sample 链路：
+  - CLI: `sample-video`
+  - 输入直接复用 `ReplayTick` / `RuntimeEvent`
+  - 输出为可回归的 frame-plan JSON sample
+- 当前已支持三类 motion mode 样片：
+  - `vertical`
+  - `fixed_angle`
+  - `random_angle`
+- 文本主载荷已开始按 `text.template` 渲染：
+  - 当前使用 runtime event 的 `text_fields`
+  - 遵守 `{repo}/{hash:8}` 这类宽度截断语义
+- stage4 make target 已补：
+  - `stage4-sample-vertical`
+  - `stage4-sample-fixed`
+  - `stage4-sample-random`
+  - `stage4-all`
 - runtime tick 事件已冻结为共享契约：
   - `src/songh/src/model/runtime_event.rs`
   - 后续 archive replay / fallback synthetic / audio / video 共用这一层
@@ -62,16 +85,13 @@ make -C src/songh stage3-rollover-smoke
   - `config_fingerprint`
 - 仓库已补 `src/songh/songh.local.toml.example` 作为本机覆盖参考
 
-stage 4 条件判断：
+stage 4 当前判断：
 
-- 如果这里的 stage 4 指按当前实现顺序继续进入 video engine，那么开工条件已满足：
-  - replay 输入契约已冻结为 `RuntimeEvent` / `ReplayTick`
-  - `video.canvas` / `video.motion` / `outputs.encode` 默认值已冻结并受配置校验保护
-  - 跨 midnight / next day rollover 已有单测 + smoke target 固定
-- 但 stage 4 还没有完成，当前仍缺：
-  - 文本排版与轨迹求解
-  - `vertical | fixed_angle | random_angle` 三类样片
-  - 真实 video frame 输出链路
-- 如果严格沿用 `docs/plans/260320-songh-issue-2-architecture-plan.md` 的编号，则其中 stage 4 仍是 `video engine`，只是该计划里 stage 3 叫 `audio engine`；因此当前结论应理解为：
-  - 已满足启动 stage 4 实现的基础条件
-  - 尚未满足 stage 4 产物完成条件
+- stage 4 已正式启动，并已有最小可回归产物：
+  - 三类 motion mode 的 frame-plan sample
+  - 文本模板渲染
+  - 基于 canvas / speed / angle 的轨迹规划
+- 但 stage 4 仍未完成，当前还缺：
+  - 真实 raster/frame buffer 输出
+  - 字体度量与更准确的 text layout
+  - 样片落盘到图片序列或视频容器

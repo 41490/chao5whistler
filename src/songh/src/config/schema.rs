@@ -544,12 +544,22 @@ impl Default for VideoTextConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MotionMode {
     Vertical,
     FixedAngle,
     RandomAngle,
+}
+
+impl MotionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Vertical => "vertical",
+            Self::FixedAngle => "fixed_angle",
+            Self::RandomAngle => "random_angle",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

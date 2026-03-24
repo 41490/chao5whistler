@@ -10,6 +10,8 @@ STAGE3_SAMPLE_DURATION := 7200
 STAGE3_ROLLOVER_NEXT_DAY := 2026-03-20
 STAGE3_ROLLOVER_START := 86390
 STAGE3_ROLLOVER_DURATION := 20
+STAGE4_SAMPLE_START := 750
+STAGE4_SAMPLE_DURATION := 8
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
 
@@ -38,7 +40,14 @@ help:
 	'  make stage3-rollover-smoke  Verify cross-midnight rollover into the next prepared fixture day-pack' \
 	'  make stage3-sample-fixture  Run replay sample on the prepared fixture day-pack' \
 	'  make stage3-manual          Unified stage-3 manual verification command' \
-	'  make stage3-all             fmt + test + stage2-manual + replay sample + rollover smoke'
+	'  make stage3-all             fmt + test + stage2-manual + replay sample + rollover smoke' \
+	'' \
+	'Stage 4: video frame-plan samples' \
+	'  make stage4-sample-vertical Emit vertical motion stage4 frame-plan sample' \
+	'  make stage4-sample-fixed    Emit fixed-angle motion stage4 frame-plan sample' \
+	'  make stage4-sample-random   Emit random-angle motion stage4 frame-plan sample' \
+	'  make stage4-manual          Unified stage-4 sample verification command' \
+	'  make stage4-all             fmt + test + stage2-manual + all stage4 samples'
 
 .PHONY: stage1-fmt
 stage1-fmt:
@@ -158,3 +167,40 @@ stage3-all:
 	@$(MAKE) stage2-manual
 	@$(MAKE) stage3-sample-fixture
 	@$(MAKE) stage3-rollover-smoke
+
+.PHONY: stage4-sample-vertical
+stage4-sample-vertical:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		sample-video --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY) --start-second $(STAGE4_SAMPLE_START) \
+		--duration-secs $(STAGE4_SAMPLE_DURATION) --motion-mode vertical --dump-json
+
+.PHONY: stage4-sample-fixed
+stage4-sample-fixed:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		sample-video --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY) --start-second $(STAGE4_SAMPLE_START) \
+		--duration-secs $(STAGE4_SAMPLE_DURATION) --motion-mode fixed_angle --angle-deg 18 --dump-json
+
+.PHONY: stage4-sample-random
+stage4-sample-random:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		sample-video --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY) --start-second $(STAGE4_SAMPLE_START) \
+		--duration-secs $(STAGE4_SAMPLE_DURATION) --motion-mode random_angle --dump-json
+
+.PHONY: stage4-manual
+stage4-manual:
+	@$(MAKE) stage2-manual
+	@$(MAKE) stage4-sample-vertical
+	@$(MAKE) stage4-sample-fixed
+	@$(MAKE) stage4-sample-random
+
+.PHONY: stage4-all
+stage4-all:
+	@$(MAKE) stage1-fmt
+	@$(MAKE) stage1-test
+	@$(MAKE) stage2-manual
+	@$(MAKE) stage4-sample-vertical
+	@$(MAKE) stage4-sample-fixed
+	@$(MAKE) stage4-sample-random

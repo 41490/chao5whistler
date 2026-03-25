@@ -67,16 +67,34 @@ pub struct AudioRenderReport {
     pub manifest_path: PathBuf,
     pub rendered_frame_count: u64,
     pub rendered_cue_count: usize,
+    pub background: Option<AudioBackgroundRenderSummary>,
     pub peak_amplitude: f64,
     pub limited_sample_count: u64,
     pub wav_sha256: String,
     pub frame_plan: AudioSampleReport,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct AudioBackgroundRenderSummary {
+    pub source_wav_path: PathBuf,
+    pub source_sample_rate: u32,
+    pub source_channels: u16,
+    pub source_frame_count: u64,
+    pub gain_db: f64,
+    pub loop_enabled: bool,
+}
+
 #[derive(Debug, Clone)]
 struct SecondDensity {
     max_type_count: u32,
     count_by_type: HashMap<String, u32>,
+}
+
+#[derive(Debug, Clone)]
+struct BackgroundTrack {
+    summary: AudioBackgroundRenderSummary,
+    left: Vec<f32>,
+    right: Vec<f32>,
 }
 
 pub fn sample_day_pack(
@@ -189,10 +207,6 @@ pub fn render_day_pack(
     start_second: u32,
     duration_secs: u32,
 ) -> Result<AudioRenderReport> {
-    if config.audio.background.enabled {
-        bail!("stage5 audio.background mixing is not implemented yet");
-    }
-
     let frame_plan = sample_day_pack(
         config,
         day,
@@ -207,7 +221,9 @@ pub fn render_day_pack(
     fs::write(&audio_plan_path, serde_json::to_vec_pretty(&frame_plan)?)
         .with_context(|| format!("write stage5 audio plan {}", audio_plan_path.display()))?;
 
-    let (left, right, limited_sample_count, peak_amplitude) = render_mix(config, &frame_plan)?;
+    let background = load_background_track(config, frame_plan.sample_rate)?;
+    let (left, right, limited_sample_count, peak_amplitude) =
+        render_mix(config, &frame_plan, background.as_ref())?;
     let wav_path = output_dir.join("offline_audio.wav");
     write_wav_pcm16(&wav_path, frame_plan.sample_rate, &left, &right)?;
     let wav_sha256 =
@@ -224,6 +240,7 @@ pub fn render_day_pack(
         manifest_path: manifest_path.clone(),
         rendered_frame_count: frame_plan.total_frames,
         rendered_cue_count: frame_plan.cues.len(),
+        background: background.as_ref().map(|track| track.summary.clone()),
         peak_amplitude: round4(peak_amplitude as f64),
         limited_sample_count,
         wav_sha256,
@@ -238,6 +255,7 @@ pub fn render_day_pack(
 fn render_mix(
     config: &Config,
     frame_plan: &AudioSampleReport,
+    background: Option<&BackgroundTrack>,
 ) -> Result<(Vec<f32>, Vec<f32>, u64, f32)> {
     let total_frames = usize::try_from(frame_plan.total_frames)
         .map_err(|_| anyhow!("audio frame count exceeds addressable memory"))?;
@@ -277,6 +295,10 @@ fn render_mix(
         }
     }
 
+    if let Some(track) = background {
+        mix_background_track(track, &mut left, &mut right);
+    }
+
     let master_gain = db_to_linear(config.audio.master_gain_db);
     for sample in &mut left {
         *sample *= master_gain;
@@ -310,6 +332,270 @@ fn render_mix(
 
     let peak_after_limiter = peak_amplitude(&left, &right);
     Ok((left, right, limited_sample_count, peak_after_limiter))
+}
+
+fn load_background_track(
+    config: &Config,
+    target_sample_rate: u32,
+) -> Result<Option<BackgroundTrack>> {
+    if !config.audio.background.enabled {
+        return Ok(None);
+    }
+
+    let path = PathBuf::from(&config.audio.background.wav_path);
+    let decoded = decode_wav_stereo(&path)?;
+    if decoded.left.is_empty() {
+        bail!("background wav {} contains no audio frames", path.display());
+    }
+    let source_frame_count = decoded.left.len() as u64;
+
+    let (left, right) = if decoded.sample_rate == target_sample_rate {
+        (decoded.left, decoded.right)
+    } else {
+        (
+            resample_channel(&decoded.left, decoded.sample_rate, target_sample_rate),
+            resample_channel(&decoded.right, decoded.sample_rate, target_sample_rate),
+        )
+    };
+
+    Ok(Some(BackgroundTrack {
+        summary: AudioBackgroundRenderSummary {
+            source_wav_path: path,
+            source_sample_rate: decoded.sample_rate,
+            source_channels: decoded.channels,
+            source_frame_count,
+            gain_db: round2(config.audio.background.gain_db),
+            loop_enabled: config.audio.background.r#loop,
+        },
+        left,
+        right,
+    }))
+}
+
+fn mix_background_track(track: &BackgroundTrack, left: &mut [f32], right: &mut [f32]) {
+    if track.left.is_empty() || track.right.is_empty() {
+        return;
+    }
+
+    let background_gain = db_to_linear(track.summary.gain_db);
+    let frame_count = left.len().min(right.len());
+    let background_frames = track.left.len().min(track.right.len());
+    if background_frames == 0 {
+        return;
+    }
+
+    for index in 0..frame_count {
+        if !track.summary.loop_enabled && index >= background_frames {
+            break;
+        }
+        let source_index = if track.summary.loop_enabled {
+            index % background_frames
+        } else {
+            index
+        };
+        left[index] += track.left[source_index] * background_gain;
+        right[index] += track.right[source_index] * background_gain;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DecodedWav {
+    sample_rate: u32,
+    channels: u16,
+    left: Vec<f32>,
+    right: Vec<f32>,
+}
+
+fn decode_wav_stereo(path: &Path) -> Result<DecodedWav> {
+    let bytes = fs::read(path).with_context(|| format!("read wav {}", path.display()))?;
+    if bytes.len() < 44 {
+        bail!(
+            "wav {} is too small to contain a valid header",
+            path.display()
+        );
+    }
+    if &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        bail!("wav {} must be RIFF/WAVE", path.display());
+    }
+
+    let mut offset = 12_usize;
+    let mut audio_format = None;
+    let mut channels = None;
+    let mut sample_rate = None;
+    let mut bits_per_sample = None;
+    let mut data = None;
+
+    while offset + 8 <= bytes.len() {
+        let chunk_id = &bytes[offset..offset + 4];
+        let chunk_size = u32::from_le_bytes(
+            bytes[offset + 4..offset + 8]
+                .try_into()
+                .expect("chunk size bytes"),
+        ) as usize;
+        offset += 8;
+
+        if offset + chunk_size > bytes.len() {
+            bail!("wav {} has a truncated chunk", path.display());
+        }
+        let chunk = &bytes[offset..offset + chunk_size];
+        match chunk_id {
+            b"fmt " => {
+                if chunk.len() < 16 {
+                    bail!("wav {} fmt chunk is too short", path.display());
+                }
+                audio_format = Some(u16::from_le_bytes(
+                    chunk[0..2].try_into().expect("audio format bytes"),
+                ));
+                channels = Some(u16::from_le_bytes(
+                    chunk[2..4].try_into().expect("channel bytes"),
+                ));
+                sample_rate = Some(u32::from_le_bytes(
+                    chunk[4..8].try_into().expect("sample rate bytes"),
+                ));
+                bits_per_sample = Some(u16::from_le_bytes(
+                    chunk[14..16].try_into().expect("bit depth bytes"),
+                ));
+            }
+            b"data" => {
+                data = Some(chunk.to_vec());
+            }
+            _ => {}
+        }
+
+        offset += chunk_size;
+        if chunk_size % 2 == 1 {
+            offset += 1;
+        }
+    }
+
+    let audio_format =
+        audio_format.ok_or_else(|| anyhow!("wav {} is missing fmt chunk", path.display()))?;
+    let channels =
+        channels.ok_or_else(|| anyhow!("wav {} is missing channel count", path.display()))?;
+    let sample_rate =
+        sample_rate.ok_or_else(|| anyhow!("wav {} is missing sample rate", path.display()))?;
+    let bits_per_sample =
+        bits_per_sample.ok_or_else(|| anyhow!("wav {} is missing bit depth", path.display()))?;
+    let data = data.ok_or_else(|| anyhow!("wav {} is missing data chunk", path.display()))?;
+
+    if !(1..=2).contains(&channels) {
+        bail!(
+            "wav {} must be mono or stereo, got {} channels",
+            path.display(),
+            channels
+        );
+    }
+
+    let (left, right) = match (audio_format, bits_per_sample) {
+        (1, 16) => decode_pcm16_stereo(&data, channels, path)?,
+        (3, 32) => decode_f32_stereo(&data, channels, path)?,
+        _ => bail!(
+            "wav {} uses unsupported format {}, {}-bit",
+            path.display(),
+            audio_format,
+            bits_per_sample
+        ),
+    };
+
+    Ok(DecodedWav {
+        sample_rate,
+        channels,
+        left,
+        right,
+    })
+}
+
+fn decode_pcm16_stereo(data: &[u8], channels: u16, path: &Path) -> Result<(Vec<f32>, Vec<f32>)> {
+    let bytes_per_frame = channels as usize * 2;
+    if bytes_per_frame == 0 || data.len() % bytes_per_frame != 0 {
+        bail!("wav {} pcm16 data length is invalid", path.display());
+    }
+
+    let frame_count = data.len() / bytes_per_frame;
+    let mut left = Vec::with_capacity(frame_count);
+    let mut right = Vec::with_capacity(frame_count);
+    for frame_index in 0..frame_count {
+        let frame_offset = frame_index * bytes_per_frame;
+        let sample_at = |channel_index: usize| -> f32 {
+            let sample_offset = frame_offset + channel_index * 2;
+            let raw = i16::from_le_bytes(
+                data[sample_offset..sample_offset + 2]
+                    .try_into()
+                    .expect("pcm16 sample bytes"),
+            );
+            raw as f32 / i16::MAX as f32
+        };
+        let left_sample = sample_at(0);
+        let right_sample = if channels == 1 {
+            left_sample
+        } else {
+            sample_at(1)
+        };
+        left.push(left_sample);
+        right.push(right_sample);
+    }
+    Ok((left, right))
+}
+
+fn decode_f32_stereo(data: &[u8], channels: u16, path: &Path) -> Result<(Vec<f32>, Vec<f32>)> {
+    let bytes_per_frame = channels as usize * 4;
+    if bytes_per_frame == 0 || data.len() % bytes_per_frame != 0 {
+        bail!("wav {} float32 data length is invalid", path.display());
+    }
+
+    let frame_count = data.len() / bytes_per_frame;
+    let mut left = Vec::with_capacity(frame_count);
+    let mut right = Vec::with_capacity(frame_count);
+    for frame_index in 0..frame_count {
+        let frame_offset = frame_index * bytes_per_frame;
+        let sample_at = |channel_index: usize| -> f32 {
+            let sample_offset = frame_offset + channel_index * 4;
+            f32::from_le_bytes(
+                data[sample_offset..sample_offset + 4]
+                    .try_into()
+                    .expect("float32 sample bytes"),
+            )
+            .clamp(-1.0, 1.0)
+        };
+        let left_sample = sample_at(0);
+        let right_sample = if channels == 1 {
+            left_sample
+        } else {
+            sample_at(1)
+        };
+        left.push(left_sample);
+        right.push(right_sample);
+    }
+    Ok((left, right))
+}
+
+fn resample_channel(samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
+    if samples.is_empty() || source_rate == target_rate {
+        return samples.to_vec();
+    }
+    if samples.len() == 1 {
+        let length =
+            ((target_rate as u64 + source_rate as u64 - 1) / source_rate as u64).max(1) as usize;
+        return vec![samples[0]; length];
+    }
+
+    let output_len = (((samples.len() as u64) * target_rate as u64) + (source_rate as u64 / 2))
+        / source_rate as u64;
+    let output_len = output_len.max(1) as usize;
+    let mut output = Vec::with_capacity(output_len);
+    let ratio = source_rate as f64 / target_rate as f64;
+
+    for output_index in 0..output_len {
+        let source_position = output_index as f64 * ratio;
+        let source_index = source_position.floor() as usize;
+        let next_index = (source_index + 1).min(samples.len() - 1);
+        let fraction = (source_position - source_index as f64) as f32;
+        let base = samples[source_index];
+        let next = samples[next_index];
+        output.push(base + (next - base) * fraction);
+    }
+
+    output
 }
 
 fn load_density_for_ticks(
@@ -655,6 +941,7 @@ mod tests {
 
         assert_eq!(report.rendered_frame_count, 384_000);
         assert_eq!(report.rendered_cue_count, 1);
+        assert!(report.background.is_none());
         assert!(report.wav_path.exists());
         assert!(report.audio_plan_path.exists());
         assert!(report.manifest_path.exists());
@@ -664,5 +951,85 @@ mod tests {
             report.wav_sha256,
             "d05d4d67ef70b3e37c9f09110ee464991b9610fdaeb880f74fb01c09a41bee82"
         );
+    }
+
+    fn write_background_fixture(
+        path: &Path,
+        sample_rate: u32,
+        duration_secs: u32,
+        left_frequency_hz: f32,
+        right_frequency_hz: f32,
+    ) {
+        let frame_count = sample_rate as usize * duration_secs as usize;
+        let mut left = Vec::with_capacity(frame_count);
+        let mut right = Vec::with_capacity(frame_count);
+        for index in 0..frame_count {
+            let seconds = index as f32 / sample_rate as f32;
+            left.push((seconds * left_frequency_hz * std::f32::consts::TAU).sin() * 0.08);
+            right.push((seconds * right_frequency_hz * std::f32::consts::TAU).sin() * 0.06);
+        }
+        write_wav_pcm16(path, sample_rate, &left, &right).expect("write background wav");
+    }
+
+    #[test]
+    fn render_day_pack_background_loop_enabled_writes_distinct_wav_golden() {
+        let temp = tempdir().expect("tempdir");
+        let archive_root = temp.path().join("archive");
+        let output_dir = temp.path().join("render-audio-background");
+        let background_path = temp.path().join("background.wav");
+        let day = "2026-03-19";
+
+        archive::seed_fixture_raw(&archive_root, day, true).expect("seed fixture");
+        let mut config = Config::default();
+        config.archive.root_dir = archive_root.display().to_string();
+        config.audio.background.enabled = true;
+        config.audio.background.wav_path = background_path.display().to_string();
+        config.audio.background.gain_db = -12.0;
+        config.audio.background.r#loop = true;
+        write_background_fixture(&background_path, config.audio.sample_rate, 1, 110.0, 165.0);
+        archive::prepare_day_pack(&config, day, Some(&archive_root), true, true).expect("prepare");
+
+        let report = render_day_pack(&config, day, Some(&archive_root), &output_dir, 750, 8)
+            .expect("render audio with background");
+
+        let background = report.background.as_ref().expect("background summary");
+        assert_eq!(background.source_wav_path, background_path);
+        assert_eq!(background.source_sample_rate, 48_000);
+        assert_eq!(background.source_channels, 2);
+        assert_eq!(background.source_frame_count, 48_000);
+        assert_eq!(background.gain_db, -12.0);
+        assert!(background.loop_enabled);
+        assert_eq!(
+            report.wav_sha256,
+            "8738909d91d8cf7d4798e5b421e3e465cdffc9b4387a9031705f56ab8945c496"
+        );
+    }
+
+    #[test]
+    fn mix_background_track_stops_after_source_when_loop_disabled() {
+        let track = BackgroundTrack {
+            summary: AudioBackgroundRenderSummary {
+                source_wav_path: PathBuf::from("fixture.wav"),
+                source_sample_rate: 48_000,
+                source_channels: 2,
+                source_frame_count: 2,
+                gain_db: -6.0,
+                loop_enabled: false,
+            },
+            left: vec![0.5, -0.25],
+            right: vec![0.25, -0.5],
+        };
+        let mut left = vec![0.0_f32; 5];
+        let mut right = vec![0.0_f32; 5];
+
+        mix_background_track(&track, &mut left, &mut right);
+
+        let gain = db_to_linear(-6.0);
+        assert_eq!(left[0], 0.5 * gain);
+        assert_eq!(left[1], -0.25 * gain);
+        assert_eq!(left[2], 0.0);
+        assert_eq!(right[0], 0.25 * gain);
+        assert_eq!(right[1], -0.5 * gain);
+        assert_eq!(right[2], 0.0);
     }
 }

@@ -312,6 +312,22 @@ fn run_render_audio_sample(args: RenderAudioSampleArgs) -> Result<()> {
     println!("wav: {}", report.wav_path.display());
     println!("rendered frames: {}", report.rendered_frame_count);
     println!("rendered cues: {}", report.rendered_cue_count);
+    match &report.background {
+        Some(background) => {
+            println!("background wav: {}", background.source_wav_path.display());
+            println!(
+                "background source: {} Hz, {} ch, {} frames",
+                background.source_sample_rate,
+                background.source_channels,
+                background.source_frame_count
+            );
+            println!(
+                "background mix: gain_db={:.2} loop={}",
+                background.gain_db, background.loop_enabled
+            );
+        }
+        None => println!("background wav: <disabled>"),
+    }
     println!("peak amplitude: {:.4}", report.peak_amplitude);
     println!("wav sha256: {}", report.wav_sha256);
 

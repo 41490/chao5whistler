@@ -113,6 +113,7 @@ make -C src/songh stage5-render-fixture
   - 输出 `audio-plan.json` + `offline_audio.wav` + `render-manifest.json`
   - 每个 cue 现在会把 second-type density 映射成真实 `initial_gain_db`
   - 当前先用 deterministic synth baseline 验证 `voice_gain_db + initial_gain_db` 混音效果
+  - `audio.background.wav` 已接入 stage5 mix bus，支持 `gain_db` 和 `loop = true|false`
 - stage5 make target 已补：
   - `stage5-sample-fixture`
   - `stage5-render-fixture`
@@ -137,8 +138,8 @@ stage 5 当前判断：
   - offline audio cue-plan sample
   - `offline_audio.wav` 落盘样片
   - density `initial_gain_db` 已真正接入 cue gain
+  - `audio.background.wav` 已可混音进离线渲染，并带出 source/gain/loop manifest 元数据
   - WAV 文件级 sha256 回归
 - 但 stage 5 仍未完成，当前还缺：
-  - `audio.background.wav` 混音
   - 更真实的 voice backend / sample backend
   - 与后续视频容器 / ffmpeg bridge 串联

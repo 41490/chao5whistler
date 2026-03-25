@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shlex
 import shutil
@@ -76,6 +77,25 @@ def write_text(path: Path, payload: str) -> None:
     path.write_text(payload, encoding="utf-8")
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_file_integrity(path: Path) -> dict:
+    return {
+        "file": path.name,
+        "size_bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
+
+
 def round6(value: float) -> float:
     return round(value, 6)
 
@@ -141,6 +161,95 @@ def inspect_wav(path: Path) -> dict:
     }
 
 
+def probe_keyframes(
+    path: Path,
+    ffprobe_bin: str | None,
+    fps: float | None,
+) -> dict | None:
+    if not ffprobe_bin or not path.exists():
+        return None
+    result = subprocess.run(
+        [
+            ffprobe_bin,
+            "-v",
+            "error",
+            "-skip_frame",
+            "nokey",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "frame=best_effort_timestamp_time",
+            "-of",
+            "json",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    payload = json.loads(result.stdout)
+    timestamps = [
+        round6(float(frame["best_effort_timestamp_time"]))
+        for frame in payload.get("frames", [])
+        if frame.get("best_effort_timestamp_time") not in {None, ""}
+    ]
+    intervals = [
+        round6(timestamps[index + 1] - timestamps[index])
+        for index in range(len(timestamps) - 1)
+    ]
+    max_interval_seconds = max(intervals) if intervals else None
+    max_interval_frames = (
+        round(max_interval_seconds * fps)
+        if max_interval_seconds is not None and fps is not None
+        else None
+    )
+    return {
+        "status": "ok",
+        "count": len(timestamps),
+        "timestamps_seconds": timestamps,
+        "first_timestamp_seconds": timestamps[0] if timestamps else None,
+        "last_timestamp_seconds": timestamps[-1] if timestamps else None,
+        "max_interval_seconds": round6(max_interval_seconds)
+        if max_interval_seconds is not None
+        else None,
+        "max_interval_frames": max_interval_frames,
+    }
+
+
+def count_video_frames(path: Path, ffprobe_bin: str | None) -> tuple[str | None, int | None]:
+    if not ffprobe_bin or not path.exists():
+        return None, None
+    result = subprocess.run(
+        [
+            ffprobe_bin,
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames",
+            "-of",
+            "json",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None, None
+    payload = json.loads(result.stdout)
+    stream = payload.get("streams", [{}])[0]
+    nb_read_frames = stream.get("nb_read_frames")
+    return (
+        nb_read_frames,
+        int(nb_read_frames) if str(nb_read_frames or "").isdigit() else None,
+    )
+
+
 def probe_media(path: Path, ffprobe_bin: str | None) -> dict | None:
     if not ffprobe_bin or not path.exists():
         return None
@@ -167,22 +276,69 @@ def probe_media(path: Path, ffprobe_bin: str | None) -> dict | None:
     streams = payload.get("streams", [])
     video_stream = next((stream for stream in streams if stream.get("codec_type") == "video"), {})
     audio_stream = next((stream for stream in streams if stream.get("codec_type") == "audio"), {})
+    avg_frame_rate_value = parse_rate(video_stream.get("avg_frame_rate"))
+    counted_frames, counted_frames_value = count_video_frames(path, ffprobe_bin)
+    keyframes = probe_keyframes(path, ffprobe_bin, avg_frame_rate_value)
     return {
         "status": "ok",
+        "stream_count": len(streams),
+        "video_stream_count": sum(1 for stream in streams if stream.get("codec_type") == "video"),
+        "audio_stream_count": sum(1 for stream in streams if stream.get("codec_type") == "audio"),
         "format_name": payload.get("format", {}).get("format_name"),
         "duration_seconds": parse_rate(payload.get("format", {}).get("duration")),
         "file_size_bytes": int(payload.get("format", {}).get("size", 0) or 0),
         "video_codec_name": video_stream.get("codec_name"),
         "width": video_stream.get("width"),
         "height": video_stream.get("height"),
+        "pix_fmt": video_stream.get("pix_fmt"),
         "avg_frame_rate": video_stream.get("avg_frame_rate"),
-        "avg_frame_rate_value": parse_rate(video_stream.get("avg_frame_rate")),
+        "avg_frame_rate_value": avg_frame_rate_value,
         "r_frame_rate": video_stream.get("r_frame_rate"),
         "r_frame_rate_value": parse_rate(video_stream.get("r_frame_rate")),
         "video_nb_frames": video_stream.get("nb_frames"),
+        "video_nb_frames_value": (
+            int(video_stream["nb_frames"])
+            if str(video_stream.get("nb_frames", "")).isdigit()
+            else counted_frames_value
+        ),
+        "video_nb_read_frames": counted_frames,
         "audio_codec_name": audio_stream.get("codec_name"),
         "audio_sample_rate_hz": int(audio_stream.get("sample_rate", 0) or 0),
         "audio_channels": audio_stream.get("channels"),
+        "audio_channel_layout": audio_stream.get("channel_layout"),
+        "streams": [
+            {
+                "index": stream.get("index"),
+                "codec_type": stream.get("codec_type"),
+                "codec_name": stream.get("codec_name"),
+                "pix_fmt": stream.get("pix_fmt"),
+                "width": stream.get("width"),
+                "height": stream.get("height"),
+                "avg_frame_rate": stream.get("avg_frame_rate"),
+                "avg_frame_rate_value": parse_rate(stream.get("avg_frame_rate")),
+                "r_frame_rate": stream.get("r_frame_rate"),
+                "r_frame_rate_value": parse_rate(stream.get("r_frame_rate")),
+                "nb_frames": stream.get("nb_frames"),
+                "nb_frames_value": (
+                    int(stream["nb_frames"])
+                    if str(stream.get("nb_frames", "")).isdigit()
+                    else None
+                ),
+                "sample_rate": stream.get("sample_rate"),
+                "sample_rate_value": int(stream.get("sample_rate", 0) or 0)
+                if str(stream.get("sample_rate", "")).isdigit()
+                else None,
+                "channels": stream.get("channels"),
+                "channel_layout": stream.get("channel_layout"),
+            }
+            for stream in streams
+        ],
+        "container": {
+            "format_name": payload.get("format", {}).get("format_name"),
+            "duration_seconds": parse_rate(payload.get("format", {}).get("duration")),
+            "file_size_bytes": int(payload.get("format", {}).get("size", 0) or 0),
+        },
+        "keyframes": keyframes,
     }
 
 
@@ -829,6 +985,48 @@ def main() -> int:
         ),
     )
     (output_dir / "run_stage7_stream_bridge.sh").chmod(0o755)
+    artifact_integrity = {
+        path.name: build_file_integrity(path)
+        for path in [
+            output_dir / "stage7_bridge_profile.json",
+            output_dir / FAILURE_TAXONOMY_FILE,
+            output_dir / SOAK_PLAN_FILE,
+            output_dir / "stream_bridge_ffmpeg_args.json",
+            output_dir / "run_stage7_stream_bridge.sh",
+        ]
+    }
+    if smoke_generated:
+        artifact_integrity[smoke_output_path.name] = build_file_integrity(smoke_output_path)
+    stage6_artifact_integrity = (
+        video_manifest.get("artifact_integrity", {}).get(video_path.name)
+        if isinstance(video_manifest.get("artifact_integrity"), dict)
+        else None
+    )
+    if stage6_artifact_integrity is None and video_path.exists():
+        stage6_artifact_integrity = build_file_integrity(video_path)
+    source_video_contract = {
+        "expected_frame_count": video_manifest.get("mp4_generation", {}).get("expected_frame_count"),
+        "frame_count_tolerance": video_manifest.get("mp4_generation", {}).get(
+            "frame_count_tolerance"
+        ),
+        "expected_fps": video_manifest.get("mp4_generation", {}).get("expected_fps"),
+        "fps_tolerance": video_manifest.get("mp4_generation", {}).get("fps_tolerance"),
+        "expected_duration_seconds": video_manifest.get("mp4_generation", {}).get(
+            "expected_duration_seconds"
+        ),
+        "duration_tolerance_seconds": video_manifest.get("mp4_generation", {}).get(
+            "duration_tolerance_seconds"
+        ),
+        "expected_keyframe_interval_frames": video_manifest.get("mp4_generation", {}).get(
+            "expected_keyframe_interval_frames"
+        ),
+        "keyframe_interval_tolerance_frames": video_manifest.get("mp4_generation", {}).get(
+            "keyframe_interval_tolerance_frames"
+        ),
+        "expected_stream_layout": video_manifest.get("mp4_generation", {}).get(
+            "expected_stream_layout"
+        ),
+    }
 
     manifest = {
         "stage": "stage7_stream_bridge",
@@ -855,6 +1053,7 @@ def main() -> int:
             "validation_report_file": "stage7_bridge_validation_report.json",
             "soak_validation_report_file": SOAK_VALIDATION_REPORT_FILE,
         },
+        "artifact_integrity": artifact_integrity,
         "bridge_summary": {
             "loop_count": audio_loop_plan.get("loop_count"),
             "duration_seconds": duration_audio,
@@ -915,6 +1114,8 @@ def main() -> int:
             "fps": expected_fps,
             "codec_name": stage6_probe.get("video_codec_name", profile_video["codec"]),
             "source_manifest_codec": video_manifest.get("mp4_generation", {}).get("video_codec"),
+            "artifact_integrity": stage6_artifact_integrity,
+            "source_contract": source_video_contract,
         },
         "live_command": {
             "ffmpeg_bin": resolved_ffmpeg_path,
@@ -941,6 +1142,24 @@ def main() -> int:
             "ffmpeg_bin": ffmpeg_path,
             "ffprobe_bin": ffprobe_path,
             "output_file": bridge_profile["smoke"]["output_file"],
+            "expected_frame_count": round(duration_audio * profile_video["fps"]),
+            "frame_count_tolerance": 1,
+            "expected_fps": profile_video["fps"],
+            "fps_tolerance": 0.01,
+            "expected_duration_seconds": duration_audio,
+            "duration_tolerance_seconds": max(0.1, 2.0 / profile_video["fps"]),
+            "expected_keyframe_interval_frames": profile_video["keyframe_interval_frames"],
+            "keyframe_interval_tolerance_frames": 1,
+            "expected_stream_layout": {
+                "video_stream_count": 1,
+                "audio_stream_count": 1,
+            },
+            "video_codec": profile_video["codec"],
+            "video_encoder": profile_video["encoder"],
+            "video_preset": profile_video["preset"],
+            "pixel_format": profile_video["pixel_format"],
+            "audio_codec": profile_audio["codec"],
+            "scene_cut_disabled": True,
             "probe": smoke_probe,
         },
     }

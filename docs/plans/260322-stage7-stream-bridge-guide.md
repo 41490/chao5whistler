@@ -53,6 +53,7 @@ make -C src/musikalisches stage7-soak-check
 - `reconnect executor`: 运行时真正执行 backoff / retry budget / 连续 retryable failure 上限，而不再只把策略停在 soak plan
 - `failure taxonomy`: 运行时会写 redacted `stderr`、`exit report` 与 aggregate runtime report，至少区分 `handshake_failure` / `auth_failure` / `network_jitter` / `remote_disconnect` / `ingest_configuration_failure`
 - `soak gate`: 基于 bridge manifest 生成 `stage7_soak_plan.json`，并以 `stage7-soak-check` 验证进入 stage 8 前的最小条件
+- `artifact_integrity + tolerance`: stage7 manifest 现同步冻结 `stage7_bridge_profile.json` / `stream_bridge_ffmpeg_args.json` / `run_stage7_stream_bridge.sh` / `stage7_failure_taxonomy.json` / `stage7_soak_plan.json` 以及 `stage7_bridge_smoke.flv` 的文件级 `sha256` / `size_bytes`，并把 smoke 输出的 frame count / fps / duration / keyframe cadence / stream layout 容差显式写入 manifest，和 stage6 `offline_preview.mp4` 的验收口径对齐
 
 运行脚本约定：
 
@@ -90,3 +91,21 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 - 真正的直播 URL 不进入仓库文件，也不写入 manifest
 - `stage7_soak_check` 现在验证的是进入 stage 8 前的 readiness contract，不是 8h-24h 实际长跑结果本身
 - stage 8 人工真实 soak 流程草稿见：`docs/plans/260324-stage8-real-soak-ops-guide.md`
+
+当前 manifest 重点检查项：
+
+- `stream_bridge_manifest.json > artifact_integrity`
+  - 校验 stage7 关键工件和 smoke 输出是否可逐文件对账
+- `stream_bridge_manifest.json > video_input`
+  - 保留来自 stage6 `offline_preview.mp4` 的 artifact integrity 与 tolerance contract 摘要
+- `stream_bridge_manifest.json > smoke_generation`
+  - 显式冻结：
+    - `expected_frame_count`
+    - `frame_count_tolerance`
+    - `expected_fps`
+    - `fps_tolerance`
+    - `expected_duration_seconds`
+    - `duration_tolerance_seconds`
+    - `expected_keyframe_interval_frames`
+    - `keyframe_interval_tolerance_frames`
+    - `expected_stream_layout`

@@ -54,7 +54,7 @@ SoundFont resolution order:
 1. `--soundfont`
 2. `MUSIKALISCHES_SOUNDFONT`
 3. `ops/assets/soundfonts/default.sf2`
-4. common system `.sf2` paths
+4. common system `.sf2` paths, preferring `/usr/share/sounds/sf2/FluidR3_GM.sf2`
 
 If none are found, the runtime falls back to the deterministic additive renderer.
 
@@ -150,6 +150,9 @@ Those render artifacts land in `ops/out/video-render` and include:
 - `video_render_poster.ppm`
 - `offline_preview.mp4`
 - `stage6_render_validation_report.json`
+
+The render manifest now also freezes artifact-level `sha256`/size metadata plus
+explicit mp4 tolerance fields for frame count, fps, duration, and keyframe cadence.
 
 Manual inspection notes live in:
 

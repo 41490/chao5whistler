@@ -40,8 +40,8 @@ const DEFAULT_ANALYSIS_WINDOW_MS: u32 = 40;
 const SOUNDFONT_ENV_VAR: &str = "MUSIKALISCHES_SOUNDFONT";
 const DEFAULT_REPO_SOUNDFONT_PATH: &str = "ops/assets/soundfonts/default.sf2";
 const DEFAULT_SYSTEM_SOUNDFONTS: [&str; 4] = [
-    "/usr/share/sounds/sf2/TimGM6mb.sf2",
     "/usr/share/sounds/sf2/FluidR3_GM.sf2",
+    "/usr/share/sounds/sf2/TimGM6mb.sf2",
     "/usr/share/sounds/sf2/FluidR3Mono_GM.sf2",
     "/usr/local/share/sounds/sf2/default.sf2",
 ];

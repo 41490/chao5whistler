@@ -1,11 +1,11 @@
 {
-  "profile_id": "stage5_default_dual_voice",
-  "description": "Default stage-5 routing for the dual-voice K.516f runtime skeleton.",
+  "profile_id": "stage5_default_dual_voice_organ_family",
+  "description": "Default stage-5 routing for the dual-voice organ-family render path, tuned for GM SoundFonts such as FluidR3_GM.sf2.",
   "voice_groups": [
     {
       "part_index": 1,
       "channel": 0,
-      "program": 0,
+      "program": 19,
       "velocity": 92,
       "base_amplitude": 0.12,
       "left_gain": 0.72,
@@ -14,7 +14,7 @@
     {
       "part_index": 2,
       "channel": 1,
-      "program": 0,
+      "program": 20,
       "velocity": 84,
       "base_amplitude": 0.1,
       "left_gain": 0.46,

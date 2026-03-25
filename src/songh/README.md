@@ -70,6 +70,7 @@ make -C src/songh stage4-render-fixture
   - CLI: `render-video-sample`
   - 输出 `frame-plan.json` + `render-manifest.json` + `frames/*.png`
   - 当前文本已接真实 TTF raster，不再停留在 bitmap glyph baseline
+  - `render-manifest` 现已导出首个 active frame 的 golden hash，供像素级回归
 - stage 4 文本可视规则已补：
   - 默认正式字体使用 `ops/assets/3270NerdFontMono-Condensed.ttf`
   - 文本整体顺时针旋转 `90°`，形成竖直文本段
@@ -112,5 +113,6 @@ stage 4 当前判断：
   - 基于真实归档秒级密度的 `<10/s` 关键文本段筛选
   - vertical motion 的 PNG 帧序列样片
   - 真实 TTF raster + 90° 文本旋转 + blur/fade 生命周期
+  - 首个 active frame 的 golden hash 回归
 - 但 stage 4 仍未完成，当前还缺：
   - 样片进一步落到视频容器

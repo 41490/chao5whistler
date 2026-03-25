@@ -45,7 +45,18 @@ pub struct VideoRenderReport {
     pub frame_plan_path: PathBuf,
     pub manifest_path: PathBuf,
     pub rendered_frame_count: usize,
+    pub first_active_frame_golden: Option<VideoGoldenFrame>,
     pub frame_plan: VideoSampleReport,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VideoGoldenFrame {
+    pub tag: String,
+    pub frame_index: u64,
+    pub frame_time_secs: f64,
+    pub frame_path: PathBuf,
+    pub rgba_sha256: String,
+    pub non_background_pixel_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -273,22 +284,36 @@ pub fn render_day_pack(
 
     let font = load_font(&config.video.text.font_path)?;
     let sprite_assets = build_sprite_assets(config, &font, &frame_plan)?;
+    let background = parse_hex_color(&config.video.palette.background_hex)?;
+    let background_pixel = [background[0], background[1], background[2], 255];
+    let mut first_active_frame_golden = None;
     for frame in &frame_plan.frames {
         let image = render_frame(config, &frame_plan, frame, &sprite_assets)?;
         let frame_path = frames_dir.join(format!("frame-{:06}.png", frame.frame_index));
         image
             .save(&frame_path)
             .with_context(|| format!("write rendered frame {}", frame_path.display()))?;
+        if first_active_frame_golden.is_none() && !frame.active_items.is_empty() {
+            first_active_frame_golden = Some(VideoGoldenFrame {
+                tag: "first_active".to_string(),
+                frame_index: frame.frame_index,
+                frame_time_secs: round2(frame.frame_time_secs),
+                frame_path: frame_path.clone(),
+                rgba_sha256: rgba_sha256(&image),
+                non_background_pixel_count: non_background_pixel_count(&image, background_pixel),
+            });
+        }
     }
 
     let manifest_path = output_dir.join("render-manifest.json");
     let report = VideoRenderReport {
-        schema_version: "stage4.video_render.v2".to_string(),
+        schema_version: "stage4.video_render.v3".to_string(),
         output_dir: output_dir.to_path_buf(),
         frames_dir,
         frame_plan_path,
         manifest_path: manifest_path.clone(),
         rendered_frame_count: frame_plan.frames.len(),
+        first_active_frame_golden,
         frame_plan,
     };
     fs::write(&manifest_path, serde_json::to_vec_pretty(&report)?)
@@ -990,6 +1015,17 @@ fn blend_pixel(image: &mut RgbaImage, x: i32, y: i32, top: [u8; 4]) {
     image.put_pixel(x, y, Rgba(blended));
 }
 
+fn rgba_sha256(image: &RgbaImage) -> String {
+    hex::encode(Sha256::digest(image.as_raw()))
+}
+
+fn non_background_pixel_count(image: &RgbaImage, background_pixel: [u8; 4]) -> u64 {
+    image
+        .pixels()
+        .filter(|pixel| pixel.0 != background_pixel)
+        .count() as u64
+}
+
 fn round2(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
@@ -1200,6 +1236,7 @@ mod tests {
         assert!(report.manifest_path.exists());
         assert!(report.frames_dir.join("frame-000000.png").exists());
         assert!(report.frames_dir.join("frame-000016.png").exists());
+        assert!(report.first_active_frame_golden.is_some());
 
         let active_frame = report
             .frame_plan
@@ -1217,11 +1254,20 @@ mod tests {
 
         let background = parse_hex_color(&config.video.palette.background_hex).expect("bg");
         let background_pixel = [background[0], background[1], background[2], 255];
-        let non_background_count = rendered
-            .pixels()
-            .filter(|pixel| pixel.0 != background_pixel)
-            .count();
+        let non_background_count = non_background_pixel_count(&rendered, background_pixel);
         assert!(non_background_count > 0);
+
+        let golden = report
+            .first_active_frame_golden
+            .as_ref()
+            .expect("first active frame golden");
+        assert_eq!(golden.tag, "first_active");
+        assert_eq!(golden.frame_index, active_frame.frame_index);
+        assert_eq!(golden.non_background_pixel_count, non_background_count);
+        assert_eq!(
+            golden.rgba_sha256,
+            "c4a3d37e4ae5274dc769aac8630efc31652334071cbcb7ea6462029b756b48ac"
+        );
     }
 
     #[test]

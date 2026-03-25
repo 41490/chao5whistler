@@ -282,6 +282,15 @@ fn run_render_video_sample(args: RenderVideoSampleArgs) -> Result<()> {
         "rendered sprites: {}",
         report.frame_plan.emitted_sprite_count
     );
+    match &report.first_active_frame_golden {
+        Some(golden) => {
+            println!("first active frame: {}", golden.frame_index);
+            println!("first active rgba sha256: {}", golden.rgba_sha256);
+        }
+        None => {
+            println!("first active frame: <none>");
+        }
+    }
 
     if args.dump_json {
         println!("{}", serde_json::to_string_pretty(&report)?);

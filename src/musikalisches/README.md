@@ -353,6 +353,7 @@ ops/out/stream-bridge
 
 - 如 `ops/bin/ffmpeg` / `ops/bin/ffprobe` 存在，stage6 / stage7 默认优先使用 repo-managed toolchain
 - 可通过 `make -C src/musikalisches stage7-ffmpeg-build` 与 `stage7-ffmpeg-check` 显式重建并验证 `rtmps` output 能力
+- 默认 stage7 bridge profile 固定为 `RTMPS` 语义；本地 preflight 自动回归只在临时 profile 中改用 `rtmp://127.0.0.1` 来覆盖失败分支
 - `run_stage7_stream_bridge.sh` 默认使用 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`
 - 如需只跑单次有限输入，可设置 `MUSIKALISCHES_STAGE7_LOOP_MODE=once`
 - 如需做受控长时 bridge / soak 预演，可设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
@@ -369,6 +370,7 @@ ops/out/stream-bridge
 - runtime 会把 `stderr` 写到 `logs/stage7_bridge_latest.stderr.log`
 - runtime 会把退出分类写到 `logs/stage7_bridge_exit_report.json`
 - runtime 会把聚合执行结果写到 `logs/stage7_bridge_runtime_report.json`
+- `make -C src/musikalisches stage7-preflight-regression-check` 会自动回归 `target_scheme / protocol_support / dns_resolution / tcp_connectivity / publish_probe` 五条 preflight fail 路径，并把结果写到 `ops/out/stage7-preflight-regressions/stage7_preflight_regression_report.json`
 
 失败分类当前至少覆盖：
 
@@ -385,6 +387,7 @@ ops/out/stream-bridge
 make -C src/musikalisches stage7-ffmpeg-check
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
+make -C src/musikalisches stage7-preflight-regression-check
 make -C src/musikalisches stage7-soak-check
 ```
 

@@ -310,6 +310,25 @@ def probe_media(path: Path) -> dict | None:
     }
 
 
+def build_probe_summary(probe: dict | None) -> dict | None:
+    if not isinstance(probe, dict) or probe.get("status") != "ok":
+        return None
+    keyframes = probe.get("keyframes") if isinstance(probe.get("keyframes"), dict) else {}
+    container = probe.get("container") if isinstance(probe.get("container"), dict) else {}
+    return {
+        "width": probe.get("width"),
+        "height": probe.get("height"),
+        "video_codec_name": probe.get("video_codec_name"),
+        "avg_frame_rate_value": probe.get("avg_frame_rate_value"),
+        "video_nb_frames_value": probe.get("video_nb_frames_value"),
+        "duration_seconds": probe.get("duration_seconds"),
+        "video_stream_count": probe.get("video_stream_count"),
+        "audio_stream_count": probe.get("audio_stream_count"),
+        "container_format_name": container.get("format_name", probe.get("format_name")),
+        "keyframe_interval_frames": keyframes.get("max_interval_frames"),
+    }
+
+
 def validate_failure_taxonomy_payload(payload: object) -> list[str]:
     if not isinstance(payload, dict):
         return ["failure taxonomy must be a JSON object"]
@@ -509,8 +528,48 @@ def main() -> int:
     video_manifest_path = Path(manifest.get("source_video_artifact_dir", "")) / "video_render_manifest.json"
     stage6_manifest = load_json(video_manifest_path) if video_manifest_path.exists() else {}
     video_input = manifest.get("video_input", {})
+    source_video_path = Path(video_input.get("path", ""))
     source_video_contract = video_input.get("source_contract", {})
     source_video_integrity = video_input.get("artifact_integrity")
+    source_video_actual_integrity = (
+        build_file_integrity(source_video_path)
+        if source_video_path.exists() and source_video_path.is_file()
+        else None
+    )
+    source_probe = probe_media(source_video_path) if source_video_path.exists() else None
+    if source_probe is None:
+        source_probe = stage6_manifest.get("mp4_generation", {}).get("probe")
+    source_probe_summary = build_probe_summary(source_probe)
+    bridge_consistency = manifest.get("bridge_consistency", {})
+    expected_bridge_tolerance = {
+        "fps": round(
+            (source_video_contract.get("fps_tolerance") or 0)
+            + (smoke_generation.get("fps_tolerance") or 0),
+            6,
+        ),
+        "frame_count": (source_video_contract.get("frame_count_tolerance") or 0)
+        + (smoke_generation.get("frame_count_tolerance") or 0),
+        "duration_seconds": round(
+            (source_video_contract.get("duration_tolerance_seconds") or 0)
+            + (smoke_generation.get("duration_tolerance_seconds") or 0),
+            6,
+        ),
+        "keyframe_interval_frames": (
+            source_video_contract.get("keyframe_interval_tolerance_frames") or 0
+        )
+        + (smoke_generation.get("keyframe_interval_tolerance_frames") or 0),
+    }
+    expected_bridge_matches = {
+        "width": (source_probe_summary or {}).get("width"),
+        "height": (source_probe_summary or {}).get("height"),
+        "video_codec_name": (source_probe_summary or {}).get("video_codec_name"),
+        "avg_frame_rate_value": (source_probe_summary or {}).get("avg_frame_rate_value"),
+        "video_nb_frames_value": (source_probe_summary or {}).get("video_nb_frames_value"),
+        "duration_seconds": (source_probe_summary or {}).get("duration_seconds"),
+        "keyframe_interval_frames": (source_probe_summary or {}).get(
+            "keyframe_interval_frames"
+        ),
+    }
 
     failure_classes = failure_taxonomy.get("classes", [])
     failure_class_ids = [
@@ -646,6 +705,69 @@ def main() -> int:
                 "source_video_manifest": str(video_manifest_path),
                 "source_video_integrity": source_video_integrity,
                 "source_video_contract": source_video_contract,
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "bridge_consistency",
+            not smoke_generated
+            or (
+                isinstance(bridge_consistency, dict)
+                and bridge_consistency.get("source_manifest_path") == str(video_manifest_path)
+                and bridge_consistency.get("source_video_file") == source_video_path.name
+                and bridge_consistency.get("source_video_sha256")
+                == (source_video_integrity or {}).get("sha256")
+                and bridge_consistency.get("source_video_integrity") == source_video_integrity
+                and source_video_actual_integrity == source_video_integrity
+                and bridge_consistency.get("source_probe_summary") == source_probe_summary
+                and bridge_consistency.get("smoke_output_file") == smoke_generation.get("output_file")
+                and bridge_consistency.get("smoke_probe_path") == "smoke_generation.probe"
+                and bridge_consistency.get("comparison_tolerance") == expected_bridge_tolerance
+                and bridge_consistency.get("expected_stream_delta")
+                == {
+                    "video_stream_count": 0,
+                    "audio_stream_count": 1,
+                }
+                and bridge_consistency.get("expected_matches") == expected_bridge_matches
+                and isinstance(smoke_probe, dict)
+                and source_probe_summary is not None
+                and smoke_probe.get("width") == source_probe_summary.get("width")
+                and smoke_probe.get("height") == source_probe_summary.get("height")
+                and smoke_probe.get("video_codec_name")
+                == source_probe_summary.get("video_codec_name")
+                and float_close(
+                    smoke_probe.get("avg_frame_rate_value"),
+                    source_probe_summary.get("avg_frame_rate_value"),
+                    expected_bridge_tolerance["fps"],
+                )
+                and int_close(
+                    smoke_probe.get("video_nb_frames_value"),
+                    source_probe_summary.get("video_nb_frames_value"),
+                    expected_bridge_tolerance["frame_count"],
+                )
+                and float_close(
+                    smoke_probe.get("duration_seconds"),
+                    source_probe_summary.get("duration_seconds"),
+                    expected_bridge_tolerance["duration_seconds"],
+                )
+                and int_close(
+                    (smoke_probe.get("keyframes") or {}).get("max_interval_frames"),
+                    source_probe_summary.get("keyframe_interval_frames"),
+                    expected_bridge_tolerance["keyframe_interval_frames"],
+                )
+                and smoke_probe.get("video_stream_count") - source_probe_summary.get("video_stream_count")
+                == bridge_consistency.get("expected_stream_delta", {}).get("video_stream_count")
+                and smoke_probe.get("audio_stream_count") - source_probe_summary.get("audio_stream_count")
+                == bridge_consistency.get("expected_stream_delta", {}).get("audio_stream_count")
+            ),
+            {
+                "source_video_path": str(source_video_path),
+                "source_video_integrity": source_video_integrity,
+                "source_video_actual_integrity": source_video_actual_integrity,
+                "source_probe_summary": source_probe_summary,
+                "bridge_consistency": bridge_consistency,
+                "smoke_probe": smoke_probe,
             },
         )
     )

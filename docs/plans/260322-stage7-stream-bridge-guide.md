@@ -21,6 +21,7 @@
 make -C src/musikalisches stage7-ffmpeg-check
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
+make -C src/musikalisches stage7-preflight-regression-check
 make -C src/musikalisches stage7-soak-check
 ```
 
@@ -50,10 +51,12 @@ make -C src/musikalisches stage7-soak-check
 - `repo-managed ffmpeg`: 仓库内可直接构建 `ops/bin/ffmpeg` / `ops/bin/ffprobe`，固定 `libx264 + openssl + rtmps` 能力，避免系统包缺项
 - `loop bridge`: 默认 live mode 为 `infinite`，通过 `MUSIKALISCHES_STAGE7_LOOP_MODE` 在 `once` / `infinite` 间切换
 - `rtmps preflight`: 正式推流前先检查 `ffmpeg` 协议支持、DNS、TCP 连通性，以及一次轻量 publish probe，把配置/认证错误前置暴露
+- `preflight regression harness`: 自动回归 `target_scheme / protocol_support / dns_resolution / tcp_connectivity / publish_probe` 五条 fail 路径，防止控制台摘要或 report/log 指针再次退化
 - `reconnect executor`: 运行时真正执行 backoff / retry budget / 连续 retryable failure 上限，而不再只把策略停在 soak plan
 - `failure taxonomy`: 运行时会写 redacted `stderr`、`exit report` 与 aggregate runtime report，至少区分 `handshake_failure` / `auth_failure` / `network_jitter` / `remote_disconnect` / `ingest_configuration_failure`
 - `soak gate`: 基于 bridge manifest 生成 `stage7_soak_plan.json`，并以 `stage7-soak-check` 验证进入 stage 8 前的最小条件
 - `artifact_integrity + tolerance`: stage7 manifest 现同步冻结 `stage7_bridge_profile.json` / `stream_bridge_ffmpeg_args.json` / `run_stage7_stream_bridge.sh` / `stage7_failure_taxonomy.json` / `stage7_soak_plan.json` 以及 `stage7_bridge_smoke.flv` 的文件级 `sha256` / `size_bytes`，并把 smoke 输出的 frame count / fps / duration / keyframe cadence / stream layout 容差显式写入 manifest，和 stage6 `offline_preview.mp4` 的验收口径对齐
+- `bridge consistency`: stage7 manifest 现显式冻结 stage6 `offline_preview.mp4` 的 probe 摘要、`sha256` 链接、以及到 stage7 `stage7_bridge_smoke.flv` 的 comparison tolerance / stream delta，validator 会直接比较两阶段的 width / height / fps / frame count / duration / keyframe cadence / stream layout
 
 运行脚本约定：
 
@@ -61,6 +64,7 @@ make -C src/musikalisches stage7-soak-check
 - 可选：`MUSIKALISCHES_STAGE7_LOOP_MODE=once|infinite`
 - 可选：`MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
 - 默认优先使用 `ops/bin/ffmpeg` / `ops/bin/ffprobe`，如存在
+- 默认 bridge profile 固定为 `RTMPS` 语义；本地自动回归仅在临时 profile 中使用 `rtmp://127.0.0.1` 来模拟 preflight fail 分支
 
 示例：
 
@@ -78,6 +82,7 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 - `ops/out/stream-bridge/logs/stage7_bridge_latest.stderr.log`
 - `ops/out/stream-bridge/logs/stage7_bridge_exit_report.json`
 - `ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json`
+- `ops/out/stage7-preflight-regressions/stage7_preflight_regression_report.json`
 
 控制台约定：
 
@@ -109,3 +114,10 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
     - `expected_keyframe_interval_frames`
     - `keyframe_interval_tolerance_frames`
     - `expected_stream_layout`
+- `stream_bridge_manifest.json > bridge_consistency`
+  - 显式冻结：
+    - `source_video_sha256`
+    - `source_probe_summary`
+    - `comparison_tolerance`
+    - `expected_stream_delta`
+    - `expected_matches`

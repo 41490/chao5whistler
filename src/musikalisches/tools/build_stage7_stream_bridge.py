@@ -342,6 +342,25 @@ def probe_media(path: Path, ffprobe_bin: str | None) -> dict | None:
     }
 
 
+def build_probe_summary(probe: dict | None) -> dict | None:
+    if not isinstance(probe, dict) or probe.get("status") != "ok":
+        return None
+    keyframes = probe.get("keyframes") if isinstance(probe.get("keyframes"), dict) else {}
+    container = probe.get("container") if isinstance(probe.get("container"), dict) else {}
+    return {
+        "width": probe.get("width"),
+        "height": probe.get("height"),
+        "video_codec_name": probe.get("video_codec_name"),
+        "avg_frame_rate_value": probe.get("avg_frame_rate_value"),
+        "video_nb_frames_value": probe.get("video_nb_frames_value"),
+        "duration_seconds": probe.get("duration_seconds"),
+        "video_stream_count": probe.get("video_stream_count"),
+        "audio_stream_count": probe.get("audio_stream_count"),
+        "container_format_name": container.get("format_name", probe.get("format_name")),
+        "keyframe_interval_frames": keyframes.get("max_interval_frames"),
+    }
+
+
 def build_live_args(
     profile: dict,
     video_path: Path,
@@ -1027,6 +1046,46 @@ def main() -> int:
             "expected_stream_layout"
         ),
     }
+    source_probe_summary = build_probe_summary(stage6_probe)
+    bridge_consistency_tolerance = {
+        "fps": round6(
+            (source_video_contract.get("fps_tolerance") or 0)
+            + 0.01
+        ),
+        "frame_count": (source_video_contract.get("frame_count_tolerance") or 0) + 1,
+        "duration_seconds": round6(
+            (source_video_contract.get("duration_tolerance_seconds") or 0)
+            + max(0.1, 2.0 / profile_video["fps"])
+        ),
+        "keyframe_interval_frames": (
+            source_video_contract.get("keyframe_interval_tolerance_frames") or 0
+        )
+        + 1,
+    }
+    bridge_expected_matches = {
+        "width": (source_probe_summary or {}).get("width", expected_width),
+        "height": (source_probe_summary or {}).get("height", expected_height),
+        "video_codec_name": (source_probe_summary or {}).get(
+            "video_codec_name",
+            stage6_probe.get("video_codec_name", profile_video["codec"]),
+        ),
+        "avg_frame_rate_value": (source_probe_summary or {}).get(
+            "avg_frame_rate_value",
+            expected_fps,
+        ),
+        "video_nb_frames_value": (source_probe_summary or {}).get(
+            "video_nb_frames_value",
+            source_video_contract.get("expected_frame_count"),
+        ),
+        "duration_seconds": (source_probe_summary or {}).get(
+            "duration_seconds",
+            source_video_contract.get("expected_duration_seconds"),
+        ),
+        "keyframe_interval_frames": (source_probe_summary or {}).get(
+            "keyframe_interval_frames",
+            source_video_contract.get("expected_keyframe_interval_frames"),
+        ),
+    }
 
     manifest = {
         "stage": "stage7_stream_bridge",
@@ -1116,6 +1175,21 @@ def main() -> int:
             "source_manifest_codec": video_manifest.get("mp4_generation", {}).get("video_codec"),
             "artifact_integrity": stage6_artifact_integrity,
             "source_contract": source_video_contract,
+        },
+        "bridge_consistency": {
+            "source_manifest_path": str(video_dir / "video_render_manifest.json"),
+            "source_video_file": video_path.name,
+            "source_video_sha256": (stage6_artifact_integrity or {}).get("sha256"),
+            "source_video_integrity": stage6_artifact_integrity,
+            "source_probe_summary": source_probe_summary,
+            "smoke_output_file": bridge_profile["smoke"]["output_file"],
+            "smoke_probe_path": "smoke_generation.probe",
+            "comparison_tolerance": bridge_consistency_tolerance,
+            "expected_stream_delta": {
+                "video_stream_count": 0,
+                "audio_stream_count": 1,
+            },
+            "expected_matches": bridge_expected_matches,
         },
         "live_command": {
             "ffmpeg_bin": resolved_ffmpeg_path,

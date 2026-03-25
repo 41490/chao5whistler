@@ -12,6 +12,7 @@ VIDEO_RENDER_OUT := $(ROOT)/ops/out/video-render
 VIDEO_RENDER_SF2_OUT := $(ROOT)/ops/out/video-render-sf2
 STREAM_BRIDGE_OUT := $(ROOT)/ops/out/stream-bridge
 FFMPEG_TOOLCHAIN_OUT := $(ROOT)/ops/out/ffmpeg-rtmps-check
+STAGE7_PREFLIGHT_REGRESSION_OUT := $(ROOT)/ops/out/stage7-preflight-regressions
 DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_synth_profile.json
 DEFAULT_STAGE6_SCENE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage6_default_scene_profile.json
 DEFAULT_STAGE6_TEXT_CONFIG := $(ROOT)/src/musikalisches/runtime/config/stage6_default_text_overrides.toml
@@ -71,6 +72,7 @@ help:
 	'Stage 7 bridge freeze:' \
 	'  make stage7-bridge        Freeze stage7 FFmpeg bridge contract and local FLV smoke' \
 	'  make stage7-bridge-check  Validate stage7 bridge artifacts' \
+	'  make stage7-preflight-regression-check Validate automated stage7 preflight fail observability' \
 	'  make stage7-soak-check    Validate pre-stage8 soak readiness contract' \
 	'  make stage7-ffmpeg-build  Build repo-managed ffmpeg/ffprobe with RTMPS output support' \
 	'  make stage7-ffmpeg-check  Validate repo-managed ffmpeg/ffprobe capability' \
@@ -342,6 +344,29 @@ stage7-bridge-check:
 	fi
 	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage7_stream_bridge.py $(STREAM_BRIDGE_OUT)
 
+.PHONY: stage7-preflight-regression-check
+stage7-preflight-regression-check:
+	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_DEMO_OUT)}"; \
+	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_OUT)}"; \
+	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav; do \
+		if [[ ! -f "$$AUDIO_DIR/$$required" ]]; then \
+			$(MAKE) stage5-stream; \
+			break; \
+		fi; \
+	done; \
+	for required in video_render_manifest.json stage6_render_validation_report.json offline_preview.mp4 visual_scene_profile.json; do \
+		if [[ ! -f "$$VIDEO_DIR/$$required" ]]; then \
+			$(MAKE) stage6-video-render; \
+			break; \
+		fi; \
+	done; \
+	cd $(ROOT) && PATH="$(ROOT)/ops/bin:$$PATH" $(PYTHON) src/musikalisches/tools/validate_stage7_preflight_failures.py \
+		--ffmpeg-bin "$(FFMPEG_BIN)" \
+		--ffprobe-bin "$(FFPROBE_BIN)" \
+		"$$AUDIO_DIR" \
+		"$$VIDEO_DIR" \
+		"$(STAGE7_PREFLIGHT_REGRESSION_OUT)"
+
 .PHONY: stage7-soak-check
 stage7-soak-check:
 	@if [[ ! -f "$(STREAM_BRIDGE_OUT)/stage7_soak_plan.json" ]]; then \
@@ -393,6 +418,7 @@ stage7-all:
 	@$(MAKE) stage7-ffmpeg-check
 	@$(MAKE) stage7-bridge
 	@$(MAKE) stage7-bridge-check
+	@$(MAKE) stage7-preflight-regression-check
 	@$(MAKE) stage7-soak-check
 .PHONY: plans-open
 plans-open:

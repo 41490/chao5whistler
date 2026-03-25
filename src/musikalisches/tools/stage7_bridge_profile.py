@@ -124,9 +124,10 @@ def validate_bridge_profile_payload(
         example = ingest.get("stream_url_example")
         if not _is_nonempty_string(example):
             errors.append("bridge profile ingest.stream_url_example must be a non-empty string")
-        elif protocol == "rtmps" and not example.startswith("rtmps://"):
+        elif protocol in {"rtmp", "rtmps"} and not example.startswith(f"{protocol}://"):
             errors.append(
-                "bridge profile ingest.stream_url_example must start with rtmps:// when protocol=rtmps"
+                "bridge profile ingest.stream_url_example must start with "
+                f"{protocol}:// when protocol={protocol}"
             )
 
     video = profile.get("video")

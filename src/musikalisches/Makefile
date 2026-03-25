@@ -14,8 +14,10 @@ STREAM_BRIDGE_OUT := $(ROOT)/ops/out/stream-bridge
 FFMPEG_TOOLCHAIN_OUT := $(ROOT)/ops/out/ffmpeg-rtmps-check
 DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_synth_profile.json
 DEFAULT_STAGE6_SCENE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage6_default_scene_profile.json
+DEFAULT_STAGE6_TEXT_CONFIG := $(ROOT)/src/musikalisches/runtime/config/stage6_default_text_overrides.toml
 DEFAULT_STAGE7_BRIDGE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage7_default_bridge_profile.json
 DEFAULT_SOUNDFONT := $(ROOT)/ops/assets/soundfonts/default.sf2
+DEFAULT_SYSTEM_SOUNDFONTS := /usr/share/sounds/sf2/FluidR3_GM.sf2 /usr/share/sounds/sf2/TimGM6mb.sf2 /usr/share/sounds/sf2/FluidR3Mono_GM.sf2 /usr/local/share/sounds/sf2/default.sf2
 DEFAULT_STAGE5_LEDGER := $(ROOT)/ops/out/state/musikalisches/stage5_stream_combination_ledger.json
 DEFAULT_STAGE5_SF2_LEDGER := $(ROOT)/ops/out/state/musikalisches/stage5_stream_sf2_combination_ledger.json
 REPO_FFMPEG_BIN := $(ROOT)/ops/bin/ffmpeg
@@ -62,6 +64,7 @@ help:
 	'  make stage6-scene-profile-check Validate stage6 scene profile contract' \
 	'  make stage6-scene-profile-check-all Validate all repo stage6 scene profiles' \
 	'  make stage6-scene-profile-show Show default stage6 scene profile path' \
+	'  make stage6-text-config-show Show default stage6 text override TOML path' \
 	'  make stage6-plan-show     Show stage6 video stub guide path' \
 	'  make stage6-render-plan-show Show stage6 render-video guide path' \
 	'' \
@@ -93,6 +96,7 @@ help:
 	'  STAGE6_SOURCE_DIR=/path/to/artifacts Override stage6 fallback source dir' \
 	'  STAGE6_SF2_SOURCE_DIR=/path/to/artifacts Override stage6 sf2 source dir' \
 	'  STAGE6_SCENE_PROFILE=/path/to/profile.json Override stage6 scene profile' \
+	'  STAGE6_TEXT_CONFIG=/path/to/overrides.toml Override stage6 title text TOML source' \
 	'  STAGE7_AUDIO_SOURCE_DIR=/path/to/artifacts Override stage7 audio source dir' \
 	'  STAGE7_VIDEO_SOURCE_DIR=/path/to/artifacts Override stage7 video source dir' \
 	'  STAGE7_BRIDGE_PROFILE=/path/to/profile.json Override stage7 bridge profile' \
@@ -166,8 +170,16 @@ stage5-sf2:
 	elif [[ -f "$(DEFAULT_SOUNDFONT)" ]]; then \
 		SF2="$(DEFAULT_SOUNDFONT)"; \
 	else \
-		printf '%s\n' "missing SoundFont: set SOUND_FONT=... or MUSIKALISCHES_SOUNDFONT or place $(DEFAULT_SOUNDFONT)"; \
-		exit 1; \
+		for candidate in $(DEFAULT_SYSTEM_SOUNDFONTS); do \
+			if [[ -f "$$candidate" ]]; then \
+				SF2="$$candidate"; \
+				break; \
+			fi; \
+		done; \
+		if [[ -z "$$SF2" ]]; then \
+			printf '%s\n' "missing SoundFont: set SOUND_FONT=... or MUSIKALISCHES_SOUNDFONT or place $(DEFAULT_SOUNDFONT) or install one of: $(DEFAULT_SYSTEM_SOUNDFONTS)"; \
+			exit 1; \
+		fi; \
 	fi; \
 	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage5_unique_stream.py \
 		--cargo-bin "$(CARGO)" \
@@ -195,6 +207,7 @@ stage6-video-stub:
 	fi; \
 	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage6_video_stub.py \
 		$(if $(STAGE6_SCENE_PROFILE),--scene-profile $(STAGE6_SCENE_PROFILE),) \
+		$(if $(STAGE6_TEXT_CONFIG),--text-config $(STAGE6_TEXT_CONFIG),) \
 		"$$SOURCE_DIR" \
 		$(VIDEO_STUB_OUT)
 
@@ -229,6 +242,7 @@ stage6-video-stub-sf2:
 	fi; \
 	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage6_video_stub.py \
 		$(if $(STAGE6_SCENE_PROFILE),--scene-profile $(STAGE6_SCENE_PROFILE),) \
+		$(if $(STAGE6_TEXT_CONFIG),--text-config $(STAGE6_TEXT_CONFIG),) \
 		"$$SOURCE_DIR" \
 		$(VIDEO_STUB_SF2_OUT)
 
@@ -270,6 +284,10 @@ stage6-scene-profile-check-all:
 .PHONY: stage6-scene-profile-show
 stage6-scene-profile-show:
 	@printf '%s\n' $(DEFAULT_STAGE6_SCENE_PROFILE)
+
+.PHONY: stage6-text-config-show
+stage6-text-config-show:
+	@printf '%s\n' $(DEFAULT_STAGE6_TEXT_CONFIG)
 
 .PHONY: stage6-plan-show
 stage6-plan-show:

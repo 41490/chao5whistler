@@ -24,6 +24,20 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def rect_within_canvas(rect: dict, canvas: dict) -> bool:
+    required = ("x", "y", "width", "height")
+    if any(not isinstance(rect.get(field), int) for field in required):
+        return False
+    return (
+        rect["x"] >= 0
+        and rect["y"] >= 0
+        and rect["width"] > 0
+        and rect["height"] > 0
+        and rect["x"] + rect["width"] <= canvas.get("width", 0)
+        and rect["y"] + rect["height"] <= canvas.get("height", 0)
+    )
+
+
 def build_check(check_id: str, passed: bool, details: dict) -> dict:
     return {
         "check_id": check_id,
@@ -96,6 +110,13 @@ def main() -> int:
     keyframes = scene.get("keyframes", [])
     lanes = scene.get("lane_layout", [])
     cycles = scene.get("cycles", [])
+    canvas = scene.get("canvas", {})
+    title_area = scene.get("title_area", {})
+    footer_progress_area = scene.get("footer_progress_area", {})
+    selector_label_sprites = scene.get("selector_label_sprites", {})
+    short_safe_layout = scene.get("short_safe_layout", {})
+    spectrum_trails = scene.get("spectrum_trails", {})
+    text_overrides = scene.get("text_overrides", {})
     checks: list[dict] = []
     scene_profile_errors = validate_scene_profile_payload(
         scene_profile,
@@ -244,6 +265,13 @@ def main() -> int:
     )
     checks.append(
         build_check(
+            "manifest_stage5_contract",
+            "realized_fragment_sequence.json" in manifest.get("input_files", []),
+            {"input_files": manifest.get("input_files", [])},
+        )
+    )
+    checks.append(
+        build_check(
             "clock_monotonic",
             all(
                 keyframes[index].get("clock_seconds", 0.0)
@@ -278,6 +306,79 @@ def main() -> int:
             "preview_svg",
             "<svg" in preview_text and "<rect" in preview_text,
             {"preview_bytes": len(preview_text)},
+        )
+    )
+    checks.append(
+        build_check(
+            "title_area",
+            rect_within_canvas(title_area, canvas)
+            and title_area.get("line_count") == len(title_area.get("text_lines", []))
+            and 1 <= title_area.get("line_count", 0) <= scene_profile.get("title_area", {}).get("max_lines", 0),
+            {
+                "title_area": title_area,
+                "profile_title_area": scene_profile.get("title_area", {}),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "footer_progress_area",
+            rect_within_canvas(footer_progress_area, canvas)
+            and isinstance(footer_progress_area.get("text"), str)
+            and footer_progress_area.get("text", "").strip() != "",
+            {"footer_progress_area": footer_progress_area},
+        )
+    )
+    checks.append(
+        build_check(
+            "selector_label_sprites",
+            rect_within_canvas(selector_label_sprites, canvas)
+            and selector_label_sprites.get("sprite_count") == len(selector_label_sprites.get("sprites", []))
+            and selector_label_sprites.get("sprite_count") == scene.get("summary", {}).get("selector_label_count")
+            and selector_label_sprites.get("sprite_count") == 16,
+            {
+                "sprite_count": selector_label_sprites.get("sprite_count"),
+                "summary_selector_label_count": scene.get("summary", {}).get("selector_label_count"),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "selector_active_windows",
+            all(sprite.get("active_windows") for sprite in selector_label_sprites.get("sprites", [])),
+            {
+                "sprites_without_windows": [
+                    sprite.get("sprite_id")
+                    for sprite in selector_label_sprites.get("sprites", [])
+                    if not sprite.get("active_windows")
+                ],
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "short_safe_layout",
+            rect_within_canvas(short_safe_layout, canvas)
+            and short_safe_layout.get("target_aspect_ratio") == "9:16",
+            {"short_safe_layout": short_safe_layout},
+        )
+    )
+    checks.append(
+        build_check(
+            "spectrum_trails",
+            rect_within_canvas(spectrum_trails, canvas)
+            and spectrum_trails.get("sampled_point_count") == len(spectrum_trails.get("sampled_points", []))
+            and spectrum_trails.get("sampled_point_count", 0) > 0,
+            {"spectrum_trails": spectrum_trails},
+        )
+    )
+    checks.append(
+        build_check(
+            "text_overrides",
+            text_overrides.get("resolved_title_lines") == title_area.get("text_lines")
+            and isinstance(text_overrides.get("source_path"), str)
+            and text_overrides.get("source_path", "").endswith(".toml"),
+            {"text_overrides": text_overrides},
         )
     )
 

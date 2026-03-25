@@ -56,6 +56,68 @@
     "base_stroke_width_px": 2.4,
     "stroke_width_range_px": 5.4
   },
+  "title_area": {
+    "x": 656,
+    "y": 68,
+    "width": 608,
+    "height": 148,
+    "max_lines": 2,
+    "layout_strategy": "explicit_newlines_centered",
+    "text_align": "center",
+    "base_font_size_px": 42,
+    "line_gap_px": 12
+  },
+  "footer_progress_area": {
+    "x": 656,
+    "y": 986,
+    "width": 608,
+    "height": 54,
+    "format_template": "{played_unique_count} / {total_combinations}",
+    "text_align": "center",
+    "font_size_px": 26
+  },
+  "selector_label_sprites": {
+    "x": 656,
+    "y": 254,
+    "width": 608,
+    "height": 556,
+    "random_seed_source": "selection.combination_id",
+    "label_min_font_size_px": 24,
+    "label_max_font_size_px": 34,
+    "label_padding_px": 14,
+    "idle_drift_px": 12,
+    "idle_rotation_degrees": 6,
+    "active_bounce_y_px": 18,
+    "active_scale_multiplier": 1.1
+  },
+  "spectrum_trails": {
+    "x": 656,
+    "y": 228,
+    "width": 608,
+    "height": 620,
+    "trail_count": 6,
+    "envelope_floor": 0.1,
+    "envelope_ceiling": 0.96,
+    "stroke_min_width_px": 2.0,
+    "stroke_max_width_px": 8.0,
+    "alpha_base": 0.14,
+    "alpha_range": 0.34
+  },
+  "short_safe_layout": {
+    "x": 656,
+    "y": 0,
+    "width": 608,
+    "height": 1080,
+    "target_aspect_ratio": "9:16"
+  },
+  "text_overrides": {
+    "default_toml_path": "src/musikalisches/runtime/config/stage6_default_text_overrides.toml",
+    "toml_section": "stage6.text_overrides",
+    "title_key": "title",
+    "newline_mode": "escaped_or_literal_newline",
+    "horizontal_alignment": "center",
+    "max_title_lines": 2
+  },
   "preview": {
     "sampled_window_limit": 180,
     "title": "musikalisches stage6 blueprint nocturne preview",

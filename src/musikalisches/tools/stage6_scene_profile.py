@@ -25,6 +25,12 @@ TOP_LEVEL_REQUIRED_KEYS = {
     "palette",
     "motion",
     "preview",
+    "title_area",
+    "footer_progress_area",
+    "selector_label_sprites",
+    "spectrum_trails",
+    "short_safe_layout",
+    "text_overrides",
 }
 TOP_LEVEL_OPTIONAL_KEYS = {"source", "source_path"}
 CANVAS_KEYS = {"width", "height", "fps"}
@@ -66,6 +72,68 @@ PREVIEW_KEYS = {
     "geometry_label",
     "envelope_label",
 }
+TITLE_AREA_KEYS = {
+    "x",
+    "y",
+    "width",
+    "height",
+    "max_lines",
+    "layout_strategy",
+    "text_align",
+    "base_font_size_px",
+    "line_gap_px",
+}
+FOOTER_PROGRESS_AREA_KEYS = {
+    "x",
+    "y",
+    "width",
+    "height",
+    "format_template",
+    "text_align",
+    "font_size_px",
+}
+SELECTOR_LABEL_SPRITES_KEYS = {
+    "x",
+    "y",
+    "width",
+    "height",
+    "random_seed_source",
+    "label_min_font_size_px",
+    "label_max_font_size_px",
+    "label_padding_px",
+    "idle_drift_px",
+    "idle_rotation_degrees",
+    "active_bounce_y_px",
+    "active_scale_multiplier",
+}
+SPECTRUM_TRAILS_KEYS = {
+    "x",
+    "y",
+    "width",
+    "height",
+    "trail_count",
+    "envelope_floor",
+    "envelope_ceiling",
+    "stroke_min_width_px",
+    "stroke_max_width_px",
+    "alpha_base",
+    "alpha_range",
+}
+SHORT_SAFE_LAYOUT_KEYS = {
+    "x",
+    "y",
+    "width",
+    "height",
+    "target_aspect_ratio",
+}
+TEXT_OVERRIDES_KEYS = {
+    "default_toml_path",
+    "toml_section",
+    "title_key",
+    "newline_mode",
+    "horizontal_alignment",
+    "max_title_lines",
+}
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
@@ -83,6 +151,32 @@ def _is_number(value: object) -> bool:
 
 def _is_integer(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _check_rect_bounds(
+    payload: dict,
+    *,
+    label: str,
+    canvas_width: int,
+    canvas_height: int,
+) -> list[str]:
+    errors: list[str] = []
+    for field_name in ("x", "y", "width", "height"):
+        value = payload.get(field_name)
+        if not _is_integer(value):
+            errors.append(f"{label}.{field_name} must be an integer")
+    if errors:
+        return errors
+
+    if payload["x"] < 0 or payload["y"] < 0:
+        errors.append(f"{label}.x and {label}.y must be >= 0")
+    if payload["width"] <= 0 or payload["height"] <= 0:
+        errors.append(f"{label}.width and {label}.height must be > 0")
+    if payload["x"] + payload["width"] > canvas_width:
+        errors.append(f"{label} must fit within canvas width {canvas_width}")
+    if payload["y"] + payload["height"] > canvas_height:
+        errors.append(f"{label} must fit within canvas height {canvas_height}")
+    return errors
 
 
 def _check_exact_keys(
@@ -142,6 +236,8 @@ def validate_scene_profile_payload(
                 errors.append("scene profile source_path must be a non-empty string")
 
     canvas = profile.get("canvas")
+    canvas_width: int | None = None
+    canvas_height: int | None = None
     if not isinstance(canvas, dict):
         errors.append("scene profile canvas must be an object")
     else:
@@ -149,9 +245,13 @@ def validate_scene_profile_payload(
         width = canvas.get("width")
         if not _is_integer(width) or width < 320:
             errors.append("scene profile canvas.width must be an integer >= 320")
+        else:
+            canvas_width = width
         height = canvas.get("height")
         if not _is_integer(height) or height < 240:
             errors.append("scene profile canvas.height must be an integer >= 240")
+        else:
+            canvas_height = height
         fps = canvas.get("fps")
         if not _is_integer(fps) or not 1 <= fps <= 60:
             errors.append("scene profile canvas.fps must be an integer within 1..=60")
@@ -275,5 +375,237 @@ def validate_scene_profile_payload(
         for text_field in ("title", "geometry_label", "envelope_label"):
             if not _is_nonempty_string(preview.get(text_field)):
                 errors.append(f"scene profile preview.{text_field} must be a non-empty string")
+
+    title_area = profile.get("title_area")
+    if not isinstance(title_area, dict):
+        errors.append("scene profile title_area must be an object")
+    else:
+        errors.extend(
+            _check_exact_keys(title_area, label="scene profile title_area", required=TITLE_AREA_KEYS)
+        )
+        if canvas_width is not None and canvas_height is not None:
+            errors.extend(
+                _check_rect_bounds(
+                    title_area,
+                    label="scene profile title_area",
+                    canvas_width=canvas_width,
+                    canvas_height=canvas_height,
+                )
+            )
+        max_lines = title_area.get("max_lines")
+        if not _is_integer(max_lines) or not 1 <= max_lines <= 2:
+            errors.append("scene profile title_area.max_lines must be 1 or 2")
+        if title_area.get("layout_strategy") != "explicit_newlines_centered":
+            errors.append(
+                "scene profile title_area.layout_strategy must be explicit_newlines_centered"
+            )
+        if title_area.get("text_align") != "center":
+            errors.append("scene profile title_area.text_align must be center")
+        for field_name in ("base_font_size_px", "line_gap_px"):
+            value = title_area.get(field_name)
+            if not _is_integer(value) or value < 0:
+                errors.append(f"scene profile title_area.{field_name} must be an integer >= 0")
+        if _is_integer(title_area.get("base_font_size_px")) and title_area["base_font_size_px"] <= 0:
+            errors.append("scene profile title_area.base_font_size_px must be > 0")
+
+    footer_progress_area = profile.get("footer_progress_area")
+    if not isinstance(footer_progress_area, dict):
+        errors.append("scene profile footer_progress_area must be an object")
+    else:
+        errors.extend(
+            _check_exact_keys(
+                footer_progress_area,
+                label="scene profile footer_progress_area",
+                required=FOOTER_PROGRESS_AREA_KEYS,
+            )
+        )
+        if canvas_width is not None and canvas_height is not None:
+            errors.extend(
+                _check_rect_bounds(
+                    footer_progress_area,
+                    label="scene profile footer_progress_area",
+                    canvas_width=canvas_width,
+                    canvas_height=canvas_height,
+                )
+            )
+        if footer_progress_area.get("text_align") != "center":
+            errors.append("scene profile footer_progress_area.text_align must be center")
+        format_template = footer_progress_area.get("format_template")
+        if not _is_nonempty_string(format_template):
+            errors.append(
+                "scene profile footer_progress_area.format_template must be a non-empty string"
+            )
+        else:
+            for placeholder in ("{played_unique_count}", "{total_combinations}"):
+                if placeholder not in format_template:
+                    errors.append(
+                        "scene profile footer_progress_area.format_template must include "
+                        "{played_unique_count} and {total_combinations}"
+                    )
+                    break
+        font_size_px = footer_progress_area.get("font_size_px")
+        if not _is_integer(font_size_px) or font_size_px <= 0:
+            errors.append("scene profile footer_progress_area.font_size_px must be an integer > 0")
+
+    selector_label_sprites = profile.get("selector_label_sprites")
+    if not isinstance(selector_label_sprites, dict):
+        errors.append("scene profile selector_label_sprites must be an object")
+    else:
+        errors.extend(
+            _check_exact_keys(
+                selector_label_sprites,
+                label="scene profile selector_label_sprites",
+                required=SELECTOR_LABEL_SPRITES_KEYS,
+            )
+        )
+        if canvas_width is not None and canvas_height is not None:
+            errors.extend(
+                _check_rect_bounds(
+                    selector_label_sprites,
+                    label="scene profile selector_label_sprites",
+                    canvas_width=canvas_width,
+                    canvas_height=canvas_height,
+                )
+            )
+        if selector_label_sprites.get("random_seed_source") != "selection.combination_id":
+            errors.append(
+                "scene profile selector_label_sprites.random_seed_source must be selection.combination_id"
+            )
+        for field_name in (
+            "label_min_font_size_px",
+            "label_max_font_size_px",
+            "label_padding_px",
+            "idle_drift_px",
+            "idle_rotation_degrees",
+            "active_bounce_y_px",
+        ):
+            value = selector_label_sprites.get(field_name)
+            if not _is_integer(value) or value < 0:
+                errors.append(
+                    f"scene profile selector_label_sprites.{field_name} must be an integer >= 0"
+                )
+        if (
+            _is_integer(selector_label_sprites.get("label_min_font_size_px"))
+            and _is_integer(selector_label_sprites.get("label_max_font_size_px"))
+            and selector_label_sprites["label_min_font_size_px"]
+            > selector_label_sprites["label_max_font_size_px"]
+        ):
+            errors.append(
+                "scene profile selector_label_sprites.label_min_font_size_px must be <= label_max_font_size_px"
+            )
+        active_scale_multiplier = selector_label_sprites.get("active_scale_multiplier")
+        if not _is_number(active_scale_multiplier) or active_scale_multiplier < 1.0:
+            errors.append(
+                "scene profile selector_label_sprites.active_scale_multiplier must be >= 1.0"
+            )
+
+    spectrum_trails = profile.get("spectrum_trails")
+    if not isinstance(spectrum_trails, dict):
+        errors.append("scene profile spectrum_trails must be an object")
+    else:
+        errors.extend(
+            _check_exact_keys(
+                spectrum_trails,
+                label="scene profile spectrum_trails",
+                required=SPECTRUM_TRAILS_KEYS,
+            )
+        )
+        if canvas_width is not None and canvas_height is not None:
+            errors.extend(
+                _check_rect_bounds(
+                    spectrum_trails,
+                    label="scene profile spectrum_trails",
+                    canvas_width=canvas_width,
+                    canvas_height=canvas_height,
+                )
+            )
+        trail_count = spectrum_trails.get("trail_count")
+        if not _is_integer(trail_count) or trail_count <= 0:
+            errors.append("scene profile spectrum_trails.trail_count must be an integer > 0")
+        envelope_floor = spectrum_trails.get("envelope_floor")
+        envelope_ceiling = spectrum_trails.get("envelope_ceiling")
+        if not _is_number(envelope_floor) or not 0.0 <= envelope_floor <= 1.0:
+            errors.append("scene profile spectrum_trails.envelope_floor must be within 0.0..=1.0")
+        if not _is_number(envelope_ceiling) or not 0.0 <= envelope_ceiling <= 1.0:
+            errors.append("scene profile spectrum_trails.envelope_ceiling must be within 0.0..=1.0")
+        if (
+            _is_number(envelope_floor)
+            and _is_number(envelope_ceiling)
+            and envelope_floor >= envelope_ceiling
+        ):
+            errors.append(
+                "scene profile spectrum_trails.envelope_floor must be < envelope_ceiling"
+            )
+        for field_name in ("stroke_min_width_px", "stroke_max_width_px"):
+            value = spectrum_trails.get(field_name)
+            if not _is_number(value) or value <= 0:
+                errors.append(f"scene profile spectrum_trails.{field_name} must be > 0")
+        if (
+            _is_number(spectrum_trails.get("stroke_min_width_px"))
+            and _is_number(spectrum_trails.get("stroke_max_width_px"))
+            and spectrum_trails["stroke_min_width_px"] > spectrum_trails["stroke_max_width_px"]
+        ):
+            errors.append(
+                "scene profile spectrum_trails.stroke_min_width_px must be <= stroke_max_width_px"
+            )
+        for field_name in ("alpha_base", "alpha_range"):
+            value = spectrum_trails.get(field_name)
+            if not _is_number(value) or not 0.0 <= value <= 1.0:
+                errors.append(f"scene profile spectrum_trails.{field_name} must be within 0.0..=1.0")
+        if (
+            _is_number(spectrum_trails.get("alpha_base"))
+            and _is_number(spectrum_trails.get("alpha_range"))
+            and spectrum_trails["alpha_base"] + spectrum_trails["alpha_range"] > 1.0
+        ):
+            errors.append(
+                "scene profile spectrum_trails.alpha_base + alpha_range must be <= 1.0"
+            )
+
+    short_safe_layout = profile.get("short_safe_layout")
+    if not isinstance(short_safe_layout, dict):
+        errors.append("scene profile short_safe_layout must be an object")
+    else:
+        errors.extend(
+            _check_exact_keys(
+                short_safe_layout,
+                label="scene profile short_safe_layout",
+                required=SHORT_SAFE_LAYOUT_KEYS,
+            )
+        )
+        if canvas_width is not None and canvas_height is not None:
+            errors.extend(
+                _check_rect_bounds(
+                    short_safe_layout,
+                    label="scene profile short_safe_layout",
+                    canvas_width=canvas_width,
+                    canvas_height=canvas_height,
+                )
+            )
+        if short_safe_layout.get("target_aspect_ratio") != "9:16":
+            errors.append("scene profile short_safe_layout.target_aspect_ratio must be 9:16")
+
+    text_overrides = profile.get("text_overrides")
+    if not isinstance(text_overrides, dict):
+        errors.append("scene profile text_overrides must be an object")
+    else:
+        errors.extend(
+            _check_exact_keys(
+                text_overrides,
+                label="scene profile text_overrides",
+                required=TEXT_OVERRIDES_KEYS,
+            )
+        )
+        for field_name in ("default_toml_path", "toml_section", "title_key"):
+            if not _is_nonempty_string(text_overrides.get(field_name)):
+                errors.append(f"scene profile text_overrides.{field_name} must be a non-empty string")
+        if text_overrides.get("newline_mode") != "escaped_or_literal_newline":
+            errors.append(
+                "scene profile text_overrides.newline_mode must be escaped_or_literal_newline"
+            )
+        if text_overrides.get("horizontal_alignment") != "center":
+            errors.append("scene profile text_overrides.horizontal_alignment must be center")
+        max_title_lines = text_overrides.get("max_title_lines")
+        if not _is_integer(max_title_lines) or not 1 <= max_title_lines <= 2:
+            errors.append("scene profile text_overrides.max_title_lines must be 1 or 2")
 
     return errors

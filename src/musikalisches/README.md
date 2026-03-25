@@ -38,6 +38,8 @@
 - stage 6 已补 analyzer -> video stub 预演入口，可把 stage 5 分析输出转成视觉 stub 契约与静态预览
 - stage 6 已进入 `render-video` skeleton，可把 stub scene 进一步冻结为离线 frame contract 和本地 mp4 preview
 - stage 6 已把默认 visual scene profile 收敛到 repo 配置文件，并补了 2 个可版本化 profile 变体以及单独的 SF2 visual smoke path
+- stage 6 scene contract 已升级到 P3：`title_area` / `footer_progress_area` / `selector_label_sprites` / `spectrum_trails` / `short_safe_layout` / `text_overrides` 均进入 schema 与 stub scene
+- stage 6 标题文案已改为从 `.toml` 注入；默认走 `src/musikalisches/runtime/config/stage6_default_text_overrides.toml`，支持 `\n` 换行并按中心对齐解析
 - `render-video` manifest / validator 现已显式冻结 preview video 的 `expected_frame_count` / `expected_fps` / `expected_duration_seconds`
 - 如构建机有 `ffprobe`，`video_render_manifest.json` 会额外带出 mp4 probe 元数据，供后续运维验收对账
 - stage 7 已冻结默认 `RTMPS + FLV` bridge profile，并新增 builder / validator / guide
@@ -99,6 +101,7 @@ make -C src/musikalisches help
 可选依赖：
 
 - `MUSIKALISCHES_SOUNDFONT` 或 `SOUND_FONT=/path/to/*.sf2`
+- 若已通过系统包安装 `FluidR3_GM.sf2`，`stage5-sf2` 现会自动尝试 `/usr/share/sounds/sf2/FluidR3_GM.sf2`
 
 说明：
 
@@ -106,6 +109,7 @@ make -C src/musikalisches help
 - 有 `ffmpeg` 但没有 `ffprobe` 时，可以出 mp4；但 preview video contract 无法做完整探测，运维机仍建议成对安装
 - 推荐用 `rustup` 安装最新 stable Rust；不要依赖 Debian 仓库内过旧的 `rustc` / `cargo`
 - `stage5-stream` 与 `stage5-sf2` 现已默认走持久化 unique-combination ledger，而不再固定 `--demo-rolls`
+- 默认 stage5 synth profile 已切到 organ family GM 预设：`program 19 = Church Organ`、`program 20 = Reed Organ`
 - 默认 ledger 路径分别为 `ops/out/state/musikalisches/stage5_stream_combination_ledger.json` 与 `ops/out/state/musikalisches/stage5_stream_sf2_combination_ledger.json`
 - 每次 `stage5-stream` / `stage5-sf2` 成功运行后，artifact 目录会额外带出 `combination_selection.json`，并把同一份 selection 元数据写入 `render_request.json` / `stream_loop_plan.json` / `artifact_summary.json` / `m1_validation_report.json`
 - stage 7 默认只产出本地 `flv` smoke 与 redacted live command，不默认发起真实推流
@@ -238,6 +242,12 @@ src/musikalisches/runtime/config/stage6_default_scene_profile.json
 src/musikalisches/runtime/config/stage6_scene_profile.schema.json
 ```
 
+默认标题 TOML:
+
+```text
+src/musikalisches/runtime/config/stage6_default_text_overrides.toml
+```
+
 可版本化 profile 变体:
 
 ```text
@@ -253,6 +263,22 @@ make -C src/musikalisches stage6-video-check-sf2
 make -C src/musikalisches stage6-video-render-sf2
 make -C src/musikalisches stage6-video-render-check-sf2
 ```
+
+如需覆盖默认标题文案来源：
+
+```bash
+make -C src/musikalisches stage6-video-stub \
+  STAGE6_TEXT_CONFIG=/path/to/stage6_overrides.toml
+```
+
+P3 之后，`video_stub_scene.json` 里应额外能看到：
+
+- `title_area`
+- `footer_progress_area`
+- `selector_label_sprites`
+- `spectrum_trails`
+- `short_safe_layout`
+- `text_overrides`
 
 stub 默认输出：
 

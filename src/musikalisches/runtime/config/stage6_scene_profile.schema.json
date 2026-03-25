@@ -10,7 +10,13 @@
     "canvas",
     "palette",
     "motion",
-    "preview"
+    "preview",
+    "title_area",
+    "footer_progress_area",
+    "selector_label_sprites",
+    "spectrum_trails",
+    "short_safe_layout",
+    "text_overrides"
   ],
   "properties": {
     "profile_id": {
@@ -252,12 +258,360 @@
           "minLength": 1
         }
       }
+    },
+    "title_area": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/rect"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height",
+            "max_lines",
+            "layout_strategy",
+            "text_align",
+            "base_font_size_px",
+            "line_gap_px"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_lines": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2
+            },
+            "layout_strategy": {
+              "type": "string",
+              "const": "explicit_newlines_centered"
+            },
+            "text_align": {
+              "type": "string",
+              "const": "center"
+            },
+            "base_font_size_px": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "line_gap_px": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "footer_progress_area": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/rect"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height",
+            "format_template",
+            "text_align",
+            "font_size_px"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "format_template": {
+              "type": "string",
+              "minLength": 1
+            },
+            "text_align": {
+              "type": "string",
+              "const": "center"
+            },
+            "font_size_px": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "selector_label_sprites": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/rect"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height",
+            "random_seed_source",
+            "label_min_font_size_px",
+            "label_max_font_size_px",
+            "label_padding_px",
+            "idle_drift_px",
+            "idle_rotation_degrees",
+            "active_bounce_y_px",
+            "active_scale_multiplier"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "random_seed_source": {
+              "type": "string",
+              "const": "selection.combination_id"
+            },
+            "label_min_font_size_px": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "label_max_font_size_px": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "label_padding_px": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "idle_drift_px": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "idle_rotation_degrees": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "active_bounce_y_px": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "active_scale_multiplier": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "spectrum_trails": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/rect"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height",
+            "trail_count",
+            "envelope_floor",
+            "envelope_ceiling",
+            "stroke_min_width_px",
+            "stroke_max_width_px",
+            "alpha_base",
+            "alpha_range"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "trail_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "envelope_floor": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "envelope_ceiling": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "stroke_min_width_px": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "stroke_max_width_px": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "alpha_base": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "alpha_range": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      ]
+    },
+    "short_safe_layout": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/rect"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height",
+            "target_aspect_ratio"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "target_aspect_ratio": {
+              "type": "string",
+              "const": "9:16"
+            }
+          }
+        }
+      ]
+    },
+    "text_overrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default_toml_path",
+        "toml_section",
+        "title_key",
+        "newline_mode",
+        "horizontal_alignment",
+        "max_title_lines"
+      ],
+      "properties": {
+        "default_toml_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toml_section": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "newline_mode": {
+          "type": "string",
+          "const": "escaped_or_literal_newline"
+        },
+        "horizontal_alignment": {
+          "type": "string",
+          "const": "center"
+        },
+        "max_title_lines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        }
+      }
     }
   },
   "$defs": {
     "hexColor": {
       "type": "string",
       "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "rect": {
+      "type": "object",
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ]
     }
   }
 }

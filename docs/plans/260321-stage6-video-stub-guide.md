@@ -65,6 +65,13 @@ make -C src/musikalisches stage6-video-stub \
   STAGE6_SCENE_PROFILE=/path/to/scene_profile.json
 ```
 
+如需替换标题 `.toml` 配置来源：
+
+```bash
+make -C src/musikalisches stage6-video-stub \
+  STAGE6_TEXT_CONFIG=/path/to/stage6_overrides.toml
+```
+
 ## 3. 输入与输出
 
 默认输入目录:
@@ -75,13 +82,15 @@ make -C src/musikalisches stage6-video-stub \
 
 - `src/musikalisches/runtime/config/stage6_default_scene_profile.json`
 - `src/musikalisches/runtime/config/stage6_scene_profile.schema.json`
+- `src/musikalisches/runtime/config/stage6_default_text_overrides.toml`
 
-要求已有 4 个 stage 5 文件:
+要求已有 5 个 stage 5 文件:
 
 - `analysis_window_sequence.json`
 - `stream_loop_plan.json`
 - `synth_routing_profile.json`
 - `artifact_summary.json`
+- `realized_fragment_sequence.json`
 
 默认输出目录:
 
@@ -103,10 +112,16 @@ make -C src/musikalisches stage6-video-stub \
   - `motion.mode = "dual_orbit_pulse"`
   - `summary.window_count` 必须等于 `analysis_window_sequence.json.windows` 数量
   - `summary.cycle_count` 必须等于 `stream_loop_plan.json.loop_count`
+  - `title_area.text_lines` 必须来自 `.toml`，且默认应解析成两行居中文案
+  - `footer_progress_area.text` 应显示 `played_unique_count / total_combinations`
+  - `selector_label_sprites.sprites` 数量必须为 `16`
+  - `short_safe_layout.target_aspect_ratio` 必须为 `9:16`
+  - `spectrum_trails.sampled_points` 不应为空
 - `visual_scene_profile.json`
   - `profile_id` 应与 `video_stub_scene.json.visual_scene_profile_id` 一致
   - `canvas` / `palette` / `motion` 应为本次实际生效参数
   - `source` / `source_path` 应与 scene / manifest 一致
+  - 应显式带出 `title_area` / `footer_progress_area` / `selector_label_sprites` / `spectrum_trails` / `short_safe_layout` / `text_overrides`
 - `lane_layout`
   - 数量必须等于 `synth_routing_profile.json.voice_groups`
   - `channel` 不应丢失
@@ -124,7 +139,7 @@ make -C src/musikalisches stage6-video-stub \
 
 - stage 5 stream artifact 已稳定可重建
 - stage 6 stub validation 通过
-- 视觉侧只依赖 analyzer / loop-plan / synth-profile，不反向读取音频合成内部状态
+- 视觉侧只依赖 analyzer / loop-plan / synth-profile / realized-fragment timeline，不反向读取音频合成内部状态
 - palette / motion / lane-layout 三类规则已能在 stub 中稳定导出
 
 当前这些门槛已满足，后续 render-video skeleton 入口见：

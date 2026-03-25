@@ -489,6 +489,8 @@ def main() -> int:
     runtime_executor = manifest.get("runtime_executor", {})
     smoke_generation = manifest.get("smoke_generation", {})
     smoke_output_path = artifact_dir / smoke_generation.get("output_file", "")
+    smoke_generated = smoke_generation.get("generated", False)
+    smoke_expected = smoke_generation.get("requested", False)
     local_probe = probe_media(smoke_output_path) if smoke_generation.get("generated") else None
     manifest_probe = smoke_generation.get("probe")
     smoke_probe = local_probe or manifest_probe
@@ -955,8 +957,6 @@ def main() -> int:
         )
     )
 
-    smoke_generated = smoke_generation.get("generated", False)
-    smoke_expected = smoke_generation.get("requested", False)
     checks.append(
         build_check(
             "smoke_generation",

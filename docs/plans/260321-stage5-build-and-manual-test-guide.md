@@ -79,34 +79,51 @@ install -m 755 target/aarch64-apple-darwin/release/musikalisches ops/bin/musikal
 
 - `stream_loop_plan.json`
 
+`stage5-stream` / `stage5-sf2` 当前还新增了一条持久化调度侧输出：
+
+- `combination_selection.json`
+
+默认 ledger 路径：
+
+- fallback stream: `ops/out/state/musikalisches/stage5_stream_combination_ledger.json`
+- sf2 stream: `ops/out/state/musikalisches/stage5_stream_sf2_combination_ledger.json`
+
+作用：
+
+- 记录已播放组合
+- 使重启后仍不重复
+- 让 artifact 显式带出 `combination_id` / `played_unique_count` / `total_combinations`
+
 ### 4.1 Fallback 路径检测
 
 执行:
 
 ```bash
-cargo run -- render-audio \
-  --work mozart_dicegame_print_1790s \
-  --demo-rolls \
-  --loop-count 4 \
-  --analysis-window-ms 40 \
-  --output-dir ops/out/stream-demo
+make -C src/musikalisches stage5-stream LOOP_COUNT=4 ANALYSIS_WINDOW_MS=40
 ```
 
 结构校验:
 
 ```bash
-python src/musikalisches/tools/validate_m1_artifacts.py ops/out/stream-demo
+python src/musikalisches/tools/validate_m1_artifacts.py --require-selection ops/out/stream-demo
 ```
 
 人工观察点:
 
+- `combination_selection.json`
+  - `selection_mode = unique_random_persistent_ledger`
+  - `is_replayed = false`
+  - `played_unique_count >= 1`
+  - `total_combinations = 45,949,729,863,572,161`
 - `render_request.json`
   - `loop_count = 4`
   - `analysis_window_ms = 40`
   - `soundfont_source = "fallback_none"` 或系统默认来源
+  - `selection.combination_id` 与 `combination_selection.json` 一致
 - `stream_loop_plan.json`
   - `cycles` 长度等于 `4`
   - `buses` 至少有 `main_audio_mix` 与 `analyzer_clock`
+  - `selection.played_unique_count` 与 `combination_selection.json` 一致
 - `analysis_window_sequence.json`
   - `windows` 非空
   - `clock_frame` 单调递增
@@ -139,12 +156,7 @@ export MUSIKALISCHES_SOUNDFONT=/path/to/default.sf2
 或直接:
 
 ```bash
-cargo run -- render-audio \
-  --work mozart_dicegame_print_1790s \
-  --demo-rolls \
-  --loop-count 4 \
-  --soundfont /path/to/default.sf2 \
-  --output-dir ops/out/stream-sf2
+make -C src/musikalisches stage5-sf2 LOOP_COUNT=4 SOUND_FONT=/path/to/default.sf2
 ```
 
 检查点:

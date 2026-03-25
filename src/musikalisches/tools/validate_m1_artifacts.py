@@ -22,6 +22,7 @@ REQUIRED_FILES = {
     "m1_validation_report.json",
     "offline_audio.wav",
 }
+SELECTION_FILE = "combination_selection.json"
 
 
 def load_json(path: Path) -> dict:
@@ -44,6 +45,11 @@ def main() -> int:
         nargs="?",
         default="ops/out/m1-demo",
         help="artifact directory containing render_request.json and related files",
+    )
+    parser.add_argument(
+        "--require-selection",
+        action="store_true",
+        help="require combination_selection.json and verify unique ledger metadata",
     )
     args = parser.parse_args()
 
@@ -69,6 +75,13 @@ def main() -> int:
     analysis_payload = load_json(artifact_dir / "analysis_window_sequence.json")
     summary_payload = load_json(artifact_dir / "artifact_summary.json")
     report_payload = load_json(artifact_dir / "m1_validation_report.json")
+    selection_payload = None
+    if args.require_selection:
+        selection_path = artifact_dir / SELECTION_FILE
+        if not selection_path.exists():
+            errors.append(f"missing files: {SELECTION_FILE}")
+            return fail(errors)
+        selection_payload = load_json(selection_path)
 
     if request_payload.get("work_id") != "mozart_dicegame_print_1790s":
         errors.append("render_request.json work_id mismatch")
@@ -233,6 +246,33 @@ def main() -> int:
     if summary_payload.get("fragment_ids") != [fragment["fragment_id"] for fragment in fragments]:
         errors.append("artifact_summary.json fragment_ids must match realized_fragment_sequence.json")
 
+    if selection_payload is not None:
+        if selection_payload.get("selection_mode") != "unique_random_persistent_ledger":
+            errors.append("combination_selection.json selection_mode must be unique_random_persistent_ledger")
+        if selection_payload.get("work_id") != request_payload.get("work_id"):
+            errors.append("combination_selection.json work_id mismatch")
+        if selection_payload.get("rolls") != request_payload.get("rolls"):
+            errors.append("combination_selection.json rolls must match render_request.json")
+        if selection_payload.get("is_replayed") is not False:
+            errors.append("combination_selection.json is_replayed must be false")
+        if selection_payload.get("played_unique_count", 0) <= 0:
+            errors.append("combination_selection.json played_unique_count must be > 0")
+        if selection_payload.get("total_combinations") != 11 ** 16:
+            errors.append("combination_selection.json total_combinations must equal 11^16")
+        selector_results = selection_payload.get("selector_results", [])
+        if len(selector_results) != 16:
+            errors.append("combination_selection.json must expose 16 selector_results entries")
+        elif [entry.get("selector_value") for entry in selector_results] != request_payload.get("rolls"):
+            errors.append("combination_selection.json selector_results must match render_request.json rolls")
+        for payload_name, payload in (
+            ("render_request.json", request_payload),
+            ("stream_loop_plan.json", stream_plan_payload),
+            ("artifact_summary.json", summary_payload),
+            ("m1_validation_report.json", report_payload),
+        ):
+            if payload.get("selection", {}).get("combination_id") != selection_payload.get("combination_id"):
+                errors.append(f"{payload_name} selection.combination_id must match combination_selection.json")
+
     if errors:
         return fail(errors)
 
@@ -246,6 +286,9 @@ def main() -> int:
     print(f"analysis_window_count: {len(analysis_windows)}")
     print(f"audio_frames: {frames}")
     print(f"audio_file: {wav_path}")
+    if selection_payload is not None:
+        print(f"combination_id: {selection_payload['combination_id']}")
+        print(f"played_unique_count: {selection_payload['played_unique_count']}")
     return 0
 
 

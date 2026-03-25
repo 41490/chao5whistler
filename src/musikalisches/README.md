@@ -105,6 +105,9 @@ make -C src/musikalisches help
 - 没有 `ffmpeg` 时，`stage6-video-render` 仍可生成 frame contract / poster，但 mp4 会被标记为 skipped
 - 有 `ffmpeg` 但没有 `ffprobe` 时，可以出 mp4；但 preview video contract 无法做完整探测，运维机仍建议成对安装
 - 推荐用 `rustup` 安装最新 stable Rust；不要依赖 Debian 仓库内过旧的 `rustc` / `cargo`
+- `stage5-stream` 与 `stage5-sf2` 现已默认走持久化 unique-combination ledger，而不再固定 `--demo-rolls`
+- 默认 ledger 路径分别为 `ops/out/state/musikalisches/stage5_stream_combination_ledger.json` 与 `ops/out/state/musikalisches/stage5_stream_sf2_combination_ledger.json`
+- 每次 `stage5-stream` / `stage5-sf2` 成功运行后，artifact 目录会额外带出 `combination_selection.json`，并把同一份 selection 元数据写入 `render_request.json` / `stream_loop_plan.json` / `artifact_summary.json` / `m1_validation_report.json`
 - stage 7 默认只产出本地 `flv` smoke 与 redacted live command，不默认发起真实推流
 - 如系统自带 `ffmpeg` 缺少 `rtmps` output，可直接执行 `make -C src/musikalisches stage7-ffmpeg-build` 生成仓库内本地 toolchain，并由 stage6/stage7 目标自动优先使用 `ops/bin/ffmpeg` 与 `ops/bin/ffprobe`
 
@@ -135,6 +138,13 @@ make -C src/musikalisches stage6-video-stub-sf2
 make -C src/musikalisches stage6-video-check-sf2
 make -C src/musikalisches stage6-video-render-sf2
 make -C src/musikalisches stage6-video-render-check-sf2
+```
+
+如需覆盖默认 ledger 路径：
+
+```bash
+make -C src/musikalisches stage5-stream \
+  STAGE5_LEDGER_PATH=/path/to/stage5_stream_combination_ledger.json
 ```
 
 ## stage 4 refresh

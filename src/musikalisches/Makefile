@@ -16,6 +16,8 @@ DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default
 DEFAULT_STAGE6_SCENE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage6_default_scene_profile.json
 DEFAULT_STAGE7_BRIDGE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage7_default_bridge_profile.json
 DEFAULT_SOUNDFONT := $(ROOT)/ops/assets/soundfonts/default.sf2
+DEFAULT_STAGE5_LEDGER := $(ROOT)/ops/out/state/musikalisches/stage5_stream_combination_ledger.json
+DEFAULT_STAGE5_SF2_LEDGER := $(ROOT)/ops/out/state/musikalisches/stage5_stream_sf2_combination_ledger.json
 REPO_FFMPEG_BIN := $(ROOT)/ops/bin/ffmpeg
 REPO_FFPROBE_BIN := $(ROOT)/ops/bin/ffprobe
 FFMPEG_BIN ?= $(if $(wildcard $(REPO_FFMPEG_BIN)),$(REPO_FFMPEG_BIN),ffmpeg)
@@ -41,11 +43,11 @@ help:
 	'Manual verification:' \
 	'  make stage5-demo           Render fallback demo artifacts' \
 	'  make stage5-validate       Validate fallback demo artifacts' \
-	'  make stage5-stream         Render looped stream demo artifacts' \
-	'  make stage5-stream-check   Validate looped stream demo artifacts' \
+	'  make stage5-stream         Render looped stream artifacts from a unique persisted combination ledger' \
+	'  make stage5-stream-check   Validate looped stream artifacts and unique selection metadata' \
 	'  make stage5-stream-play    Play looped demo WAV with ffplay' \
-	'  make stage5-sf2            Render looped SoundFont demo artifacts' \
-	'  make stage5-sf2-check      Validate looped SoundFont demo artifacts' \
+	'  make stage5-sf2            Render looped SoundFont artifacts from a unique persisted combination ledger' \
+	'  make stage5-sf2-check      Validate looped SoundFont artifacts and unique selection metadata' \
 	'  make stage5-profile-show   Show default synth profile path' \
 	'' \
 	'Stage 6 preflight:' \
@@ -86,6 +88,8 @@ help:
 	'  SYNTH_PROFILE=/path/to/profile.json Override synth routing profile' \
 	'  LOOP_COUNT=4                       Override loop count for stream targets' \
 	'  ANALYSIS_WINDOW_MS=40              Override analyzer window size' \
+	'  STAGE5_LEDGER_PATH=/path/to/ledger.json Override unique-combination ledger for stage5-stream' \
+	'  STAGE5_SF2_LEDGER_PATH=/path/to/ledger.json Override unique-combination ledger for stage5-sf2' \
 	'  STAGE6_SOURCE_DIR=/path/to/artifacts Override stage6 fallback source dir' \
 	'  STAGE6_SF2_SOURCE_DIR=/path/to/artifacts Override stage6 sf2 source dir' \
 	'  STAGE6_SCENE_PROFILE=/path/to/profile.json Override stage6 scene profile' \
@@ -136,9 +140,10 @@ stage5-validate:
 
 .PHONY: stage5-stream
 stage5-stream:
-	cd $(ROOT) && $(CARGO) run -- render-audio \
-		--work $(WORK_ID) \
-		--demo-rolls \
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage5_unique_stream.py \
+		--cargo-bin "$(CARGO)" \
+		--work-id $(WORK_ID) \
+		--ledger-path "$${STAGE5_LEDGER_PATH:-$(DEFAULT_STAGE5_LEDGER)}" \
 		--loop-count $${LOOP_COUNT:-4} \
 		--analysis-window-ms $${ANALYSIS_WINDOW_MS:-40} \
 		$(if $(SYNTH_PROFILE),--synth-profile $(SYNTH_PROFILE),) \
@@ -146,7 +151,7 @@ stage5-stream:
 
 .PHONY: stage5-stream-check
 stage5-stream-check:
-	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py $(STREAM_DEMO_OUT)
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection $(STREAM_DEMO_OUT)
 
 .PHONY: stage5-stream-play
 stage5-stream-play:
@@ -164,9 +169,10 @@ stage5-sf2:
 		printf '%s\n' "missing SoundFont: set SOUND_FONT=... or MUSIKALISCHES_SOUNDFONT or place $(DEFAULT_SOUNDFONT)"; \
 		exit 1; \
 	fi; \
-	cd $(ROOT) && $(CARGO) run -- render-audio \
-		--work $(WORK_ID) \
-		--demo-rolls \
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage5_unique_stream.py \
+		--cargo-bin "$(CARGO)" \
+		--work-id $(WORK_ID) \
+		--ledger-path "$${STAGE5_SF2_LEDGER_PATH:-$(DEFAULT_STAGE5_SF2_LEDGER)}" \
 		--loop-count $${LOOP_COUNT:-4} \
 		--analysis-window-ms $${ANALYSIS_WINDOW_MS:-40} \
 		--soundfont "$$SF2" \
@@ -175,7 +181,7 @@ stage5-sf2:
 
 .PHONY: stage5-sf2-check
 stage5-sf2-check:
-	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py $(STREAM_SF2_OUT)
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection $(STREAM_SF2_OUT)
 
 .PHONY: stage5-profile-show
 stage5-profile-show:

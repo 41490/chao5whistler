@@ -77,6 +77,7 @@ make -C src/songh stage4-render-fixture
   - 文本段统一向上漂浮，并随生命周期逐步模糊、淡出
   - 单秒关键文本段总数固定 `< 10`，当前上限为 `9`
   - 单秒内按事件类型数量排序，数量更高者获得更大字号和更高 `initial_gain_db` 元数据
+  - 同秒文本段现在会做横向车道化，优先减少高密度秒的局部重叠
   - 事件类型颜色按 Solarized Dark 主题色与背景反差排序分配，数量最多的类型拿最高反差色
 - 当前已支持三类 motion mode 样片：
   - `vertical`
@@ -114,5 +115,6 @@ stage 4 当前判断：
   - vertical motion 的 PNG 帧序列样片
   - 真实 TTF raster + 90° 文本旋转 + blur/fade 生命周期
   - 首个 active frame 的 golden hash 回归
+  - 高密度 frame 的第二档 golden hash 回归
 - 但 stage 4 仍未完成，当前还缺：
   - 样片进一步落到视频容器

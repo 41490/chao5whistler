@@ -46,6 +46,7 @@ pub struct VideoRenderReport {
     pub manifest_path: PathBuf,
     pub rendered_frame_count: usize,
     pub first_active_frame_golden: Option<VideoGoldenFrame>,
+    pub peak_density_frame_golden: Option<VideoGoldenFrame>,
     pub frame_plan: VideoSampleReport,
 }
 
@@ -57,6 +58,9 @@ pub struct VideoGoldenFrame {
     pub frame_path: PathBuf,
     pub rgba_sha256: String,
     pub non_background_pixel_count: u64,
+    pub active_item_count: usize,
+    pub distinct_event_type_count: usize,
+    pub distinct_font_size_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +81,8 @@ pub struct VideoSpritePlan {
     pub second_of_day: u32,
     pub spawn_replay_second: u64,
     pub font_size: u32,
+    pub rendered_width: f64,
+    pub rendered_height: f64,
     pub second_type_count: u32,
     pub second_type_rank: u32,
     pub initial_gain_db: f64,
@@ -123,6 +129,17 @@ struct SelectedSourceEvent {
     second_type_rank: u32,
     font_size: u32,
     initial_gain_db: f64,
+}
+
+#[derive(Debug, Clone)]
+struct SpriteDraft {
+    selected: SelectedSourceEvent,
+    label: String,
+    color_hex: String,
+    rendered_width: f64,
+    rendered_height: f64,
+    spawn_x: f64,
+    spawn_y: f64,
 }
 
 struct LoadedFont {
@@ -178,32 +195,24 @@ pub fn sample_day_pack(
     let sprites = replay_report
         .ticks
         .iter()
-        .flat_map(|tick| {
+        .map(|tick| {
             let source_events = source_events_by_tick
                 .get(&(tick.source_day.clone(), tick.second_of_day))
                 .cloned()
                 .unwrap_or_default();
-            select_key_events_for_second(&effective_config, &source_events)
-                .into_iter()
-                .map(|selected| {
-                    let color_hex = color_by_type
-                        .get(&selected.event.event_type)
-                        .cloned()
-                        .unwrap_or_else(|| effective_config.video.palette.text_hex.clone());
-                    VideoSpritePlan::from_selected_event(
-                        &effective_config,
-                        &font,
-                        motion_mode,
-                        tick.replay_second,
-                        tick.source_day.as_str(),
-                        tick.second_of_day,
-                        selected,
-                        color_hex,
-                    )
-                })
-                .collect::<Vec<_>>()
+            build_sprites_for_tick(
+                &effective_config,
+                &font,
+                motion_mode,
+                tick,
+                &source_events,
+                &color_by_type,
+            )
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
 
     let total_frames = replay_report.duration_secs as u64 * fps as u64;
     let frames = (0..total_frames)
@@ -287,6 +296,8 @@ pub fn render_day_pack(
     let background = parse_hex_color(&config.video.palette.background_hex)?;
     let background_pixel = [background[0], background[1], background[2], 255];
     let mut first_active_frame_golden = None;
+    let mut peak_density_frame_golden = None;
+    let mut peak_density_signature = None;
     for frame in &frame_plan.frames {
         let image = render_frame(config, &frame_plan, frame, &sprite_assets)?;
         let frame_path = frames_dir.join(format!("frame-{:06}.png", frame.frame_index));
@@ -294,26 +305,50 @@ pub fn render_day_pack(
             .save(&frame_path)
             .with_context(|| format!("write rendered frame {}", frame_path.display()))?;
         if first_active_frame_golden.is_none() && !frame.active_items.is_empty() {
-            first_active_frame_golden = Some(VideoGoldenFrame {
-                tag: "first_active".to_string(),
-                frame_index: frame.frame_index,
-                frame_time_secs: round2(frame.frame_time_secs),
-                frame_path: frame_path.clone(),
-                rgba_sha256: rgba_sha256(&image),
-                non_background_pixel_count: non_background_pixel_count(&image, background_pixel),
-            });
+            first_active_frame_golden = Some(build_golden_frame(
+                "first_active",
+                frame,
+                &frame_path,
+                &image,
+                background_pixel,
+            ));
+        }
+        let signature = frame_density_signature(frame);
+        if signature.0 >= 2 {
+            let replace_peak = peak_density_signature
+                .map(|best: (usize, usize, usize, u64)| {
+                    signature.0 > best.0
+                        || (signature.0 == best.0
+                            && (signature.1 > best.1
+                                || (signature.1 == best.1
+                                    && (signature.2 > best.2
+                                        || (signature.2 == best.2 && frame.frame_index < best.3)))))
+                })
+                .unwrap_or(true);
+            if replace_peak {
+                peak_density_signature =
+                    Some((signature.0, signature.1, signature.2, frame.frame_index));
+                peak_density_frame_golden = Some(build_golden_frame(
+                    "peak_density",
+                    frame,
+                    &frame_path,
+                    &image,
+                    background_pixel,
+                ));
+            }
         }
     }
 
     let manifest_path = output_dir.join("render-manifest.json");
     let report = VideoRenderReport {
-        schema_version: "stage4.video_render.v3".to_string(),
+        schema_version: "stage4.video_render.v4".to_string(),
         output_dir: output_dir.to_path_buf(),
         frames_dir,
         frame_plan_path,
         manifest_path: manifest_path.clone(),
         rendered_frame_count: frame_plan.frames.len(),
         first_active_frame_golden,
+        peak_density_frame_golden,
         frame_plan,
     };
     fs::write(&manifest_path, serde_json::to_vec_pretty(&report)?)
@@ -323,53 +358,52 @@ pub fn render_day_pack(
 }
 
 impl VideoSpritePlan {
-    fn from_selected_event(
+    fn from_draft(
         config: &Config,
-        font: &LoadedFont,
         motion_mode: MotionMode,
         spawn_replay_second: u64,
         source_day: &str,
         second_of_day: u32,
-        selected: SelectedSourceEvent,
-        color_hex: String,
+        draft: SpriteDraft,
     ) -> Result<Self> {
-        let label = text::render_template(&config.text, &selected.event.text_fields)?;
-        let horizontal_metrics = measure_label(font, &label, selected.font_size);
-        let rendered_width = horizontal_metrics.height.max(1.0);
-        let rendered_height = horizontal_metrics.width.max(1.0);
-        let spawn_x = spawn_x(config, &selected.event.event_id, rendered_width);
-        let spawn_y = spawn_y(config, &selected.event.event_id, rendered_height);
-        let angle_deg = motion_angle_deg(config, motion_mode, &selected.event, spawn_replay_second);
+        let angle_deg = motion_angle_deg(
+            config,
+            motion_mode,
+            &draft.selected.event,
+            spawn_replay_second,
+        );
         let angle_rad = angle_deg.to_radians();
         let speed = config.video.motion.speed_px_per_sec;
         let velocity_x = speed * angle_rad.sin();
         let velocity_y = -speed * angle_rad.cos();
         let lifetime_secs = lifetime_secs(
             config,
-            spawn_x,
-            spawn_y,
-            rendered_width,
-            rendered_height,
+            draft.spawn_x,
+            draft.spawn_y,
+            draft.rendered_width,
+            draft.rendered_height,
             velocity_x,
             velocity_y,
         );
 
         Ok(Self {
-            event_id: selected.event.event_id.clone(),
-            event_type: selected.event.event_type.clone(),
-            label,
-            color_hex,
+            event_id: draft.selected.event.event_id.clone(),
+            event_type: draft.selected.event.event_type.clone(),
+            label: draft.label,
+            color_hex: draft.color_hex,
             source_day: source_day.to_string(),
             second_of_day,
             spawn_replay_second,
-            font_size: selected.font_size,
-            second_type_count: selected.second_type_count,
-            second_type_rank: selected.second_type_rank,
-            initial_gain_db: round2(selected.initial_gain_db),
+            font_size: draft.selected.font_size,
+            rendered_width: round2(draft.rendered_width),
+            rendered_height: round2(draft.rendered_height),
+            second_type_count: draft.selected.second_type_count,
+            second_type_rank: draft.selected.second_type_rank,
+            initial_gain_db: round2(draft.selected.initial_gain_db),
             text_rotation_deg: TEXT_ROTATION_DEG,
             angle_deg,
-            spawn_x,
-            spawn_y,
+            spawn_x: draft.spawn_x,
+            spawn_y: draft.spawn_y,
             velocity_x,
             velocity_y,
             lifetime_secs,
@@ -405,6 +439,128 @@ impl VideoSpritePlan {
             text_rotation_deg: self.text_rotation_deg,
             angle_deg: round2(self.angle_deg),
         })
+    }
+}
+
+fn build_sprites_for_tick(
+    config: &Config,
+    font: &LoadedFont,
+    motion_mode: MotionMode,
+    tick: &ReplayTick,
+    source_events: &[NormalizedEvent],
+    color_by_type: &HashMap<String, String>,
+) -> Result<Vec<VideoSpritePlan>> {
+    let mut drafts = select_key_events_for_second(config, source_events)
+        .into_iter()
+        .map(|selected| {
+            let label = text::render_template(&config.text, &selected.event.text_fields)?;
+            let horizontal_metrics = measure_label(font, &label, selected.font_size);
+            Ok(SpriteDraft {
+                color_hex: color_by_type
+                    .get(&selected.event.event_type)
+                    .cloned()
+                    .unwrap_or_else(|| config.video.palette.text_hex.clone()),
+                label,
+                rendered_width: horizontal_metrics.height.max(1.0),
+                rendered_height: horizontal_metrics.width.max(1.0),
+                selected,
+                spawn_x: 0.0,
+                spawn_y: 0.0,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    assign_spawn_positions(
+        config,
+        tick.source_day.as_str(),
+        tick.second_of_day,
+        &mut drafts,
+    );
+
+    drafts
+        .into_iter()
+        .map(|draft| {
+            VideoSpritePlan::from_draft(
+                config,
+                motion_mode,
+                tick.replay_second,
+                tick.source_day.as_str(),
+                tick.second_of_day,
+                draft,
+            )
+        })
+        .collect()
+}
+
+fn assign_spawn_positions(
+    config: &Config,
+    source_day: &str,
+    second_of_day: u32,
+    drafts: &mut [SpriteDraft],
+) {
+    if drafts.is_empty() {
+        return;
+    }
+
+    if drafts.len() == 1 {
+        let draft = &mut drafts[0];
+        draft.spawn_x = spawn_x(config, &draft.selected.event.event_id, draft.rendered_width);
+        draft.spawn_y = spawn_y(
+            config,
+            &draft.selected.event.event_id,
+            draft.rendered_height,
+        );
+        return;
+    }
+
+    let mut lane_order = (0..drafts.len()).collect::<Vec<_>>();
+    lane_order.sort_by_key(|index| {
+        hashed_u64(
+            &format!(
+                "{source_day}:{second_of_day}:{}",
+                drafts[*index].selected.event.event_id
+            ),
+            "spawn_lane",
+        )
+    });
+
+    let available_width = config.video.canvas.width as f64;
+    let total_width = lane_order
+        .iter()
+        .map(|index| drafts[*index].rendered_width)
+        .sum::<f64>();
+    let preferred_gap = (available_width * 0.018).max(8.0);
+
+    if total_width + preferred_gap * (drafts.len().saturating_sub(1) as f64) <= available_width {
+        let used_width = total_width + preferred_gap * (drafts.len().saturating_sub(1) as f64);
+        let mut cursor_x = ((available_width - used_width).max(0.0)) / 2.0;
+        for index in lane_order {
+            let draft = &mut drafts[index];
+            let max_x = (available_width - draft.rendered_width).max(0.0);
+            draft.spawn_x = cursor_x.min(max_x);
+            draft.spawn_y = spawn_y(
+                config,
+                &draft.selected.event.event_id,
+                draft.rendered_height,
+            );
+            cursor_x = draft.spawn_x + draft.rendered_width + preferred_gap;
+        }
+        return;
+    }
+
+    let mut cumulative_width = 0.0;
+    for index in lane_order {
+        let draft = &mut drafts[index];
+        let center_ratio = (cumulative_width + draft.rendered_width / 2.0) / total_width.max(1.0);
+        let max_x = (available_width - draft.rendered_width).max(0.0);
+        draft.spawn_x =
+            (center_ratio * available_width - draft.rendered_width / 2.0).clamp(0.0, max_x);
+        draft.spawn_y = spawn_y(
+            config,
+            &draft.selected.event.event_id,
+            draft.rendered_height,
+        );
+        cumulative_width += draft.rendered_width;
     }
 }
 
@@ -905,10 +1061,13 @@ fn time_to_exit(position: f64, velocity: f64, min_bound: f64, max_bound: f64) ->
     }
 }
 
-fn hashed_unit_interval(value: &str, salt: &str) -> f64 {
+fn hashed_u64(value: &str, salt: &str) -> u64 {
     let digest = Sha256::digest(format!("{value}:{salt}").as_bytes());
-    let raw = u64::from_be_bytes(digest[..8].try_into().expect("8 bytes"));
-    raw as f64 / u64::MAX as f64
+    u64::from_be_bytes(digest[..8].try_into().expect("8 bytes"))
+}
+
+fn hashed_unit_interval(value: &str, salt: &str) -> f64 {
+    hashed_u64(value, salt) as f64 / u64::MAX as f64
 }
 
 fn load_font(path: &str) -> Result<LoadedFont> {
@@ -1019,6 +1178,42 @@ fn rgba_sha256(image: &RgbaImage) -> String {
     hex::encode(Sha256::digest(image.as_raw()))
 }
 
+fn build_golden_frame(
+    tag: &str,
+    frame: &VideoFrameSample,
+    frame_path: &Path,
+    image: &RgbaImage,
+    background_pixel: [u8; 4],
+) -> VideoGoldenFrame {
+    let (active_item_count, distinct_event_type_count, distinct_font_size_count) =
+        frame_density_signature(frame);
+    VideoGoldenFrame {
+        tag: tag.to_string(),
+        frame_index: frame.frame_index,
+        frame_time_secs: round2(frame.frame_time_secs),
+        frame_path: frame_path.to_path_buf(),
+        rgba_sha256: rgba_sha256(image),
+        non_background_pixel_count: non_background_pixel_count(image, background_pixel),
+        active_item_count,
+        distinct_event_type_count,
+        distinct_font_size_count,
+    }
+}
+
+fn frame_density_signature(frame: &VideoFrameSample) -> (usize, usize, usize) {
+    let mut distinct_types = BTreeMap::<String, ()>::new();
+    let mut distinct_font_sizes = BTreeMap::<u32, ()>::new();
+    for item in &frame.active_items {
+        distinct_types.insert(item.event_type.clone(), ());
+        distinct_font_sizes.insert(item.font_size, ());
+    }
+    (
+        frame.active_items.len(),
+        distinct_types.len(),
+        distinct_font_sizes.len(),
+    )
+}
+
 fn non_background_pixel_count(image: &RgbaImage, background_pixel: [u8; 4]) -> u64 {
     image
         .pixels()
@@ -1032,11 +1227,53 @@ fn round2(value: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use serde_json::json;
     use tempfile::tempdir;
 
     use super::*;
     use crate::archive;
+
+    fn write_dense_second_raw_fixture(archive_root: &Path, day: &str) {
+        let raw_path = archive_root.join(day).join("raw").join("00.json.gz");
+        let mut raw_events = Vec::new();
+
+        for index in 0..5 {
+            raw_events.push(json!({
+                "id": format!("push-{index}"),
+                "type": "PushEvent",
+                "created_at": format!("{day}T00:12:34Z"),
+                "repo": {"name": "fixture/dense-push"},
+                "actor": {"login": format!("push_actor_{index}")},
+                "payload": {"head": format!("aa11bb22cc33dd44ee55ff66778899aa00bb{index:02x}")},
+            }));
+        }
+        for index in 0..3 {
+            raw_events.push(json!({
+                "id": format!("issues-{index}"),
+                "type": "IssuesEvent",
+                "created_at": format!("{day}T00:12:34Z"),
+                "repo": {"name": "fixture/dense-issues"},
+                "actor": {"login": format!("issues_actor_{index}")},
+                "payload": {"issue": {"id": 10_000 + index}},
+            }));
+        }
+        for index in 0..2 {
+            raw_events.push(json!({
+                "id": format!("release-{index}"),
+                "type": "ReleaseEvent",
+                "created_at": format!("{day}T00:12:34Z"),
+                "repo": {"name": "fixture/dense-release"},
+                "actor": {"login": format!("release_actor_{index}")},
+                "payload": {"release": {"id": 20_000 + index}},
+            }));
+        }
+
+        archive::materialize::write_gzip_json_lines(&raw_path, &raw_events)
+            .expect("write dense raw");
+    }
+
     #[test]
     fn video_sample_vertical_mode_emits_sprite_and_frames() {
         let temp = tempdir().expect("tempdir");
@@ -1122,41 +1359,7 @@ mod tests {
         let day = "2026-03-19";
 
         archive::seed_fixture_raw(&archive_root, day, true).expect("seed fixture");
-        let raw_path = archive_root.join(day).join("raw").join("00.json.gz");
-        let mut raw_events = Vec::new();
-
-        for index in 0..5 {
-            raw_events.push(json!({
-                "id": format!("push-{index}"),
-                "type": "PushEvent",
-                "created_at": format!("{day}T00:12:34Z"),
-                "repo": {"name": "fixture/dense-push"},
-                "actor": {"login": format!("push_actor_{index}")},
-                "payload": {"head": format!("aa11bb22cc33dd44ee55ff66778899aa00bb{index:02x}")},
-            }));
-        }
-        for index in 0..3 {
-            raw_events.push(json!({
-                "id": format!("issues-{index}"),
-                "type": "IssuesEvent",
-                "created_at": format!("{day}T00:12:34Z"),
-                "repo": {"name": "fixture/dense-issues"},
-                "actor": {"login": format!("issues_actor_{index}")},
-                "payload": {"issue": {"id": 10_000 + index}},
-            }));
-        }
-        for index in 0..2 {
-            raw_events.push(json!({
-                "id": format!("release-{index}"),
-                "type": "ReleaseEvent",
-                "created_at": format!("{day}T00:12:34Z"),
-                "repo": {"name": "fixture/dense-release"},
-                "actor": {"login": format!("release_actor_{index}")},
-                "payload": {"release": {"id": 20_000 + index}},
-            }));
-        }
-        archive::materialize::write_gzip_json_lines(&raw_path, &raw_events)
-            .expect("write dense raw");
+        write_dense_second_raw_fixture(&archive_root, day);
 
         let mut config = Config::default();
         config.archive.root_dir = archive_root.display().to_string();
@@ -1201,6 +1404,23 @@ mod tests {
             .expect("release sprite");
         assert!(push_sprite.font_size > release_sprite.font_size);
         assert!(push_sprite.initial_gain_db > release_sprite.initial_gain_db);
+
+        let mut sprites_by_x = report.sprites.clone();
+        sprites_by_x.sort_by(|left, right| {
+            left.spawn_x
+                .partial_cmp(&right.spawn_x)
+                .expect("spawn x ordering")
+        });
+        for pair in sprites_by_x.windows(2) {
+            let left = &pair[0];
+            let right = &pair[1];
+            assert!(
+                left.spawn_x + left.rendered_width <= right.spawn_x,
+                "expected non-overlapping lanes: {:?} vs {:?}",
+                left,
+                right
+            );
+        }
     }
 
     #[test]
@@ -1264,9 +1484,58 @@ mod tests {
         assert_eq!(golden.tag, "first_active");
         assert_eq!(golden.frame_index, active_frame.frame_index);
         assert_eq!(golden.non_background_pixel_count, non_background_count);
+        assert_eq!(golden.active_item_count, 1);
+        assert_eq!(golden.distinct_event_type_count, 1);
+        assert_eq!(golden.distinct_font_size_count, 1);
         assert_eq!(
             golden.rgba_sha256,
             "c4a3d37e4ae5274dc769aac8630efc31652334071cbcb7ea6462029b756b48ac"
+        );
+        assert!(report.peak_density_frame_golden.is_none());
+    }
+
+    #[test]
+    fn render_day_pack_dense_fixture_exports_peak_density_golden() {
+        let temp = tempdir().expect("tempdir");
+        let archive_root = temp.path().join("archive");
+        let output_dir = temp.path().join("render-dense");
+        let day = "2026-03-19";
+
+        archive::seed_fixture_raw(&archive_root, day, true).expect("seed fixture");
+        write_dense_second_raw_fixture(&archive_root, day);
+
+        let mut config = Config::default();
+        config.archive.root_dir = archive_root.display().to_string();
+        config.video.canvas.width = 320;
+        config.video.canvas.height = 180;
+        config.video.canvas.fps = 4;
+        config.video.text.stroke_width = 1;
+        archive::prepare_day_pack(&config, day, Some(&archive_root), true, true).expect("prepare");
+
+        let report = render_day_pack(
+            &config,
+            day,
+            Some(&archive_root),
+            &output_dir,
+            754,
+            1,
+            Some(MotionMode::Vertical),
+            None,
+        )
+        .expect("render dense sample");
+
+        let peak = report
+            .peak_density_frame_golden
+            .as_ref()
+            .expect("peak density frame golden");
+        assert_eq!(peak.tag, "peak_density");
+        assert_eq!(peak.frame_index, 0);
+        assert_eq!(peak.active_item_count, 9);
+        assert_eq!(peak.distinct_event_type_count, 3);
+        assert_eq!(peak.distinct_font_size_count, 3);
+        assert_eq!(
+            peak.rgba_sha256,
+            "d0efd77ff998edf3f6297e67b0b95822ddc427c659bfda918ce3bb3bc0ec3933"
         );
     }
 

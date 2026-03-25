@@ -291,6 +291,15 @@ fn run_render_video_sample(args: RenderVideoSampleArgs) -> Result<()> {
             println!("first active frame: <none>");
         }
     }
+    match &report.peak_density_frame_golden {
+        Some(golden) => {
+            println!("peak density frame: {}", golden.frame_index);
+            println!("peak density rgba sha256: {}", golden.rgba_sha256);
+        }
+        None => {
+            println!("peak density frame: <none>");
+        }
+    }
 
     if args.dump_json {
         println!("{}", serde_json::to_string_pretty(&report)?);

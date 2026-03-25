@@ -40,8 +40,8 @@
 - stage 6 已把默认 visual scene profile 收敛到 repo 配置文件，并补了 2 个可版本化 profile 变体以及单独的 SF2 visual smoke path
 - stage 6 scene contract 已升级到 P3：`title_area` / `footer_progress_area` / `selector_label_sprites` / `spectrum_trails` / `short_safe_layout` / `text_overrides` 均进入 schema 与 stub scene
 - stage 6 标题文案已改为从 `.toml` 注入；默认走 `src/musikalisches/runtime/config/stage6_default_text_overrides.toml`，支持 `\n` 换行并按中心对齐解析
-- `render-video` manifest / validator 现已显式冻结 preview video 的 `expected_frame_count` / `expected_fps` / `expected_duration_seconds`
-- 如构建机有 `ffprobe`，`video_render_manifest.json` 会额外带出 mp4 probe 元数据，供后续运维验收对账
+- `render-video` manifest / validator 现已显式冻结 preview video 的 `expected_frame_count` / `expected_fps` / `expected_duration_seconds`，并补 `sha256` / 文件大小 / fps+duration+keyframe 容差 contract
+- 如构建机有 `ffprobe`，`video_render_manifest.json` 会额外带出 mp4 的 stream/container/keyframe 摘要，供后续运维验收对账
 - stage 7 已冻结默认 `RTMPS + FLV` bridge profile，并新增 builder / validator / guide
 - stage 7 live bridge 已补 `once` / `infinite` 两种 loop mode，默认通过 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite` 连续对齐 stage5 loop plan 与 stage6 render duration
 - stage 7 runtime 已补 `RTMPS preflight` 与可重连执行器：正式推流前先检查协议支持 / DNS / TCP / 轻量 publish probe，运行中真正执行 backoff / retry budget / 连续失败上限
@@ -304,8 +304,9 @@ ops/out/video-render/stage6_render_validation_report.json
 其中：
 
 - `offline_frame_sequence.json.summary` 会显式带出 `frame_count` / `fps` / `frame_interval_seconds` / `render_duration_seconds`
-- `video_render_manifest.json.mp4_generation` 会显式带出 `expected_frame_count` / `expected_fps` / `expected_duration_seconds` / `video_codec` / `video_preset`
-- 如本机可用 `ffprobe`，manifest 还会带出 preview mp4 的 probe 元数据，便于把编码结果和 contract 对齐
+- `video_render_manifest.json.artifact_integrity` 会带出 `visual_scene_profile.json` / `offline_frame_sequence.json` / `video_render_poster.ppm` / `offline_preview.mp4` 的 `sha256` 与 `size_bytes`
+- `video_render_manifest.json.mp4_generation` 会显式带出 `expected_frame_count` / `expected_fps` / `expected_duration_seconds` / `video_codec` / `video_preset`，以及 `frame_count_tolerance` / `fps_tolerance` / `duration_tolerance_seconds` / `expected_keyframe_interval_frames`
+- 如本机可用 `ffprobe`，manifest 还会带出 preview mp4 的 stream/container/keyframe 摘要，便于把编码结果和 contract 对齐
 - 默认 ops 目标应优先使用 `stage6_default_scene_profile.json`，即 `1280x720 @ 30fps`
 - 其它 scene profile 变体主要用于 contract 演化/回归，不应替代默认运维规格
 
@@ -360,7 +361,9 @@ ops/out/stream-bridge
 - runtime 会先执行 `protocol_support` / `dns_resolution` / `tcp_connectivity` / `publish_probe` 四步 preflight
 - publish probe 会对真实 `RTMPS` 地址做一次轻量 `ffmpeg` 发布试探，用来提前暴露认证或权限错误
 - retryable 失败会按 `1s -> 5s -> 15s` backoff 自动重连，达到连续失败上限后才退出
+- preflight fail 时，控制台首行会固定打印 `preflight failed: <check_id>; see ...preflight_report.json and ...preflight.stderr.log`
 - preflight fail 或 runtime budget 到时退出时，控制台会同步打印最小摘要与 report/log 路径，不再只写到 `logs/*.json`
+- 进入人工排障时，先看 `logs/stage7_bridge_preflight_report.json`，再看 `logs/stage7_bridge_preflight.stderr.log`
 - runtime 会把 preflight `stderr` 写到 `logs/stage7_bridge_preflight.stderr.log`
 - runtime 会把 preflight 报告写到 `logs/stage7_bridge_preflight_report.json`
 - runtime 会把 `stderr` 写到 `logs/stage7_bridge_latest.stderr.log`

@@ -104,6 +104,7 @@ sed -n '1,220p' ops/out/stream-bridge/logs/stage7_bridge_preflight_report.json
 - `protocol_support = passed`
 - `dns_resolution = failed`
 - 分类为 `network_jitter`
+- 控制台首行直接出现 `preflight failed: dns_resolution; see ...stage7_bridge_preflight_report.json and ...stage7_bridge_preflight.stderr.log`
 
 ### 5.2 真实平台 host 短时试探
 
@@ -149,6 +150,12 @@ sed -n '1,220p' ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json
 sed -n '1,200p' ops/out/stream-bridge/logs/stage7_bridge_latest.stderr.log
 sed -n '1,220p' ops/out/stream-bridge/logs/stage7_bridge_exit_report.json
 ```
+
+控制台首查约定：
+
+- 如果命令直接失败，先看控制台首行的 `preflight failed: <check_id>` 或 `stage7 summary: ...`
+- 真正打开文件时，第一优先级是 `stage7_bridge_preflight_report.json`
+- 第二优先级是 `stage7_bridge_preflight.stderr.log`
 
 判定：
 

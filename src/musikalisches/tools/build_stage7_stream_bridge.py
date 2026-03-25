@@ -532,7 +532,7 @@ def build_runtime_script(
         "set -e",
         "",
         'if [[ "${EXIT_CODE}" -ne 0 ]]; then',
-        '  printf "%s\\n" "stage7 wrapper exit: code=${EXIT_CODE}; see ${SCRIPT_DIR}/logs/stage7_bridge_preflight_report.json and ${SCRIPT_DIR}/logs/stage7_bridge_runtime_report.json" >&2',
+        '  printf "%s\\n" "stage7 wrapper exit: code=${EXIT_CODE}; check ${SCRIPT_DIR}/logs/stage7_bridge_preflight_report.json first, then ${SCRIPT_DIR}/logs/stage7_bridge_runtime_report.json and ${SCRIPT_DIR}/logs/stage7_bridge_latest.stderr.log" >&2',
         "fi",
         "",
         'exit "${EXIT_CODE}"',

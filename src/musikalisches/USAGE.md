@@ -221,6 +221,8 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 - `ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json`
 
 当前 wrapper 和 runtime 在失败或 budget 到时退出时，也会直接向控制台打印最小摘要和以上 report/log 路径。
+如果是 preflight 失败，控制台首行会固定打印 `preflight failed: <check_id>; see ...preflight_report.json and ...preflight.stderr.log`。
+人工排障时先看 `stage7_bridge_preflight_report.json`，再看 `stage7_bridge_preflight.stderr.log`。
 
 最小检查方法：
 

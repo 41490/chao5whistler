@@ -78,6 +78,12 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 - `ops/out/stream-bridge/logs/stage7_bridge_exit_report.json`
 - `ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json`
 
+控制台约定：
+
+- preflight fail 时，控制台首行固定输出 `preflight failed: <check_id>; see ...preflight_report.json and ...preflight.stderr.log`
+- wrapper 非零退出时，会提示先查 `stage7_bridge_preflight_report.json`，再看 `stage7_bridge_runtime_report.json` 与 `stage7_bridge_latest.stderr.log`
+- 人工排障顺序固定为：先 `stage7_bridge_preflight_report.json`，后 `stage7_bridge_preflight.stderr.log`
+
 边界：
 
 - 默认流程只做本地 `flv` smoke，不默认发起真实推流

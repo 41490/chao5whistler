@@ -457,7 +457,10 @@ def main() -> int:
             and f"--stream-url-env {profile.get('ingest', {}).get('stream_url_env', '')}" in run_script
             and "missing " + profile.get("ingest", {}).get("stream_url_env", "") in run_script
             and args_payload.get("loop_control_env", "") in run_script
-            and args_payload.get("max_runtime_env", "") in run_script,
+            and args_payload.get("max_runtime_env", "") in run_script
+            and "check ${SCRIPT_DIR}/logs/stage7_bridge_preflight_report.json first" in run_script
+            and "stage7_bridge_runtime_report.json" in run_script
+            and "stage7_bridge_latest.stderr.log" in run_script,
             {
                 "url_env_var": args_payload.get("url_env_var"),
                 "loop_control_env": args_payload.get("loop_control_env"),

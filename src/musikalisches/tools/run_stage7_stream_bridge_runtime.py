@@ -237,6 +237,31 @@ def emit_console_summary(
     print(f"latest_stderr_log: {latest_log_path}", file=sys.stderr, flush=True)
 
 
+def emit_preflight_failure_summary(
+    *,
+    failed_check_id: str,
+    message: str,
+    preflight_report_path: Path,
+    preflight_log_path: Path,
+    runtime_report_path: Path,
+    exit_report_path: Path,
+    latest_log_path: Path,
+) -> None:
+    print(
+        f"preflight failed: {failed_check_id}; see {preflight_report_path} and {preflight_log_path}",
+        file=sys.stderr,
+        flush=True,
+    )
+    emit_console_summary(
+        message=message,
+        preflight_report_path=preflight_report_path,
+        preflight_log_path=preflight_log_path,
+        runtime_report_path=runtime_report_path,
+        exit_report_path=exit_report_path,
+        latest_log_path=latest_log_path,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Execute the stage7 RTMPS runtime wrapper with preflight and reconnect policy enforcement."
@@ -330,7 +355,8 @@ def main() -> int:
         )
         copy_file(preflight_log_path, latest_log_path)
         write_json(exit_report_path, preflight_report)
-        emit_console_summary(
+        emit_preflight_failure_summary(
+            failed_check_id="target_scheme",
             message=(
                 f"preflight failed at target_scheme; expected {protocol}://; "
                 f"received {parsed_target.scheme or '<missing>'}://"
@@ -399,7 +425,8 @@ def main() -> int:
                 "retry_policy": runtime_executor,
             },
         )
-        emit_console_summary(
+        emit_preflight_failure_summary(
+            failed_check_id="protocol_support",
             message="preflight failed at protocol_support; ffmpeg is missing required RTMPS output support",
             preflight_report_path=preflight_report_path,
             preflight_log_path=preflight_log_path,
@@ -465,7 +492,8 @@ def main() -> int:
                 "retry_policy": runtime_executor,
             },
         )
-        emit_console_summary(
+        emit_preflight_failure_summary(
+            failed_check_id="dns_resolution",
             message=f"preflight failed at dns_resolution; unable to resolve host {host}",
             preflight_report_path=preflight_report_path,
             preflight_log_path=preflight_log_path,
@@ -528,7 +556,8 @@ def main() -> int:
                 "retry_policy": runtime_executor,
             },
         )
-        emit_console_summary(
+        emit_preflight_failure_summary(
+            failed_check_id="tcp_connectivity",
             message=f"preflight failed at tcp_connectivity; unable to reach {host}:{expected_port}",
             preflight_report_path=preflight_report_path,
             preflight_log_path=preflight_log_path,
@@ -595,7 +624,8 @@ def main() -> int:
                 "retry_policy": runtime_executor,
             },
         )
-        emit_console_summary(
+        emit_preflight_failure_summary(
+            failed_check_id="publish_probe",
             message=(
                 f"preflight failed at publish_probe; exit_class_id={probe_report['exit_class_id']}; "
                 f"exit_code={probe_report['exit_code']}"

@@ -15,6 +15,8 @@ pub enum CliCommand {
     ValidateDayPack(ValidateDayPackArgs),
     SampleReplay(SampleReplayArgs),
     ReplayDryRun(ReplayDryRunArgs),
+    SampleAudio(SampleAudioArgs),
+    RenderAudioSample(RenderAudioSampleArgs),
     SampleVideo(SampleVideoArgs),
     RenderVideoSample(RenderVideoSampleArgs),
 }
@@ -74,6 +76,27 @@ pub struct ReplayDryRunArgs {
     pub dump_json: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SampleAudioArgs {
+    pub config_path: Option<PathBuf>,
+    pub archive_root: Option<PathBuf>,
+    pub day: String,
+    pub start_second: u32,
+    pub duration_secs: u32,
+    pub dump_json: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderAudioSampleArgs {
+    pub config_path: Option<PathBuf>,
+    pub archive_root: Option<PathBuf>,
+    pub output_dir: PathBuf,
+    pub day: String,
+    pub start_second: u32,
+    pub duration_secs: u32,
+    pub dump_json: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SampleVideoArgs {
     pub config_path: Option<PathBuf>,
@@ -119,6 +142,8 @@ where
         "validate-day-pack" => parse_validate_day_pack(&args[1..]),
         "sample-replay" => parse_sample_replay(&args[1..]),
         "replay-dry-run" => parse_replay_dry_run(&args[1..]),
+        "sample-audio" => parse_sample_audio(&args[1..]),
+        "render-audio-sample" => parse_render_audio_sample(&args[1..]),
         "sample-video" => parse_sample_video(&args[1..]),
         "render-video-sample" => parse_render_video_sample(&args[1..]),
         other => Err(anyhow!("unknown command: {other}\n\n{}", help_text())),
@@ -136,6 +161,8 @@ USAGE:
   songh validate-day-pack [--config PATH] [--archive-root PATH] --day YYYY-MM-DD
   songh sample-replay [--config PATH] [--archive-root PATH] --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--dump-json]
   songh replay-dry-run [--config PATH] [--archive-root PATH] --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--dump-json]
+  songh sample-audio [--config PATH] [--archive-root PATH] --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--dump-json]
+  songh render-audio-sample [--config PATH] [--archive-root PATH] --output-dir PATH --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--dump-json]
   songh sample-video [--config PATH] [--archive-root PATH] --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--motion-mode vertical|fixed_angle|random_angle] [--angle-deg N] [--dump-json]
   songh render-video-sample [--config PATH] [--archive-root PATH] --output-dir PATH --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--motion-mode vertical|fixed_angle|random_angle] [--angle-deg N] [--dump-json]
   songh help
@@ -148,6 +175,8 @@ COMMANDS:
   validate-day-pack    Verify a prepared day-pack against checksums and event counts
   sample-replay        Run replay selection on a prepared day-pack window
   replay-dry-run       Emit continuous ReplayTick output for a prepared day-pack window
+  sample-audio         Emit stage5 audio cue-plan sample output for a prepared day-pack window
+  render-audio-sample  Render stage5 offline audio sample into wav + manifest
   sample-video         Emit stage4 video frame-plan sample output for a prepared day-pack window
   render-video-sample  Render stage4 sample frames into a PNG sequence and manifest
   help                 Show this help
@@ -475,6 +504,151 @@ fn parse_replay_dry_run(args: &[String]) -> Result<CliCommand> {
     Ok(CliCommand::ReplayDryRun(ReplayDryRunArgs {
         config_path,
         archive_root,
+        day: day.ok_or_else(|| anyhow!("--day is required"))?,
+        start_second,
+        duration_secs,
+        dump_json,
+    }))
+}
+
+fn parse_sample_audio(args: &[String]) -> Result<CliCommand> {
+    let mut config_path = None;
+    let mut archive_root = None;
+    let mut day = None;
+    let mut start_second = 0_u32;
+    let mut duration_secs = 8_u32;
+    let mut dump_json = false;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--config" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--config requires a path"))?;
+                config_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--archive-root" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--archive-root requires a path"))?;
+                archive_root = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--day" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--day requires YYYY-MM-DD"))?;
+                day = Some(value.clone());
+                index += 2;
+            }
+            "--start-second" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--start-second requires a number"))?;
+                start_second = value
+                    .parse::<u32>()
+                    .map_err(|_| anyhow!("--start-second must be an unsigned integer"))?;
+                index += 2;
+            }
+            "--duration-secs" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--duration-secs requires a number"))?;
+                duration_secs = value
+                    .parse::<u32>()
+                    .map_err(|_| anyhow!("--duration-secs must be an unsigned integer"))?;
+                index += 2;
+            }
+            "--dump-json" => {
+                dump_json = true;
+                index += 1;
+            }
+            other => bail!("unknown sample-audio flag: {other}"),
+        }
+    }
+
+    Ok(CliCommand::SampleAudio(SampleAudioArgs {
+        config_path,
+        archive_root,
+        day: day.ok_or_else(|| anyhow!("--day is required"))?,
+        start_second,
+        duration_secs,
+        dump_json,
+    }))
+}
+
+fn parse_render_audio_sample(args: &[String]) -> Result<CliCommand> {
+    let mut config_path = None;
+    let mut archive_root = None;
+    let mut output_dir = None;
+    let mut day = None;
+    let mut start_second = 0_u32;
+    let mut duration_secs = 8_u32;
+    let mut dump_json = false;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--config" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--config requires a path"))?;
+                config_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--archive-root" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--archive-root requires a path"))?;
+                archive_root = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--output-dir" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--output-dir requires a path"))?;
+                output_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--day" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--day requires YYYY-MM-DD"))?;
+                day = Some(value.clone());
+                index += 2;
+            }
+            "--start-second" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--start-second requires a number"))?;
+                start_second = value
+                    .parse::<u32>()
+                    .map_err(|_| anyhow!("--start-second must be an unsigned integer"))?;
+                index += 2;
+            }
+            "--duration-secs" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--duration-secs requires a number"))?;
+                duration_secs = value
+                    .parse::<u32>()
+                    .map_err(|_| anyhow!("--duration-secs must be an unsigned integer"))?;
+                index += 2;
+            }
+            "--dump-json" => {
+                dump_json = true;
+                index += 1;
+            }
+            other => bail!("unknown render-audio-sample flag: {other}"),
+        }
+    }
+
+    Ok(CliCommand::RenderAudioSample(RenderAudioSampleArgs {
+        config_path,
+        archive_root,
+        output_dir: output_dir.ok_or_else(|| anyhow!("--output-dir is required"))?,
         day: day.ok_or_else(|| anyhow!("--day is required"))?,
         start_second,
         duration_secs,

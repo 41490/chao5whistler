@@ -4,18 +4,18 @@
 
 当前已进入：
 
-- stage 4: `video frame-plan samples`
+- stage 5: `audio cue-plan + offline wav sample`
 
 当前阶段统一人工检验入口：
 
 ```bash
-make -C src/songh stage4-manual
+make -C src/songh stage5-manual
 ```
 
 当前阶段自动回归入口：
 
 ```bash
-make -C src/songh stage4-all
+make -C src/songh stage5-all
 ```
 
 当前阶段连续 tick 观察入口：
@@ -42,11 +42,24 @@ make -C src/songh stage4-manual
 make -C src/songh stage4-render-fixture
 ```
 
+当前阶段 stage 5 音频样片入口：
+
+```bash
+make -C src/songh stage5-manual
+```
+
+当前阶段 stage 5 WAV 样片落盘入口：
+
+```bash
+make -C src/songh stage5-render-fixture
+```
+
 当前已落地：
 
 - stage 2: `gharchive day-pack downloader + normalize pipeline`
 - stage 3: `second-of-day replay engine`
 - stage 4: `video frame-plan sample baseline`
+- stage 5: `audio cue-plan + offline wav sample baseline`
 
 补充说明：
 
@@ -78,6 +91,8 @@ make -C src/songh stage4-render-fixture
   - 单秒关键文本段总数固定 `< 10`，当前上限为 `9`
   - 单秒内按事件类型数量排序，数量更高者获得更大字号和更高 `initial_gain_db` 元数据
   - 同秒文本段现在会做横向车道化，优先减少高密度秒的局部重叠
+  - 连续 dense seconds 之间会短时保持 `lane_hold_key -> lane_index`，降低 lane 抖动
+  - `VideoSpritePlan` 已补 `lane_hold_key` / `lane_index` 元数据，便于回归与调参
   - 事件类型颜色按 Solarized Dark 主题色与背景反差排序分配，数量最多的类型拿最高反差色
 - 当前已支持三类 motion mode 样片：
   - `vertical`
@@ -92,6 +107,17 @@ make -C src/songh stage4-render-fixture
   - `stage4-sample-random`
   - `stage4-render-fixture`
   - `stage4-all`
+- stage 5 已补最小 offline audio 链路：
+  - CLI: `sample-audio`
+  - CLI: `render-audio-sample`
+  - 输出 `audio-plan.json` + `offline_audio.wav` + `render-manifest.json`
+  - 每个 cue 现在会把 second-type density 映射成真实 `initial_gain_db`
+  - 当前先用 deterministic synth baseline 验证 `voice_gain_db + initial_gain_db` 混音效果
+- stage5 make target 已补：
+  - `stage5-sample-fixture`
+  - `stage5-render-fixture`
+  - `stage5-manual`
+  - `stage5-all`
 - runtime tick 事件已冻结为共享契约：
   - `src/songh/src/model/runtime_event.rs`
   - 后续 archive replay / fallback synthetic / audio / video 共用这一层
@@ -105,16 +131,14 @@ make -C src/songh stage4-render-fixture
   - `config_fingerprint`
 - 仓库已补 `src/songh/songh.local.toml.example` 作为本机覆盖参考
 
-stage 4 当前判断：
+stage 5 当前判断：
 
-- stage 4 已正式启动，并已有最小可回归产物：
-  - 三类 motion mode 的 frame-plan sample
-  - 文本模板渲染
-  - 基于 canvas / speed / angle 的轨迹规划
-  - 基于真实归档秒级密度的 `<10/s` 关键文本段筛选
-  - vertical motion 的 PNG 帧序列样片
-  - 真实 TTF raster + 90° 文本旋转 + blur/fade 生命周期
-  - 首个 active frame 的 golden hash 回归
-  - 高密度 frame 的第二档 golden hash 回归
-- 但 stage 4 仍未完成，当前还缺：
-  - 样片进一步落到视频容器
+- stage 5 已正式启动，并已有最小可回归产物：
+  - offline audio cue-plan sample
+  - `offline_audio.wav` 落盘样片
+  - density `initial_gain_db` 已真正接入 cue gain
+  - WAV 文件级 sha256 回归
+- 但 stage 5 仍未完成，当前还缺：
+  - `audio.background.wav` 混音
+  - 更真实的 voice backend / sample backend
+  - 与后续视频容器 / ffmpeg bridge 串联

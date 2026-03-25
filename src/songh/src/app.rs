@@ -3,9 +3,11 @@ use std::path::PathBuf;
 use anyhow::Result;
 
 use crate::archive;
+use crate::audio;
 use crate::cli::{
-    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, RenderVideoSampleArgs,
-    ReplayDryRunArgs, SampleReplayArgs, SampleVideoArgs, SeedFixtureRawArgs, ValidateDayPackArgs,
+    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, RenderAudioSampleArgs,
+    RenderVideoSampleArgs, ReplayDryRunArgs, SampleAudioArgs, SampleReplayArgs, SampleVideoArgs,
+    SeedFixtureRawArgs, ValidateDayPackArgs,
 };
 use crate::config::{self, OutputFormat};
 use crate::replay;
@@ -27,6 +29,8 @@ where
         CliCommand::ValidateDayPack(args) => run_validate_day_pack(args)?,
         CliCommand::SampleReplay(args) => run_sample_replay(args)?,
         CliCommand::ReplayDryRun(args) => run_replay_dry_run(args)?,
+        CliCommand::SampleAudio(args) => run_sample_audio(args)?,
+        CliCommand::RenderAudioSample(args) => run_render_audio_sample(args)?,
         CliCommand::SampleVideo(args) => run_sample_video(args)?,
         CliCommand::RenderVideoSample(args) => run_render_video_sample(args)?,
     }
@@ -244,6 +248,72 @@ fn run_sample_video(args: SampleVideoArgs) -> Result<()> {
     println!("motion mode: {}", report.motion_mode);
     println!("emitted sprites: {}", report.emitted_sprite_count);
     println!("frames emitted: {}", report.frames.len());
+
+    if args.dump_json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    Ok(())
+}
+
+fn run_sample_audio(args: SampleAudioArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report = audio::sample_day_pack(
+        &loaded.config,
+        &args.day,
+        args.archive_root.as_deref(),
+        args.start_second,
+        args.duration_secs,
+    )?;
+
+    println!("songh stage5 audio sample passed");
+    println!("main config: {}", config_path.display());
+    println!("archive root: {}", report.archive_root.display());
+    println!("source day: {}", report.source_day);
+    println!("start second: {}", report.start_second);
+    println!("duration secs: {}", report.duration_secs);
+    println!("sample rate: {}", report.sample_rate);
+    println!("channels: {}", report.channels);
+    println!("emitted cues: {}", report.emitted_cue_count);
+    println!("rendered frames: {}", report.total_frames);
+
+    if args.dump_json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    Ok(())
+}
+
+fn run_render_audio_sample(args: RenderAudioSampleArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report = audio::render_day_pack(
+        &loaded.config,
+        &args.day,
+        args.archive_root.as_deref(),
+        &args.output_dir,
+        args.start_second,
+        args.duration_secs,
+    )?;
+
+    println!("songh stage5 audio render passed");
+    println!("main config: {}", config_path.display());
+    println!("archive root: {}", report.frame_plan.archive_root.display());
+    println!("source day: {}", report.frame_plan.source_day);
+    println!("output dir: {}", report.output_dir.display());
+    println!("audio-plan: {}", report.audio_plan_path.display());
+    println!("wav: {}", report.wav_path.display());
+    println!("rendered frames: {}", report.rendered_frame_count);
+    println!("rendered cues: {}", report.rendered_cue_count);
+    println!("peak amplitude: {:.4}", report.peak_amplitude);
+    println!("wav sha256: {}", report.wav_sha256);
 
     if args.dump_json {
         println!("{}", serde_json::to_string_pretty(&report)?);

@@ -13,6 +13,9 @@ STAGE3_ROLLOVER_DURATION := 20
 STAGE4_SAMPLE_START := 750
 STAGE4_SAMPLE_DURATION := 8
 STAGE4_RENDER_ROOT := $(ROOT)/ops/out/songh-stage4-video-sample
+STAGE5_SAMPLE_START := 750
+STAGE5_SAMPLE_DURATION := 8
+STAGE5_RENDER_ROOT := $(ROOT)/ops/out/songh-stage5-audio-sample
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
 
@@ -49,7 +52,13 @@ help:
 	'  make stage4-sample-random   Emit random-angle motion stage4 frame-plan sample' \
 	'  make stage4-render-fixture  Render a vertical stage4 PNG frame sample artifact' \
 	'  make stage4-manual          Unified stage-4 sample verification command' \
-	'  make stage4-all             fmt + test + stage2-manual + stage4 samples + PNG render'
+	'  make stage4-all             fmt + test + stage2-manual + stage4 samples + PNG render' \
+	'' \
+	'Stage 5: audio cue-plan + offline wav sample' \
+	'  make stage5-sample-fixture  Emit stage5 audio cue-plan sample' \
+	'  make stage5-render-fixture  Render stage5 offline wav sample artifact' \
+	'  make stage5-manual          Unified stage-5 sample verification command' \
+	'  make stage5-all             fmt + test + stage2-manual + stage5 sample + wav render'
 
 .PHONY: stage1-fmt
 stage1-fmt:
@@ -216,3 +225,31 @@ stage4-all:
 	@$(MAKE) stage4-sample-fixed
 	@$(MAKE) stage4-sample-random
 	@$(MAKE) stage4-render-fixture
+
+.PHONY: stage5-sample-fixture
+stage5-sample-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		sample-audio --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--day $(STAGE2_FIXTURE_DAY) --start-second $(STAGE5_SAMPLE_START) \
+		--duration-secs $(STAGE5_SAMPLE_DURATION) --dump-json
+
+.PHONY: stage5-render-fixture
+stage5-render-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		render-audio-sample --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--output-dir $(STAGE5_RENDER_ROOT) --day $(STAGE2_FIXTURE_DAY) \
+		--start-second $(STAGE5_SAMPLE_START) --duration-secs $(STAGE5_SAMPLE_DURATION)
+
+.PHONY: stage5-manual
+stage5-manual:
+	@$(MAKE) stage2-manual
+	@$(MAKE) stage5-sample-fixture
+	@$(MAKE) stage5-render-fixture
+
+.PHONY: stage5-all
+stage5-all:
+	@$(MAKE) stage1-fmt
+	@$(MAKE) stage1-test
+	@$(MAKE) stage2-manual
+	@$(MAKE) stage5-sample-fixture
+	@$(MAKE) stage5-render-fixture

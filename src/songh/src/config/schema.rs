@@ -302,6 +302,22 @@ impl EventType {
             Self::ReleaseEvent => "ReleaseEvent",
         }
     }
+
+    pub fn from_str_name(value: &str) -> Option<Self> {
+        match value {
+            "CreateEvent" => Some(Self::CreateEvent),
+            "DeleteEvent" => Some(Self::DeleteEvent),
+            "PushEvent" => Some(Self::PushEvent),
+            "IssuesEvent" => Some(Self::IssuesEvent),
+            "IssueCommentEvent" => Some(Self::IssueCommentEvent),
+            "CommitCommentEvent" => Some(Self::CommitCommentEvent),
+            "PullRequestEvent" => Some(Self::PullRequestEvent),
+            "PublicEvent" => Some(Self::PublicEvent),
+            "ForkEvent" => Some(Self::ForkEvent),
+            "ReleaseEvent" => Some(Self::ReleaseEvent),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

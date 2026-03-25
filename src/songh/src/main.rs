@@ -1,5 +1,6 @@
 mod app;
 mod archive;
+mod audio;
 mod cli;
 mod config;
 mod model;

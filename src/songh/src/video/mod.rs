@@ -16,6 +16,7 @@ use crate::text;
 
 const MAX_STAGE4_KEY_TEXT_SEGMENTS_PER_SECOND: usize = 9;
 const MAX_STAGE4_LIFETIME_SECS: f64 = 14.0;
+const MAX_STAGE4_LANE_HOLD_GAP_SECS: u64 = 2;
 const TEXT_ROTATION_DEG: f64 = 90.0;
 const MAX_BLUR_SIGMA: f32 = 4.0;
 
@@ -75,6 +76,8 @@ pub struct VideoTypeColorAssignment {
 pub struct VideoSpritePlan {
     pub event_id: String,
     pub event_type: String,
+    pub lane_hold_key: String,
+    pub lane_index: u32,
     pub label: String,
     pub color_hex: String,
     pub source_day: String,
@@ -125,6 +128,7 @@ pub struct VideoFrameItem {
 #[derive(Debug, Clone)]
 struct SelectedSourceEvent {
     event: NormalizedEvent,
+    type_slot_index: u32,
     second_type_count: u32,
     second_type_rank: u32,
     font_size: u32,
@@ -134,12 +138,20 @@ struct SelectedSourceEvent {
 #[derive(Debug, Clone)]
 struct SpriteDraft {
     selected: SelectedSourceEvent,
+    lane_hold_key: String,
+    lane_index: u32,
     label: String,
     color_hex: String,
     rendered_width: f64,
     rendered_height: f64,
     spawn_x: f64,
     spawn_y: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct LanePlannerState {
+    last_dense_replay_second: Option<u64>,
+    lane_index_by_key: HashMap<String, u32>,
 }
 
 struct LoadedFont {
@@ -191,6 +203,7 @@ pub fn sample_day_pack(
         .iter()
         .map(|entry| (entry.event_type.clone(), entry.color_hex.clone()))
         .collect::<HashMap<_, _>>();
+    let mut lane_planner = LanePlannerState::default();
 
     let sprites = replay_report
         .ticks
@@ -207,6 +220,7 @@ pub fn sample_day_pack(
                 tick,
                 &source_events,
                 &color_by_type,
+                &mut lane_planner,
             )
         })
         .collect::<Result<Vec<_>>>()?
@@ -241,7 +255,7 @@ pub fn sample_day_pack(
         .collect::<Result<Vec<_>>>()?;
 
     Ok(VideoSampleReport {
-        schema_version: "stage4.video_sample.v2".to_string(),
+        schema_version: "stage4.video_sample.v3".to_string(),
         archive_root: replay_report.archive_root,
         source_day: day.to_string(),
         start_second,
@@ -341,7 +355,7 @@ pub fn render_day_pack(
 
     let manifest_path = output_dir.join("render-manifest.json");
     let report = VideoRenderReport {
-        schema_version: "stage4.video_render.v4".to_string(),
+        schema_version: "stage4.video_render.v5".to_string(),
         output_dir: output_dir.to_path_buf(),
         frames_dir,
         frame_plan_path,
@@ -389,6 +403,8 @@ impl VideoSpritePlan {
         Ok(Self {
             event_id: draft.selected.event.event_id.clone(),
             event_type: draft.selected.event.event_type.clone(),
+            lane_hold_key: draft.lane_hold_key,
+            lane_index: draft.lane_index,
             label: draft.label,
             color_hex: draft.color_hex,
             source_day: source_day.to_string(),
@@ -449,17 +465,21 @@ fn build_sprites_for_tick(
     tick: &ReplayTick,
     source_events: &[NormalizedEvent],
     color_by_type: &HashMap<String, String>,
+    lane_planner: &mut LanePlannerState,
 ) -> Result<Vec<VideoSpritePlan>> {
     let mut drafts = select_key_events_for_second(config, source_events)
         .into_iter()
         .map(|selected| {
             let label = text::render_template(&config.text, &selected.event.text_fields)?;
             let horizontal_metrics = measure_label(font, &label, selected.font_size);
+            let lane_hold_key = lane_hold_key(&selected);
             Ok(SpriteDraft {
                 color_hex: color_by_type
                     .get(&selected.event.event_type)
                     .cloned()
                     .unwrap_or_else(|| config.video.palette.text_hex.clone()),
+                lane_hold_key,
+                lane_index: 0,
                 label,
                 rendered_width: horizontal_metrics.height.max(1.0),
                 rendered_height: horizontal_metrics.width.max(1.0),
@@ -470,12 +490,7 @@ fn build_sprites_for_tick(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    assign_spawn_positions(
-        config,
-        tick.source_day.as_str(),
-        tick.second_of_day,
-        &mut drafts,
-    );
+    assign_spawn_positions(config, tick.replay_second, &mut drafts, lane_planner);
 
     drafts
         .into_iter()
@@ -494,9 +509,9 @@ fn build_sprites_for_tick(
 
 fn assign_spawn_positions(
     config: &Config,
-    source_day: &str,
-    second_of_day: u32,
+    replay_second: u64,
     drafts: &mut [SpriteDraft],
+    lane_planner: &mut LanePlannerState,
 ) {
     if drafts.is_empty() {
         return;
@@ -504,6 +519,7 @@ fn assign_spawn_positions(
 
     if drafts.len() == 1 {
         let draft = &mut drafts[0];
+        draft.lane_index = 0;
         draft.spawn_x = spawn_x(config, &draft.selected.event.event_id, draft.rendered_width);
         draft.spawn_y = spawn_y(
             config,
@@ -513,15 +529,52 @@ fn assign_spawn_positions(
         return;
     }
 
+    let can_hold = lane_planner
+        .last_dense_replay_second
+        .map(|previous| replay_second.saturating_sub(previous) <= MAX_STAGE4_LANE_HOLD_GAP_SECS)
+        .unwrap_or(false);
+    let mut used_lane_indexes = BTreeMap::<u32, ()>::new();
+    let mut pending_indexes = Vec::new();
+    for (index, draft) in drafts.iter_mut().enumerate() {
+        if can_hold {
+            if let Some(previous_lane_index) =
+                lane_planner.lane_index_by_key.get(&draft.lane_hold_key)
+            {
+                draft.lane_index = *previous_lane_index;
+                used_lane_indexes.insert(draft.lane_index, ());
+                continue;
+            }
+        }
+        pending_indexes.push(index);
+    }
+
+    pending_indexes.sort_by_key(|index| hashed_u64(&drafts[*index].lane_hold_key, "spawn_lane"));
+    let mut next_lane_index = 0_u32;
+    for index in pending_indexes {
+        while used_lane_indexes.contains_key(&next_lane_index) {
+            next_lane_index += 1;
+        }
+        drafts[index].lane_index = next_lane_index;
+        used_lane_indexes.insert(next_lane_index, ());
+    }
+
     let mut lane_order = (0..drafts.len()).collect::<Vec<_>>();
-    lane_order.sort_by_key(|index| {
-        hashed_u64(
-            &format!(
-                "{source_day}:{second_of_day}:{}",
-                drafts[*index].selected.event.event_id
-            ),
-            "spawn_lane",
-        )
+    lane_order.sort_by(|left, right| {
+        drafts[*left]
+            .lane_index
+            .cmp(&drafts[*right].lane_index)
+            .then_with(|| {
+                drafts[*left]
+                    .lane_hold_key
+                    .cmp(&drafts[*right].lane_hold_key)
+            })
+            .then_with(|| {
+                drafts[*left]
+                    .selected
+                    .event
+                    .event_id
+                    .cmp(&drafts[*right].selected.event.event_id)
+            })
     });
 
     let available_width = config.video.canvas.width as f64;
@@ -562,6 +615,12 @@ fn assign_spawn_positions(
         );
         cumulative_width += draft.rendered_width;
     }
+
+    lane_planner.last_dense_replay_second = Some(replay_second);
+    lane_planner.lane_index_by_key = drafts
+        .iter()
+        .map(|draft| (draft.lane_hold_key.clone(), draft.lane_index))
+        .collect();
 }
 
 fn render_frame(
@@ -849,7 +908,7 @@ fn select_key_events_for_second(
         .map(|(index, (event_type, _))| (event_type.clone(), (index + 1) as u32))
         .collect::<HashMap<_, _>>();
 
-    let mut selected = Vec::new();
+    let mut selected = Vec::<SelectedSourceEvent>::new();
     for (event_type, count) in type_order {
         let mut events = source_events
             .iter()
@@ -864,9 +923,10 @@ fn select_key_events_for_second(
                 .then_with(|| left.event_id.cmp(&right.event_id))
         });
 
-        for event in events {
+        for (type_slot_index, event) in events.into_iter().enumerate() {
             selected.push(SelectedSourceEvent {
                 event,
+                type_slot_index: type_slot_index as u32 + 1,
                 second_type_count: count,
                 second_type_rank: *type_rank.get(&event_type).unwrap_or(&1),
                 font_size: font_size_for_type_density(
@@ -884,6 +944,9 @@ fn select_key_events_for_second(
     }
 
     selected
+}
+fn lane_hold_key(selected: &SelectedSourceEvent) -> String {
+    format!("{}#{}", selected.event.event_type, selected.type_slot_index)
 }
 
 fn build_type_color_assignments(
@@ -1227,23 +1290,32 @@ fn round2(value: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::Path;
 
     use serde_json::json;
+    use serde_json::Value;
     use tempfile::tempdir;
 
     use super::*;
     use crate::archive;
 
-    fn write_dense_second_raw_fixture(archive_root: &Path, day: &str) {
-        let raw_path = archive_root.join(day).join("raw").join("00.json.gz");
+    fn time_for_second(second_of_day: u32) -> String {
+        let hour = second_of_day / 3_600;
+        let minute = (second_of_day % 3_600) / 60;
+        let second = second_of_day % 60;
+        format!("{hour:02}:{minute:02}:{second:02}")
+    }
+
+    fn dense_second_raw_events(day: &str, second_of_day: u32, id_prefix: &str) -> Vec<Value> {
         let mut raw_events = Vec::new();
+        let created_at = format!("{day}T{}Z", time_for_second(second_of_day));
 
         for index in 0..5 {
             raw_events.push(json!({
-                "id": format!("push-{index}"),
+                "id": format!("{id_prefix}-push-{index}"),
                 "type": "PushEvent",
-                "created_at": format!("{day}T00:12:34Z"),
+                "created_at": created_at.clone(),
                 "repo": {"name": "fixture/dense-push"},
                 "actor": {"login": format!("push_actor_{index}")},
                 "payload": {"head": format!("aa11bb22cc33dd44ee55ff66778899aa00bb{index:02x}")},
@@ -1251,9 +1323,9 @@ mod tests {
         }
         for index in 0..3 {
             raw_events.push(json!({
-                "id": format!("issues-{index}"),
+                "id": format!("{id_prefix}-issues-{index}"),
                 "type": "IssuesEvent",
-                "created_at": format!("{day}T00:12:34Z"),
+                "created_at": created_at.clone(),
                 "repo": {"name": "fixture/dense-issues"},
                 "actor": {"login": format!("issues_actor_{index}")},
                 "payload": {"issue": {"id": 10_000 + index}},
@@ -1261,15 +1333,26 @@ mod tests {
         }
         for index in 0..2 {
             raw_events.push(json!({
-                "id": format!("release-{index}"),
+                "id": format!("{id_prefix}-release-{index}"),
                 "type": "ReleaseEvent",
-                "created_at": format!("{day}T00:12:34Z"),
+                "created_at": created_at.clone(),
                 "repo": {"name": "fixture/dense-release"},
                 "actor": {"login": format!("release_actor_{index}")},
                 "payload": {"release": {"id": 20_000 + index}},
             }));
         }
 
+        raw_events
+    }
+
+    fn write_dense_second_raw_fixture(
+        archive_root: &Path,
+        day: &str,
+        second_of_day: u32,
+        id_prefix: &str,
+    ) {
+        let raw_path = archive_root.join(day).join("raw").join("00.json.gz");
+        let raw_events = dense_second_raw_events(day, second_of_day, id_prefix);
         archive::materialize::write_gzip_json_lines(&raw_path, &raw_events)
             .expect("write dense raw");
     }
@@ -1359,7 +1442,7 @@ mod tests {
         let day = "2026-03-19";
 
         archive::seed_fixture_raw(&archive_root, day, true).expect("seed fixture");
-        write_dense_second_raw_fixture(&archive_root, day);
+        write_dense_second_raw_fixture(&archive_root, day, 754, "dense-a");
 
         let mut config = Config::default();
         config.archive.root_dir = archive_root.display().to_string();
@@ -1502,7 +1585,7 @@ mod tests {
         let day = "2026-03-19";
 
         archive::seed_fixture_raw(&archive_root, day, true).expect("seed fixture");
-        write_dense_second_raw_fixture(&archive_root, day);
+        write_dense_second_raw_fixture(&archive_root, day, 754, "dense-a");
 
         let mut config = Config::default();
         config.archive.root_dir = archive_root.display().to_string();
@@ -1535,8 +1618,72 @@ mod tests {
         assert_eq!(peak.distinct_font_size_count, 3);
         assert_eq!(
             peak.rgba_sha256,
-            "d0efd77ff998edf3f6297e67b0b95822ddc427c659bfda918ce3bb3bc0ec3933"
+            "ce249b908c0ae0cb41dab86e57d0e4abf496940cbe2c6a901ca4ad564a769879"
         );
+    }
+
+    #[test]
+    fn stage4_dense_lane_hold_keeps_lane_indexes_across_adjacent_seconds() {
+        let temp = tempdir().expect("tempdir");
+        let archive_root = temp.path().join("archive");
+        let day = "2026-03-19";
+
+        archive::seed_fixture_raw(&archive_root, day, true).expect("seed fixture");
+        let raw_path = archive_root.join(day).join("raw").join("00.json.gz");
+        let mut raw_events = dense_second_raw_events(day, 754, "dense-a");
+        raw_events.extend(dense_second_raw_events(day, 755, "dense-b"));
+        archive::materialize::write_gzip_json_lines(&raw_path, &raw_events)
+            .expect("write dense raw");
+
+        let mut config = Config::default();
+        config.archive.root_dir = archive_root.display().to_string();
+        config.text.template = "{type}/{weight}".to_string();
+        archive::prepare_day_pack(&config, day, Some(&archive_root), true, true).expect("prepare");
+
+        let report = sample_day_pack(
+            &config,
+            day,
+            Some(&archive_root),
+            754,
+            2,
+            Some(MotionMode::Vertical),
+            None,
+        )
+        .expect("sample adjacent dense seconds");
+
+        let first_second = report
+            .sprites
+            .iter()
+            .filter(|sprite| sprite.second_of_day == 754)
+            .collect::<Vec<_>>();
+        let second_second = report
+            .sprites
+            .iter()
+            .filter(|sprite| sprite.second_of_day == 755)
+            .collect::<Vec<_>>();
+
+        assert_eq!(first_second.len(), 9);
+        assert_eq!(second_second.len(), 9);
+
+        let first_lane_by_key = first_second
+            .iter()
+            .map(|sprite| (sprite.lane_hold_key.clone(), sprite.lane_index))
+            .collect::<BTreeMap<_, _>>();
+        let first_x_by_key = first_second
+            .iter()
+            .map(|sprite| (sprite.lane_hold_key.clone(), sprite.spawn_x))
+            .collect::<BTreeMap<_, _>>();
+
+        for sprite in second_second {
+            assert_eq!(
+                first_lane_by_key.get(&sprite.lane_hold_key),
+                Some(&sprite.lane_index)
+            );
+            assert_eq!(
+                first_x_by_key.get(&sprite.lane_hold_key),
+                Some(&sprite.spawn_x)
+            );
+        }
     }
 
     #[test]

@@ -319,9 +319,12 @@ ops/out/stream-bridge
 - `run_stage7_stream_bridge.sh` 默认使用 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`
 - 如需只跑单次有限输入，可设置 `MUSIKALISCHES_STAGE7_LOOP_MODE=once`
 - 如需做受控长时 bridge / soak 预演，可设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
+- `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS` 的语义是整体 wrapper runtime budget，不是长期无人值守模式参数
+- 如需长期无人值守 live mode，应使用 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`，并且不要设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS`
 - runtime 会先执行 `protocol_support` / `dns_resolution` / `tcp_connectivity` / `publish_probe` 四步 preflight
 - publish probe 会对真实 `RTMPS` 地址做一次轻量 `ffmpeg` 发布试探，用来提前暴露认证或权限错误
 - retryable 失败会按 `1s -> 5s -> 15s` backoff 自动重连，达到连续失败上限后才退出
+- preflight fail 或 runtime budget 到时退出时，控制台会同步打印最小摘要与 report/log 路径，不再只写到 `logs/*.json`
 - runtime 会把 preflight `stderr` 写到 `logs/stage7_bridge_preflight.stderr.log`
 - runtime 会把 preflight 报告写到 `logs/stage7_bridge_preflight_report.json`
 - runtime 会把 `stderr` 写到 `logs/stage7_bridge_latest.stderr.log`

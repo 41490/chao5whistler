@@ -128,6 +128,7 @@ sed -n '1,160p' ops/out/stream-bridge/logs/stage7_bridge_preflight.stderr.log
 
 - 如果这里失败于 `handshake_failure` 或 `auth_failure`，已经说明本机 RTMPS 栈工作正常，剩下是平台侧 URL/证书/权限细节
 - 如果这里退回 `ingest_configuration_failure`，说明本地 ffmpeg 构建没有真正生效
+- 这里保留 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=10` 只是为了受控预检；它的语义是整体 wrapper runtime budget，不是长期直播参数
 
 ## 6. 真实 URL 人工 preflight
 
@@ -165,7 +166,6 @@ sed -n '1,220p' ops/out/stream-bridge/logs/stage7_bridge_exit_report.json
 ```bash
 export MUSIKALISCHES_RTMP_URL='rtmps://...<real-ingest>...'
 export MUSIKALISCHES_STAGE7_LOOP_MODE=infinite
-export MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=28800
 ops/out/stream-bridge/run_stage7_stream_bridge.sh
 ```
 
@@ -174,11 +174,15 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 ```bash
 export MUSIKALISCHES_RTMP_URL='rtmps://...<real-ingest>...'
 export MUSIKALISCHES_STAGE7_LOOP_MODE=infinite
-export MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=28800
 nohup ops/out/stream-bridge/run_stage7_stream_bridge.sh \
   > ops/out/stream-bridge/logs/stage8_soak_console.log 2>&1 &
 echo $! > ops/out/stream-bridge/logs/stage8_soak.pid
 ```
+
+说明：
+
+- 正式 stage8 soak 不建议设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS`
+- 若必须做定时演练，请显式认识到它会在预算到时退出，且这属于预期行为
 
 ### 7.2 运行中观察
 

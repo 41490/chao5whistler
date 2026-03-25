@@ -177,6 +177,13 @@ make -C src/musikalisches stage7-soak-check
 然后设置环境变量并启动：
 
 ```bash
+export MUSIKALISCHES_RTMP_URL='rtmps://a.rtmp.youtube.com/live2/brqs-rf5v-pr2e-kb0z-7swa'
+export MUSIKALISCHES_STAGE7_LOOP_MODE=infinite
+export MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=120
+ops/out/stream-bridge/run_stage7_stream_bridge.sh
+```
+
+```bash
 export MUSIKALISCHES_RTMP_URL='rtmps://...<real-ingest>...'
 export MUSIKALISCHES_STAGE7_LOOP_MODE=infinite
 export MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=120
@@ -187,6 +194,12 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 
 - `MUSIKALISCHES_STAGE7_LOOP_MODE=once|infinite`
 - `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
+
+语义说明：
+
+- `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS` 表示整体 wrapper runtime budget
+- 如果目标是长期无人值守直播，应保留 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`，并且不要设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS`
+- 如果设置了 runtime budget，达到上限后以受控方式退出属于预期行为，不代表隐藏错误
 
 默认 live 入口脚本会先做 4 项 preflight：
 
@@ -206,6 +219,8 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 - `ops/out/stream-bridge/logs/stage7_bridge_latest.stderr.log`
 - `ops/out/stream-bridge/logs/stage7_bridge_exit_report.json`
 - `ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json`
+
+当前 wrapper 和 runtime 在失败或 budget 到时退出时，也会直接向控制台打印最小摘要和以上 report/log 路径。
 
 最小检查方法：
 

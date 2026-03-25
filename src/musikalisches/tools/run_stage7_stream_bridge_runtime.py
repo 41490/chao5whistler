@@ -8,6 +8,7 @@ import shlex
 import signal
 import socket
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -219,6 +220,23 @@ def elapsed_seconds(start_monotonic: float) -> float:
     return round6(time.monotonic() - start_monotonic)
 
 
+def emit_console_summary(
+    *,
+    message: str,
+    preflight_report_path: Path,
+    preflight_log_path: Path,
+    runtime_report_path: Path,
+    exit_report_path: Path,
+    latest_log_path: Path,
+) -> None:
+    print(f"stage7 summary: {message}", file=sys.stderr, flush=True)
+    print(f"preflight_report: {preflight_report_path}", file=sys.stderr, flush=True)
+    print(f"preflight_log: {preflight_log_path}", file=sys.stderr, flush=True)
+    print(f"runtime_report: {runtime_report_path}", file=sys.stderr, flush=True)
+    print(f"latest_exit_report: {exit_report_path}", file=sys.stderr, flush=True)
+    print(f"latest_stderr_log: {latest_log_path}", file=sys.stderr, flush=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Execute the stage7 RTMPS runtime wrapper with preflight and reconnect policy enforcement."
@@ -312,6 +330,17 @@ def main() -> int:
         )
         copy_file(preflight_log_path, latest_log_path)
         write_json(exit_report_path, preflight_report)
+        emit_console_summary(
+            message=(
+                f"preflight failed at target_scheme; expected {protocol}://; "
+                f"received {parsed_target.scheme or '<missing>'}://"
+            ),
+            preflight_report_path=preflight_report_path,
+            preflight_log_path=preflight_log_path,
+            runtime_report_path=runtime_report_path,
+            exit_report_path=exit_report_path,
+            latest_log_path=latest_log_path,
+        )
         return 1
 
     start_monotonic = time.monotonic()
@@ -369,6 +398,14 @@ def main() -> int:
                 "final_exit_code": preflight_report["exit_code"],
                 "retry_policy": runtime_executor,
             },
+        )
+        emit_console_summary(
+            message="preflight failed at protocol_support; ffmpeg is missing required RTMPS output support",
+            preflight_report_path=preflight_report_path,
+            preflight_log_path=preflight_log_path,
+            runtime_report_path=runtime_report_path,
+            exit_report_path=exit_report_path,
+            latest_log_path=latest_log_path,
         )
         return 1
 
@@ -428,6 +465,14 @@ def main() -> int:
                 "retry_policy": runtime_executor,
             },
         )
+        emit_console_summary(
+            message=f"preflight failed at dns_resolution; unable to resolve host {host}",
+            preflight_report_path=preflight_report_path,
+            preflight_log_path=preflight_log_path,
+            runtime_report_path=runtime_report_path,
+            exit_report_path=exit_report_path,
+            latest_log_path=latest_log_path,
+        )
         return 1
 
     tcp_ok, tcp_error = probe_tcp_connectivity(host, expected_port, preflight_contract["tcp_connect_timeout_seconds"])
@@ -482,6 +527,14 @@ def main() -> int:
                 "final_exit_code": preflight_report["exit_code"],
                 "retry_policy": runtime_executor,
             },
+        )
+        emit_console_summary(
+            message=f"preflight failed at tcp_connectivity; unable to reach {host}:{expected_port}",
+            preflight_report_path=preflight_report_path,
+            preflight_log_path=preflight_log_path,
+            runtime_report_path=runtime_report_path,
+            exit_report_path=exit_report_path,
+            latest_log_path=latest_log_path,
         )
         return 1
 
@@ -541,6 +594,17 @@ def main() -> int:
                 "final_exit_code": probe_report["exit_code"],
                 "retry_policy": runtime_executor,
             },
+        )
+        emit_console_summary(
+            message=(
+                f"preflight failed at publish_probe; exit_class_id={probe_report['exit_class_id']}; "
+                f"exit_code={probe_report['exit_code']}"
+            ),
+            preflight_report_path=preflight_report_path,
+            preflight_log_path=preflight_log_path,
+            runtime_report_path=runtime_report_path,
+            exit_report_path=exit_report_path,
+            latest_log_path=latest_log_path,
         )
         return probe_exit_code or 1
 
@@ -673,6 +737,31 @@ def main() -> int:
 
     if final_status == "completed":
         return 0
+    if final_status == "runtime_limit_reached":
+        emit_console_summary(
+            message=(
+                "runtime budget reached; "
+                "MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS is an overall wrapper runtime budget; "
+                "omit it for unattended LOOP_MODE=infinite"
+            ),
+            preflight_report_path=preflight_report_path,
+            preflight_log_path=preflight_log_path,
+            runtime_report_path=runtime_report_path,
+            exit_report_path=exit_report_path,
+            latest_log_path=latest_log_path,
+        )
+    else:
+        emit_console_summary(
+            message=(
+                f"runtime ended with status={final_status}; "
+                f"exit_class_id={final_report.get('exit_class_id')}; exit_code={exit_code}"
+            ),
+            preflight_report_path=preflight_report_path,
+            preflight_log_path=preflight_log_path,
+            runtime_report_path=runtime_report_path,
+            exit_report_path=exit_report_path,
+            latest_log_path=latest_log_path,
+        )
     return exit_code or 1
 
 

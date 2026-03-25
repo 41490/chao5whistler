@@ -315,12 +315,24 @@ def build_probe_summary(probe: dict | None) -> dict | None:
         return None
     keyframes = probe.get("keyframes") if isinstance(probe.get("keyframes"), dict) else {}
     container = probe.get("container") if isinstance(probe.get("container"), dict) else {}
+    streams = probe.get("streams") if isinstance(probe.get("streams"), list) else []
+    video_stream = next(
+        (
+            stream
+            for stream in streams
+            if isinstance(stream, dict) and stream.get("codec_type") == "video"
+        ),
+        {},
+    )
     return {
         "width": probe.get("width"),
         "height": probe.get("height"),
-        "video_codec_name": probe.get("video_codec_name"),
+        "video_codec_name": probe.get("video_codec_name", video_stream.get("codec_name")),
         "avg_frame_rate_value": probe.get("avg_frame_rate_value"),
-        "video_nb_frames_value": probe.get("video_nb_frames_value"),
+        "video_nb_frames_value": probe.get(
+            "video_nb_frames_value",
+            probe.get("nb_frames_value", video_stream.get("nb_frames_value")),
+        ),
         "duration_seconds": probe.get("duration_seconds"),
         "video_stream_count": probe.get("video_stream_count"),
         "audio_stream_count": probe.get("audio_stream_count"),

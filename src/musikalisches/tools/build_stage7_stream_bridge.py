@@ -347,12 +347,24 @@ def build_probe_summary(probe: dict | None) -> dict | None:
         return None
     keyframes = probe.get("keyframes") if isinstance(probe.get("keyframes"), dict) else {}
     container = probe.get("container") if isinstance(probe.get("container"), dict) else {}
+    streams = probe.get("streams") if isinstance(probe.get("streams"), list) else []
+    video_stream = next(
+        (
+            stream
+            for stream in streams
+            if isinstance(stream, dict) and stream.get("codec_type") == "video"
+        ),
+        {},
+    )
     return {
         "width": probe.get("width"),
         "height": probe.get("height"),
-        "video_codec_name": probe.get("video_codec_name"),
+        "video_codec_name": probe.get("video_codec_name", video_stream.get("codec_name")),
         "avg_frame_rate_value": probe.get("avg_frame_rate_value"),
-        "video_nb_frames_value": probe.get("video_nb_frames_value"),
+        "video_nb_frames_value": probe.get(
+            "video_nb_frames_value",
+            probe.get("nb_frames_value", video_stream.get("nb_frames_value")),
+        ),
         "duration_seconds": probe.get("duration_seconds"),
         "video_stream_count": probe.get("video_stream_count"),
         "audio_stream_count": probe.get("audio_stream_count"),
@@ -806,7 +818,11 @@ def main() -> int:
     audio_path = audio_dir / "offline_audio.wav"
     video_path = video_dir / "offline_preview.mp4"
     wav_metadata = inspect_wav(audio_path)
-    stage6_probe = video_manifest.get("mp4_generation", {}).get("probe", {})
+    ffprobe_path = shutil.which(args.ffprobe_bin)
+    stage6_probe = (
+        probe_media(video_path, ffprobe_path)
+        or video_manifest.get("mp4_generation", {}).get("probe", {})
+    )
 
     if audio_report.get("status") != "passed":
         raise SystemExit("stage5 audio validation report must have status=passed")
@@ -846,7 +862,6 @@ def main() -> int:
         raise SystemExit("stage5 audio channel count does not match stage7 bridge profile")
 
     ffmpeg_path = None if args.skip_smoke else shutil.which(args.ffmpeg_bin)
-    ffprobe_path = shutil.which(args.ffprobe_bin)
     resolved_ffmpeg_path = shutil.which(args.ffmpeg_bin) or args.ffmpeg_bin
     if not args.skip_smoke and not ffmpeg_path:
         raise SystemExit(f"ffmpeg binary not found: {args.ffmpeg_bin}")

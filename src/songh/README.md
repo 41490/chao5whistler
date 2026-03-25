@@ -4,18 +4,18 @@
 
 当前已进入：
 
-- stage 5: `audio cue-plan + offline wav sample`
+- stage 6: `ffmpeg offline A/V preview`
 
 当前阶段统一人工检验入口：
 
 ```bash
-make -C src/songh stage5-manual
+make -C src/songh stage6-manual
 ```
 
 当前阶段自动回归入口：
 
 ```bash
-make -C src/songh stage5-all
+make -C src/songh stage6-all
 ```
 
 当前阶段连续 tick 观察入口：
@@ -54,12 +54,25 @@ make -C src/songh stage5-manual
 make -C src/songh stage5-render-fixture
 ```
 
+当前阶段 stage 6 A/V 样片入口：
+
+```bash
+make -C src/songh stage6-manual
+```
+
+当前阶段 stage 6 MP4 样片落盘入口：
+
+```bash
+make -C src/songh stage6-render-fixture
+```
+
 当前已落地：
 
 - stage 2: `gharchive day-pack downloader + normalize pipeline`
 - stage 3: `second-of-day replay engine`
 - stage 4: `video frame-plan sample baseline`
 - stage 5: `audio cue-plan + offline wav sample baseline`
+- stage 6: `offline mp4 preview baseline`
 
 补充说明：
 
@@ -119,6 +132,15 @@ make -C src/songh stage5-render-fixture
   - `stage5-render-fixture`
   - `stage5-manual`
   - `stage5-all`
+- stage 6 已补最小 A/V 合流链路：
+  - CLI: `render-av-sample`
+  - 输出 `video/` + `audio/` + `offline_preview.mp4` + `render-manifest.json`
+  - 如环境有 `ffprobe`，会额外输出 `ffprobe.json` 并校验 width/height/sample_rate/channels/nb_frames
+  - 预览编码已冻结到 `H.264 + AAC`，复用当前 `outputs.encode` 的 `ultrafast / 128 kbps` 决策
+- stage6 make target 已补：
+  - `stage6-render-fixture`
+  - `stage6-manual`
+  - `stage6-all`
 - runtime tick 事件已冻结为共享契约：
   - `src/songh/src/model/runtime_event.rs`
   - 后续 archive replay / fallback synthetic / audio / video 共用这一层
@@ -132,14 +154,16 @@ make -C src/songh stage5-render-fixture
   - `config_fingerprint`
 - 仓库已补 `src/songh/songh.local.toml.example` 作为本机覆盖参考
 
-stage 5 当前判断：
+stage 6 当前判断：
 
-- stage 5 已正式启动，并已有最小可回归产物：
+- stage 6 已正式启动，并已有最小可回归产物：
   - offline audio cue-plan sample
   - `offline_audio.wav` 落盘样片
   - density `initial_gain_db` 已真正接入 cue gain
   - `audio.background.wav` 已可混音进离线渲染，并带出 source/gain/loop manifest 元数据
   - WAV 文件级 sha256 回归
-- 但 stage 5 仍未完成，当前还缺：
+- stage4 PNG 序列和 stage5 WAV 现已能合流为 `offline_preview.mp4`
+- 首个 A/V smoke 已冻结为 manifest + 可选 ffprobe contract
+- 但 stage 6 仍未完成，当前还缺：
   - 更真实的 voice backend / sample backend
-  - 与后续视频容器 / ffmpeg bridge 串联
+  - 与后续 live bridge / RTMP 推流链路串联

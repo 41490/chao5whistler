@@ -16,6 +16,9 @@ STAGE4_RENDER_ROOT := $(ROOT)/ops/out/songh-stage4-video-sample
 STAGE5_SAMPLE_START := 750
 STAGE5_SAMPLE_DURATION := 8
 STAGE5_RENDER_ROOT := $(ROOT)/ops/out/songh-stage5-audio-sample
+STAGE6_SAMPLE_START := 750
+STAGE6_SAMPLE_DURATION := 8
+STAGE6_RENDER_ROOT := $(ROOT)/ops/out/songh-stage6-av-sample
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
 
@@ -58,7 +61,12 @@ help:
 	'  make stage5-sample-fixture  Emit stage5 audio cue-plan sample' \
 	'  make stage5-render-fixture  Render stage5 offline wav sample artifact' \
 	'  make stage5-manual          Unified stage-5 sample verification command' \
-	'  make stage5-all             fmt + test + stage2-manual + stage5 sample + wav render'
+	'  make stage5-all             fmt + test + stage2-manual + stage5 sample + wav render' \
+	'' \
+	'Stage 6: ffmpeg offline A/V preview' \
+	'  make stage6-render-fixture  Render stage6 offline mp4 preview from stage4+stage5 artifacts' \
+	'  make stage6-manual          Unified stage-6 preview verification command' \
+	'  make stage6-all             fmt + test + stage2-manual + stage6 preview render'
 
 .PHONY: stage1-fmt
 stage1-fmt:
@@ -253,3 +261,23 @@ stage5-all:
 	@$(MAKE) stage2-manual
 	@$(MAKE) stage5-sample-fixture
 	@$(MAKE) stage5-render-fixture
+
+.PHONY: stage6-render-fixture
+stage6-render-fixture:
+	cd $(ROOT) && $(CARGO) run --manifest-path $(MANIFEST) -- \
+		render-av-sample --config $(TRACKED_TEMPLATE) --archive-root $(STAGE2_FIXTURE_ROOT) \
+		--output-dir $(STAGE6_RENDER_ROOT) --day $(STAGE2_FIXTURE_DAY) \
+		--start-second $(STAGE6_SAMPLE_START) --duration-secs $(STAGE6_SAMPLE_DURATION) \
+		--motion-mode vertical
+
+.PHONY: stage6-manual
+stage6-manual:
+	@$(MAKE) stage2-manual
+	@$(MAKE) stage6-render-fixture
+
+.PHONY: stage6-all
+stage6-all:
+	@$(MAKE) stage1-fmt
+	@$(MAKE) stage1-test
+	@$(MAKE) stage2-manual
+	@$(MAKE) stage6-render-fixture

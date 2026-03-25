@@ -4,10 +4,11 @@ use anyhow::Result;
 
 use crate::archive;
 use crate::audio;
+use crate::av;
 use crate::cli::{
     CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, RenderAudioSampleArgs,
-    RenderVideoSampleArgs, ReplayDryRunArgs, SampleAudioArgs, SampleReplayArgs, SampleVideoArgs,
-    SeedFixtureRawArgs, ValidateDayPackArgs,
+    RenderAvSampleArgs, RenderVideoSampleArgs, ReplayDryRunArgs, SampleAudioArgs, SampleReplayArgs,
+    SampleVideoArgs, SeedFixtureRawArgs, ValidateDayPackArgs,
 };
 use crate::config::{self, OutputFormat};
 use crate::replay;
@@ -33,6 +34,7 @@ where
         CliCommand::RenderAudioSample(args) => run_render_audio_sample(args)?,
         CliCommand::SampleVideo(args) => run_sample_video(args)?,
         CliCommand::RenderVideoSample(args) => run_render_video_sample(args)?,
+        CliCommand::RenderAvSample(args) => run_render_av_sample(args)?,
     }
 
     Ok(())
@@ -385,6 +387,58 @@ fn run_render_video_sample(args: RenderVideoSampleArgs) -> Result<()> {
         None => {
             println!("peak density frame: <none>");
         }
+    }
+
+    if args.dump_json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    Ok(())
+}
+
+fn run_render_av_sample(args: RenderAvSampleArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report = av::render_day_pack(
+        &loaded.config,
+        &args.day,
+        args.archive_root.as_deref(),
+        &args.output_dir,
+        args.start_second,
+        args.duration_secs,
+        args.motion_mode_override,
+        args.angle_deg_override,
+    )?;
+
+    println!("songh stage6 av render passed");
+    println!("main config: {}", config_path.display());
+    println!(
+        "archive root: {}",
+        report.video.frame_plan.archive_root.display()
+    );
+    println!("source day: {}", report.video.frame_plan.source_day);
+    println!("output dir: {}", report.output_dir.display());
+    println!("video dir: {}", report.video_output_dir.display());
+    println!("audio dir: {}", report.audio_output_dir.display());
+    println!("preview mp4: {}", report.preview_mp4_path.display());
+    println!(
+        "expected fps/frame_count: {}/{}",
+        report.expected_fps, report.expected_frame_count
+    );
+    println!(
+        "expected duration secs: {:.4}",
+        report.expected_duration_seconds
+    );
+    println!(
+        "encode: vcodec={} preset={} audio={}kbps",
+        report.video_codec, report.video_preset, report.audio_bitrate_kbps
+    );
+    match &report.ffprobe_path {
+        Some(path) => println!("ffprobe: {}", path.display()),
+        None => println!("ffprobe: <skipped>"),
     }
 
     if args.dump_json {

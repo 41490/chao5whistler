@@ -19,6 +19,7 @@ pub enum CliCommand {
     RenderAudioSample(RenderAudioSampleArgs),
     SampleVideo(SampleVideoArgs),
     RenderVideoSample(RenderVideoSampleArgs),
+    RenderAvSample(RenderAvSampleArgs),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +123,19 @@ pub struct RenderVideoSampleArgs {
     pub dump_json: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderAvSampleArgs {
+    pub config_path: Option<PathBuf>,
+    pub archive_root: Option<PathBuf>,
+    pub output_dir: PathBuf,
+    pub day: String,
+    pub start_second: u32,
+    pub duration_secs: u32,
+    pub motion_mode_override: Option<MotionMode>,
+    pub angle_deg_override: Option<f64>,
+    pub dump_json: bool,
+}
+
 pub fn parse<I>(args: I) -> Result<CliCommand>
 where
     I: IntoIterator,
@@ -146,6 +160,7 @@ where
         "render-audio-sample" => parse_render_audio_sample(&args[1..]),
         "sample-video" => parse_sample_video(&args[1..]),
         "render-video-sample" => parse_render_video_sample(&args[1..]),
+        "render-av-sample" => parse_render_av_sample(&args[1..]),
         other => Err(anyhow!("unknown command: {other}\n\n{}", help_text())),
     }
 }
@@ -165,6 +180,7 @@ USAGE:
   songh render-audio-sample [--config PATH] [--archive-root PATH] --output-dir PATH --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--dump-json]
   songh sample-video [--config PATH] [--archive-root PATH] --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--motion-mode vertical|fixed_angle|random_angle] [--angle-deg N] [--dump-json]
   songh render-video-sample [--config PATH] [--archive-root PATH] --output-dir PATH --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--motion-mode vertical|fixed_angle|random_angle] [--angle-deg N] [--dump-json]
+  songh render-av-sample [--config PATH] [--archive-root PATH] --output-dir PATH --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--motion-mode vertical|fixed_angle|random_angle] [--angle-deg N] [--dump-json]
   songh help
 
 COMMANDS:
@@ -179,6 +195,7 @@ COMMANDS:
   render-audio-sample  Render stage5 offline audio sample into wav + manifest
   sample-video         Emit stage4 video frame-plan sample output for a prepared day-pack window
   render-video-sample  Render stage4 sample frames into a PNG sequence and manifest
+  render-av-sample     Render stage6 offline A/V preview mp4 from stage4+stage5 artifacts
   help                 Show this help
 "#
 }
@@ -833,6 +850,105 @@ fn parse_render_video_sample(args: &[String]) -> Result<CliCommand> {
     }
 
     Ok(CliCommand::RenderVideoSample(RenderVideoSampleArgs {
+        config_path,
+        archive_root,
+        output_dir: output_dir.ok_or_else(|| anyhow!("--output-dir is required"))?,
+        day: day.ok_or_else(|| anyhow!("--day is required"))?,
+        start_second,
+        duration_secs,
+        motion_mode_override,
+        angle_deg_override,
+        dump_json,
+    }))
+}
+
+fn parse_render_av_sample(args: &[String]) -> Result<CliCommand> {
+    let mut config_path = None;
+    let mut archive_root = None;
+    let mut output_dir = None;
+    let mut day = None;
+    let mut start_second = 0;
+    let mut duration_secs = 8;
+    let mut motion_mode_override = None;
+    let mut angle_deg_override = None;
+    let mut dump_json = false;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--config" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--config requires a path"))?;
+                config_path = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--archive-root" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--archive-root requires a path"))?;
+                archive_root = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--output-dir" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--output-dir requires a path"))?;
+                output_dir = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--day" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--day requires YYYY-MM-DD"))?;
+                day = Some(value.clone());
+                index += 2;
+            }
+            "--start-second" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--start-second requires a number"))?;
+                start_second = value
+                    .parse::<u32>()
+                    .map_err(|_| anyhow!("--start-second must be an unsigned integer"))?;
+                index += 2;
+            }
+            "--duration-secs" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--duration-secs requires a number"))?;
+                duration_secs = value
+                    .parse::<u32>()
+                    .map_err(|_| anyhow!("--duration-secs must be an unsigned integer"))?;
+                index += 2;
+            }
+            "--motion-mode" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--motion-mode requires a value"))?;
+                motion_mode_override = Some(parse_motion_mode(value)?);
+                index += 2;
+            }
+            "--angle-deg" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("--angle-deg requires a number"))?;
+                angle_deg_override = Some(
+                    value
+                        .parse::<f64>()
+                        .map_err(|_| anyhow!("--angle-deg must be a number"))?,
+                );
+                index += 2;
+            }
+            "--dump-json" => {
+                dump_json = true;
+                index += 1;
+            }
+            other => bail!("unknown render-av-sample flag: {other}"),
+        }
+    }
+
+    Ok(CliCommand::RenderAvSample(RenderAvSampleArgs {
         config_path,
         archive_root,
         output_dir: output_dir.ok_or_else(|| anyhow!("--output-dir is required"))?,

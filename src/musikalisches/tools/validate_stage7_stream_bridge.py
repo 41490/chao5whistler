@@ -13,6 +13,8 @@ from pathlib import Path
 from stage7_bridge_profile import validate_bridge_profile_payload
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+STAGE8_GUIDE_PATH = REPO_ROOT / "docs" / "plans" / "260324-stage8-real-soak-ops-guide.md"
 REQUIRED_FILES = {
     "stage7_bridge_profile.json",
     "stream_bridge_manifest.json",
@@ -555,6 +557,7 @@ def main() -> int:
         source_probe = stage6_manifest.get("mp4_generation", {}).get("probe")
     source_probe_summary = build_probe_summary(source_probe)
     bridge_consistency = manifest.get("bridge_consistency", {})
+    stage8_ops = manifest.get("stage8_ops", {})
     expected_bridge_tolerance = {
         "fps": round(
             (source_video_contract.get("fps_tolerance") or 0)
@@ -583,6 +586,29 @@ def main() -> int:
         "keyframe_interval_frames": (source_probe_summary or {}).get(
             "keyframe_interval_frames"
         ),
+    }
+    expected_stage8_ops = {
+        "guide_file": str(STAGE8_GUIDE_PATH),
+        "entry_script_file": "run_stage7_stream_bridge.sh",
+        "required_env_vars": [profile.get("ingest", {}).get("stream_url_env")],
+        "supported_loop_modes": ["once", "infinite"],
+        "recommended_loop_mode": loop_bridge.get("default_loop_mode"),
+        "formal_soak_runtime_budget_policy": "unset_for_formal_soak",
+        "preflight_runtime_budget_example_seconds": 120,
+        "background_files": {
+            "console_log_file": f"{runtime_observability.get('log_dir')}/stage8_soak_console.log",
+            "pid_file": f"{runtime_observability.get('log_dir')}/stage8_soak.pid",
+        },
+        "required_validation_reports": [
+            "stage7_bridge_validation_report.json",
+            "stage7_soak_validation_report.json",
+        ],
+        "required_runtime_reports": [
+            f"{runtime_observability.get('log_dir')}/{runtime_observability.get('preflight_report_file')}",
+            f"{runtime_observability.get('log_dir')}/{runtime_observability.get('runtime_report_file')}",
+            f"{runtime_observability.get('log_dir')}/{runtime_observability.get('exit_report_file')}",
+        ],
+        "readiness_report_file": "stage8_ops_readiness_report.json",
     }
 
     failure_classes = failure_taxonomy.get("classes", [])
@@ -782,6 +808,18 @@ def main() -> int:
                 "source_probe_summary": source_probe_summary,
                 "bridge_consistency": bridge_consistency,
                 "smoke_probe": smoke_probe,
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "stage8_ops_contract",
+            isinstance(stage8_ops, dict)
+            and stage8_ops == expected_stage8_ops
+            and Path(stage8_ops.get("guide_file", "")).exists(),
+            {
+                "stage8_ops": stage8_ops,
+                "expected_stage8_ops": expected_stage8_ops,
             },
         )
     )

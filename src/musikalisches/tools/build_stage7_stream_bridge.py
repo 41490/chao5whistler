@@ -19,6 +19,8 @@ from stage7_bridge_profile import (
 )
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+STAGE8_GUIDE_PATH = REPO_ROOT / "docs" / "plans" / "260324-stage8-real-soak-ops-guide.md"
 REQUIRED_AUDIO_FILES = {
     "artifact_summary.json",
     "render_request.json",
@@ -1205,6 +1207,29 @@ def main() -> int:
                 "audio_stream_count": 1,
             },
             "expected_matches": bridge_expected_matches,
+        },
+        "stage8_ops": {
+            "guide_file": str(STAGE8_GUIDE_PATH),
+            "entry_script_file": "run_stage7_stream_bridge.sh",
+            "required_env_vars": [bridge_profile["ingest"]["stream_url_env"]],
+            "supported_loop_modes": ["once", "infinite"],
+            "recommended_loop_mode": loop_bridge["default_loop_mode"],
+            "formal_soak_runtime_budget_policy": "unset_for_formal_soak",
+            "preflight_runtime_budget_example_seconds": 120,
+            "background_files": {
+                "console_log_file": f"{LOG_DIR_NAME}/stage8_soak_console.log",
+                "pid_file": f"{LOG_DIR_NAME}/stage8_soak.pid",
+            },
+            "required_validation_reports": [
+                "stage7_bridge_validation_report.json",
+                "stage7_soak_validation_report.json",
+            ],
+            "required_runtime_reports": [
+                f"{LOG_DIR_NAME}/{PREFLIGHT_REPORT_FILE}",
+                f"{LOG_DIR_NAME}/{RUNTIME_REPORT_FILE}",
+                f"{LOG_DIR_NAME}/{EXIT_REPORT_FILE}",
+            ],
+            "readiness_report_file": "stage8_ops_readiness_report.json",
         },
         "live_command": {
             "ffmpeg_bin": resolved_ffmpeg_path,

@@ -74,6 +74,7 @@ help:
 	'  make stage7-bridge-check  Validate stage7 bridge artifacts' \
 	'  make stage7-preflight-regression-check Validate automated stage7 preflight fail observability' \
 	'  make stage7-soak-check    Validate pre-stage8 soak readiness contract' \
+	'  make stage8-readiness-check Validate stage8 real-soak ops readiness gate' \
 	'  make stage7-ffmpeg-build  Build repo-managed ffmpeg/ffprobe with RTMPS output support' \
 	'  make stage7-ffmpeg-check  Validate repo-managed ffmpeg/ffprobe capability' \
 	'  make stage7-bridge-profile-show Show default stage7 bridge profile path' \
@@ -385,6 +386,16 @@ stage7-plan-show:
 .PHONY: stage8-plan-show
 stage8-plan-show:
 	@printf '%s\n' $(ROOT)/docs/plans/260324-stage8-real-soak-ops-guide.md
+
+.PHONY: stage8-readiness-check
+stage8-readiness-check:
+	@$(MAKE) stage7-ffmpeg-check
+	@$(MAKE) stage7-bridge-check
+	@$(MAKE) stage7-soak-check
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage8_ops_readiness.py \
+		--ffmpeg-bin "$(FFMPEG_BIN)" \
+		--ffprobe-bin "$(FFPROBE_BIN)" \
+		$(STREAM_BRIDGE_OUT)
 .PHONY: stage5-all
 stage5-all:
 	cd $(ROOT) && $(CARGO) fmt --all

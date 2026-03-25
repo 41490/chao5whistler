@@ -17,6 +17,7 @@ make -C src/musikalisches stage5-build
 make -C src/musikalisches stage5-test
 make -C src/musikalisches stage7-ffmpeg-check
 make -C src/musikalisches stage7-all
+make -C src/musikalisches stage8-readiness-check
 ```
 
 其中：
@@ -25,6 +26,7 @@ make -C src/musikalisches stage7-all
 - `stage5-test` 会跑 Rust 测试
 - `stage7-ffmpeg-check` 会确认 `ops/bin/ffmpeg` / `ops/bin/ffprobe` 具备 `rtmps` output、`libx264` 和本地 `flv` smoke 编码能力
 - `stage7-all` 会串起 stage5 音频、stage6 视频、stage7 bridge 的默认构建与校验
+- `stage8-readiness-check` 会把真实 live soak 前的 stage7 contract、repo toolchain、运行入口脚本和 stage8 ops 约定收成独立 readiness report
 
 如果你只想做日常快速回归，不重建 release，也可以直接执行：
 
@@ -42,6 +44,7 @@ make -C src/musikalisches stage7-all
 - `ops/out/video-render/stage6_render_validation_report.json`
 - `ops/out/stream-bridge/stage7_bridge_validation_report.json`
 - `ops/out/stream-bridge/stage7_soak_validation_report.json`
+- `ops/out/stream-bridge/stage8_ops_readiness_report.json`
 
 可直接用下面的命令快速查看：
 
@@ -56,6 +59,7 @@ files = [
     "ops/out/video-render/stage6_render_validation_report.json",
     "ops/out/stream-bridge/stage7_bridge_validation_report.json",
     "ops/out/stream-bridge/stage7_soak_validation_report.json",
+    "ops/out/stream-bridge/stage8_ops_readiness_report.json",
 ]
 for item in files:
     path = Path(item)

@@ -21,6 +21,7 @@
 - `ops/bin/ffmpeg` 与 `ops/bin/ffprobe` 已准备好
 - `stage7-bridge-check` 通过
 - `stage7-soak-check` 通过
+- `stage8-readiness-check` 通过
 - 运维已拿到真实 `MUSIKALISCHES_RTMP_URL`
 
 建议先确认当前 bookmark：
@@ -64,6 +65,7 @@ make -C src/musikalisches stage6-video-render-check
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-soak-check
+make -C src/musikalisches stage8-readiness-check
 ```
 
 建议额外核对 manifest：
@@ -85,6 +87,7 @@ PY
 预期：
 
 - 都指向 `ops/bin/ffmpeg` / `ops/bin/ffprobe`
+- `ops/out/stream-bridge/stage8_ops_readiness_report.json` 为 `status = passed`
 
 ## 5. 短时 preflight 验证
 

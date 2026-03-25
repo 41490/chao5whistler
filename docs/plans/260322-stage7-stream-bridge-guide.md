@@ -57,6 +57,7 @@ make -C src/musikalisches stage7-soak-check
 - `soak gate`: 基于 bridge manifest 生成 `stage7_soak_plan.json`，并以 `stage7-soak-check` 验证进入 stage 8 前的最小条件
 - `artifact_integrity + tolerance`: stage7 manifest 现同步冻结 `stage7_bridge_profile.json` / `stream_bridge_ffmpeg_args.json` / `run_stage7_stream_bridge.sh` / `stage7_failure_taxonomy.json` / `stage7_soak_plan.json` 以及 `stage7_bridge_smoke.flv` 的文件级 `sha256` / `size_bytes`，并把 smoke 输出的 frame count / fps / duration / keyframe cadence / stream layout 容差显式写入 manifest，和 stage6 `offline_preview.mp4` 的验收口径对齐
 - `bridge consistency`: stage7 manifest 现显式冻结 stage6 `offline_preview.mp4` 的 probe 摘要、`sha256` 链接、以及到 stage7 `stage7_bridge_smoke.flv` 的 comparison tolerance / stream delta，validator 会直接比较两阶段的 width / height / fps / frame count / duration / keyframe cadence / stream layout
+- `stage8 ops contract`: stage7 manifest 现额外冻结 `stage8_ops` 区块，明确 real soak guide、entry script、required env vars、background files、required runtime reports 与 readiness report 文件名
 
 运行脚本约定：
 
@@ -121,3 +122,11 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
     - `comparison_tolerance`
     - `expected_stream_delta`
     - `expected_matches`
+- `stream_bridge_manifest.json > stage8_ops`
+  - 显式冻结：
+    - `guide_file`
+    - `entry_script_file`
+    - `required_env_vars`
+    - `background_files`
+    - `required_runtime_reports`
+    - `readiness_report_file`

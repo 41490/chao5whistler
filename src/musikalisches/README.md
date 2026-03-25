@@ -342,6 +342,7 @@ docs/plans/260322-stage7-stream-bridge-guide.md
 - `stage7_bridge_smoke.flv`
 - `stage7_bridge_validation_report.json`
 - `stage7_soak_validation_report.json`
+- `stage8_ops_readiness_report.json`（通过 `stage8-readiness-check` 生成）
 
 默认输出目录：
 
@@ -389,6 +390,7 @@ make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-preflight-regression-check
 make -C src/musikalisches stage7-soak-check
+make -C src/musikalisches stage8-readiness-check
 ```
 
 stage 8 真实 soak 的人工运维草稿见：

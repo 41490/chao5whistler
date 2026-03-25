@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -22,6 +23,10 @@ MP4_VIDEO_CODEC = "h264"
 MP4_VIDEO_ENCODER = "libx264"
 MP4_VIDEO_PRESET = "ultrafast"
 MP4_PIXEL_FORMAT = "yuv420p"
+MP4_KEYFRAME_INTERVAL_SECONDS = 2
+MP4_FRAME_COUNT_TOLERANCE = 1
+MP4_FPS_TOLERANCE = 0.01
+MP4_KEYFRAME_INTERVAL_TOLERANCE_FRAMES = 1
 
 
 def load_json(path: Path) -> dict:
@@ -39,6 +44,25 @@ def write_ppm(path: Path, width: int, height: int, payload: bytes) -> None:
     with path.open("wb") as handle:
         handle.write(f"P6\n{width} {height}\n255\n".encode("ascii"))
         handle.write(payload)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_file_fingerprint(path: Path) -> dict:
+    return {
+        "file": path.name,
+        "size_bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
 
 
 def round6(value: float) -> float:
@@ -452,6 +476,7 @@ def encode_mp4(
     scene: dict,
     base_canvas: bytearray,
 ) -> None:
+    keyframe_interval = max(1, fps * MP4_KEYFRAME_INTERVAL_SECONDS)
     command = [
         ffmpeg_bin,
         "-y",
@@ -470,6 +495,12 @@ def encode_mp4(
         MP4_VIDEO_ENCODER,
         "-preset",
         MP4_VIDEO_PRESET,
+        "-g",
+        str(keyframe_interval),
+        "-keyint_min",
+        str(keyframe_interval),
+        "-sc_threshold",
+        "0",
         "-pix_fmt",
         MP4_PIXEL_FORMAT,
         "-movflags",
@@ -502,9 +533,11 @@ def probe_mp4(ffprobe_bin: str | None, output_path: Path) -> dict | None:
             "-v",
             "error",
             "-show_entries",
-            "stream=width,height,avg_frame_rate,r_frame_rate,nb_frames",
+            "stream=index,codec_type,codec_name,profile,pix_fmt,width,height,"
+            "avg_frame_rate,r_frame_rate,nb_frames,sample_rate,channels,"
+            "channel_layout,bit_rate",
             "-show_entries",
-            "format=duration,size",
+            "format=format_name,format_long_name,duration,size,bit_rate",
             "-of",
             "json",
             str(output_path),
@@ -521,21 +554,134 @@ def probe_mp4(ffprobe_bin: str | None, output_path: Path) -> dict | None:
         }
 
     raw_probe = json.loads(result.stdout)
-    stream = raw_probe.get("streams", [{}])[0]
     format_payload = raw_probe.get("format", {})
-    return {
-        "status": "ok",
-        "width": stream.get("width"),
-        "height": stream.get("height"),
-        "avg_frame_rate": stream.get("avg_frame_rate"),
-        "avg_frame_rate_value": parse_rate(stream.get("avg_frame_rate")),
-        "r_frame_rate": stream.get("r_frame_rate"),
-        "r_frame_rate_value": parse_rate(stream.get("r_frame_rate")),
-        "nb_frames": stream.get("nb_frames"),
+    streams = raw_probe.get("streams", [])
+    video_streams = [stream for stream in streams if stream.get("codec_type") == "video"]
+    audio_streams = [stream for stream in streams if stream.get("codec_type") == "audio"]
+    primary_video_stream = video_streams[0] if video_streams else {}
+    keyframe_result = subprocess.run(
+        [
+            ffprobe_bin,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-skip_frame",
+            "nokey",
+            "-show_entries",
+            "frame=best_effort_timestamp_time,pkt_dts_time,pict_type",
+            "-of",
+            "json",
+            str(output_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    keyframes = {
+        "status": "unavailable",
+        "count": 0,
+        "timestamps_seconds": [],
+        "first_timestamp_seconds": None,
+        "last_timestamp_seconds": None,
+        "max_interval_seconds": None,
+        "max_interval_frames": None,
+    }
+    if keyframe_result.returncode == 0:
+        raw_keyframes = json.loads(keyframe_result.stdout).get("frames", [])
+        timestamps: list[float] = []
+        for frame in raw_keyframes:
+            timestamp = parse_rate(frame.get("best_effort_timestamp_time"))
+            if timestamp is None:
+                timestamp = parse_rate(frame.get("pkt_dts_time"))
+            if timestamp is not None:
+                timestamps.append(round6(timestamp))
+        max_interval_seconds = None
+        if len(timestamps) >= 2:
+            max_interval_seconds = max(
+                round6(timestamps[index + 1] - timestamps[index])
+                for index in range(len(timestamps) - 1)
+            )
+        keyframes = {
+            "status": "ok",
+            "count": len(timestamps),
+            "timestamps_seconds": timestamps,
+            "first_timestamp_seconds": timestamps[0] if timestamps else None,
+            "last_timestamp_seconds": timestamps[-1] if timestamps else None,
+            "max_interval_seconds": max_interval_seconds,
+            "max_interval_frames": (
+                int(round(max_interval_seconds * parse_rate(primary_video_stream.get("avg_frame_rate"))))
+                if max_interval_seconds is not None
+                and parse_rate(primary_video_stream.get("avg_frame_rate")) is not None
+                else None
+            ),
+        }
+    elif keyframe_result.stderr.strip():
+        keyframes["stderr"] = keyframe_result.stderr.strip()
+
+    def normalize_stream(stream: dict) -> dict:
+        return {
+            "index": stream.get("index"),
+            "codec_type": stream.get("codec_type"),
+            "codec_name": stream.get("codec_name"),
+            "profile": stream.get("profile"),
+            "pix_fmt": stream.get("pix_fmt"),
+            "width": stream.get("width"),
+            "height": stream.get("height"),
+            "avg_frame_rate": stream.get("avg_frame_rate"),
+            "avg_frame_rate_value": parse_rate(stream.get("avg_frame_rate")),
+            "r_frame_rate": stream.get("r_frame_rate"),
+            "r_frame_rate_value": parse_rate(stream.get("r_frame_rate")),
+            "nb_frames": stream.get("nb_frames"),
+            "nb_frames_value": int(stream["nb_frames"])
+            if str(stream.get("nb_frames", "")).isdigit()
+            else None,
+            "sample_rate": stream.get("sample_rate"),
+            "sample_rate_value": int(stream["sample_rate"])
+            if str(stream.get("sample_rate", "")).isdigit()
+            else None,
+            "channels": stream.get("channels"),
+            "channel_layout": stream.get("channel_layout"),
+            "bit_rate": stream.get("bit_rate"),
+            "bit_rate_value": int(stream["bit_rate"])
+            if str(stream.get("bit_rate", "")).isdigit()
+            else None,
+        }
+
+    normalized_streams = [normalize_stream(stream) for stream in streams]
+    primary_video = next(
+        (stream for stream in normalized_streams if stream.get("codec_type") == "video"),
+        {},
+    )
+    container = {
+        "format_name": format_payload.get("format_name"),
+        "format_long_name": format_payload.get("format_long_name"),
         "duration_seconds": parse_rate(format_payload.get("duration")),
         "file_size_bytes": int(format_payload["size"])
         if str(format_payload.get("size", "")).isdigit()
         else None,
+        "bit_rate_value": int(format_payload["bit_rate"])
+        if str(format_payload.get("bit_rate", "")).isdigit()
+        else None,
+    }
+    return {
+        "status": "ok",
+        "width": primary_video.get("width"),
+        "height": primary_video.get("height"),
+        "avg_frame_rate": primary_video.get("avg_frame_rate"),
+        "avg_frame_rate_value": primary_video.get("avg_frame_rate_value"),
+        "r_frame_rate": primary_video.get("r_frame_rate"),
+        "r_frame_rate_value": primary_video.get("r_frame_rate_value"),
+        "nb_frames": primary_video.get("nb_frames"),
+        "nb_frames_value": primary_video.get("nb_frames_value"),
+        "duration_seconds": container["duration_seconds"],
+        "file_size_bytes": container["file_size_bytes"],
+        "stream_count": len(normalized_streams),
+        "video_stream_count": len(video_streams),
+        "audio_stream_count": len(audio_streams),
+        "streams": normalized_streams,
+        "container": container,
+        "keyframes": keyframes,
     }
 
 
@@ -641,6 +787,17 @@ def main() -> int:
 
     write_json(output_dir / "visual_scene_profile.json", scene_profile)
     write_json(output_dir / "offline_frame_sequence.json", frame_sequence)
+    artifact_integrity = {
+        "visual_scene_profile.json": build_file_fingerprint(output_dir / "visual_scene_profile.json"),
+        "offline_frame_sequence.json": build_file_fingerprint(
+            output_dir / "offline_frame_sequence.json"
+        ),
+        "video_render_poster.ppm": build_file_fingerprint(poster_path),
+    }
+    if mp4_generated:
+        artifact_integrity["offline_preview.mp4"] = build_file_fingerprint(mp4_path)
+    duration_tolerance = round6(max(0.05, 1.5 / fps))
+    keyframe_interval = max(1, fps * MP4_KEYFRAME_INTERVAL_SECONDS)
 
     manifest = {
         "stage": "stage6_video_render",
@@ -661,6 +818,7 @@ def main() -> int:
             "preview_video_file": "offline_preview.mp4" if mp4_generated else None,
             "validation_report_file": "stage6_render_validation_report.json",
         },
+        "artifact_integrity": artifact_integrity,
         "generation_summary": {
             "frame_count": frame_sequence["summary"]["frame_count"],
             "window_count": frame_sequence["summary"]["window_count"],
@@ -689,10 +847,21 @@ def main() -> int:
             "expected_frame_count": frame_sequence["summary"]["frame_count"],
             "expected_fps": fps,
             "expected_duration_seconds": frame_sequence["summary"]["render_duration_seconds"],
+            "frame_count_tolerance": MP4_FRAME_COUNT_TOLERANCE,
+            "fps_tolerance": MP4_FPS_TOLERANCE,
+            "duration_tolerance_seconds": duration_tolerance,
+            "expected_keyframe_interval_frames": keyframe_interval,
+            "keyframe_interval_tolerance_frames": MP4_KEYFRAME_INTERVAL_TOLERANCE_FRAMES,
+            "expected_stream_layout": {
+                "video_stream_count": 1,
+                "audio_stream_count": 0,
+            },
             "video_codec": MP4_VIDEO_CODEC,
             "video_encoder": MP4_VIDEO_ENCODER,
             "video_preset": MP4_VIDEO_PRESET,
             "pixel_format": MP4_PIXEL_FORMAT,
+            "movflags": ["+faststart"],
+            "scene_cut_disabled": True,
             "probe": mp4_probe,
         },
     }

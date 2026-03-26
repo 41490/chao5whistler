@@ -344,8 +344,9 @@ impl FallbackReplayState {
         let current_day = NaiveDate::parse_from_str(start_day, "%Y-%m-%d")
             .with_context(|| format!("invalid fallback start day: {start_day}"))?;
         let density_profile = match config.fallback.density_source {
-            DensitySource::HistoryIfAvailable => load_history_density_profile(archive_root)?
-                .unwrap_or_else(builtin_density_profile),
+            DensitySource::HistoryIfAvailable => {
+                load_history_density_profile(archive_root)?.unwrap_or_else(builtin_density_profile)
+            }
             DensitySource::BuiltinOnly => builtin_density_profile(),
         };
         let seed = if config.fallback.seed == 0 {
@@ -396,9 +397,8 @@ impl FallbackReplayState {
             .unwrap_or(0);
         let peak_count = self.density_profile.peak_count.max(1);
         let density_ratio = minute_count as f64 / peak_count as f64;
-        let expected_events =
-            (density_ratio * self.density_scale * max_events_per_second as f64)
-                .clamp(0.0, max_events_per_second as f64);
+        let expected_events = (density_ratio * self.density_scale * max_events_per_second as f64)
+            .clamp(0.0, max_events_per_second as f64);
         let whole_events = expected_events.floor() as usize;
         let fractional_event = expected_events - whole_events as f64;
         let fraction_ticket = self.hash_unit(replay_second, usize::MAX, "event-fraction");
@@ -507,7 +507,10 @@ impl FallbackReplayState {
         if let Some((owner_prefix, repo_prefix)) = self.repo_prefix.split_once('/') {
             format!("{owner_prefix}-{owner_suffix:02}/{repo_prefix}-{repo_suffix:03}")
         } else {
-            format!("{}-{owner_suffix:02}/repo-{repo_suffix:03}", self.repo_prefix)
+            format!(
+                "{}-{owner_suffix:02}/repo-{repo_suffix:03}",
+                self.repo_prefix
+            )
         }
     }
 

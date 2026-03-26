@@ -208,8 +208,11 @@ pub fn sample_day_pack(
     let fps = effective_config.video.canvas.fps;
     let source_events_by_tick =
         load_source_events_for_ticks(&replay_report.archive_root, &replay_report.ticks)?;
-    let type_color_assignments =
-        build_type_color_assignments(&effective_config, &replay_report.ticks, &source_events_by_tick)?;
+    let type_color_assignments = build_type_color_assignments(
+        &effective_config,
+        &replay_report.ticks,
+        &source_events_by_tick,
+    )?;
     let color_by_type = type_color_assignments
         .iter()
         .map(|entry| (entry.event_type.clone(), entry.color_hex.clone()))
@@ -448,8 +451,11 @@ impl LiveVideoRenderer {
         let cutoff = tick.replay_second as f64 + 1.0;
         self.active_sprites
             .retain(|sprite| sprite.spawn_replay_second as f64 + sprite.lifetime_secs > cutoff);
-        self.sprite_assets
-            .retain(|event_id, _| self.active_sprites.iter().any(|sprite| &sprite.event_id == event_id));
+        self.sprite_assets.retain(|event_id, _| {
+            self.active_sprites
+                .iter()
+                .any(|sprite| &sprite.event_id == event_id)
+        });
 
         Ok(frames)
     }
@@ -735,7 +741,10 @@ fn build_sprite_assets(
 ) -> Result<HashMap<String, RgbaImage>> {
     let mut assets = HashMap::new();
     for sprite in &frame_plan.sprites {
-        assets.insert(sprite.event_id.clone(), build_sprite_asset(config, font, sprite)?);
+        assets.insert(
+            sprite.event_id.clone(),
+            build_sprite_asset(config, font, sprite)?,
+        );
     }
     Ok(assets)
 }
@@ -1086,7 +1095,9 @@ fn build_type_color_assignments(
     let background = parse_hex_color(&config.video.palette.background_hex)?;
     let mut counts = BTreeMap::<String, u64>::new();
     for tick in ticks {
-        if let Some(events) = source_events_by_tick.get(&(tick.source_day.clone(), tick.second_of_day)) {
+        if let Some(events) =
+            source_events_by_tick.get(&(tick.source_day.clone(), tick.second_of_day))
+        {
             for event in events {
                 *counts.entry(event.event_type.clone()).or_insert(0) += 1;
             }

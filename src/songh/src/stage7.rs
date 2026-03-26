@@ -1173,9 +1173,9 @@ fn resolve_requested_runtime_seconds(
 
     let override_limit = max_runtime_seconds.filter(|value| *value > 0);
     if loop_mode == "once" {
-        Ok(Some(
-            override_limit.unwrap_or(manifest.live_runtime.once_duration_seconds as u64),
-        ))
+        Ok(Some(override_limit.unwrap_or(
+            manifest.live_runtime.once_duration_seconds as u64,
+        )))
     } else {
         Ok(override_limit)
     }
@@ -1194,7 +1194,13 @@ fn run_live_generation_attempt(
     }
     #[cfg(not(unix))]
     {
-        let _ = (manifest, requested_runtime_seconds, target_url, local_record_path, artifact_dir);
+        let _ = (
+            manifest,
+            requested_runtime_seconds,
+            target_url,
+            local_record_path,
+            artifact_dir,
+        );
         bail!("stage7 live runtime currently requires unix named pipes");
     }
     #[cfg(unix)]
@@ -1238,14 +1244,13 @@ fn run_live_generation_attempt(
             None,
             manifest.live_runtime.start_second,
         )?;
-        let mut video_renderer = LiveVideoRenderer::new(
-            &manifest.live_runtime.effective_config,
-            None,
-            None,
-        )?;
+        let mut video_renderer =
+            LiveVideoRenderer::new(&manifest.live_runtime.effective_config, None, None)?;
         let mut audio_renderer = LiveAudioRenderer::new(&manifest.live_runtime.effective_config)?;
 
-        if manifest.live_runtime.effective_config.runtime.start_policy == StartPolicy::AlignToNextSecond {
+        if manifest.live_runtime.effective_config.runtime.start_policy
+            == StartPolicy::AlignToNextSecond
+        {
             align_to_next_second();
         }
 
@@ -1344,7 +1349,9 @@ fn align_to_next_second() {
         .unwrap_or_else(|_| Duration::from_secs(0));
     let nanos = now.subsec_nanos();
     if nanos > 0 {
-        thread::sleep(Duration::from_nanos(1_000_000_000_u64.saturating_sub(nanos as u64)));
+        thread::sleep(Duration::from_nanos(
+            1_000_000_000_u64.saturating_sub(nanos as u64),
+        ));
     }
 }
 
@@ -1614,11 +1621,20 @@ fn build_redacted_live_shell(
             manifest.live_runtime.effective_config.video.canvas.width,
             manifest.live_runtime.effective_config.video.canvas.height
         ),
-        format!("-r {}", manifest.live_runtime.effective_config.video.canvas.fps),
+        format!(
+            "-r {}",
+            manifest.live_runtime.effective_config.video.canvas.fps
+        ),
         "-i <VIDEO_PIPE>".to_string(),
         "-f s16le".to_string(),
-        format!("-ar {}", manifest.live_runtime.effective_config.audio.sample_rate),
-        format!("-ac {}", manifest.live_runtime.effective_config.audio.channels),
+        format!(
+            "-ar {}",
+            manifest.live_runtime.effective_config.audio.sample_rate
+        ),
+        format!(
+            "-ac {}",
+            manifest.live_runtime.effective_config.audio.channels
+        ),
         "-i <AUDIO_PIPE>".to_string(),
     ];
     if let Some(seconds) = requested_runtime_seconds.filter(|value| *value > 0) {

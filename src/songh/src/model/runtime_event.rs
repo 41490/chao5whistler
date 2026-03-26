@@ -32,8 +32,17 @@ pub struct RuntimeEvent {
 
 impl From<&NormalizedEvent> for RuntimeEvent {
     fn from(value: &NormalizedEvent) -> Self {
+        Self::from_normalized_with_source(value, RuntimeEventSource::ArchiveReplay)
+    }
+}
+
+impl RuntimeEvent {
+    pub fn from_normalized_with_source(
+        value: &NormalizedEvent,
+        source: RuntimeEventSource,
+    ) -> Self {
         Self {
-            source: RuntimeEventSource::ArchiveReplay,
+            source,
             event_id: value.event_id.clone(),
             source_day: value.source_day.clone(),
             source_hour: value.source_hour,

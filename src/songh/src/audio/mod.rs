@@ -97,6 +97,12 @@ struct BackgroundTrack {
     right: Vec<f32>,
 }
 
+pub struct LiveAudioRenderer {
+    config: Config,
+    background: Option<BackgroundTrack>,
+    active_cues: Vec<AudioCuePlan>,
+}
+
 pub fn sample_day_pack(
     config: &Config,
     day: &str,
@@ -252,6 +258,110 @@ pub fn render_day_pack(
     Ok(report)
 }
 
+impl LiveAudioRenderer {
+    pub fn new(config: &Config) -> Result<Self> {
+        if config.audio.channels != 2 {
+            bail!("stage7 live audio currently requires stereo output");
+        }
+
+        Ok(Self {
+            config: config.clone(),
+            background: load_background_track(config, config.audio.sample_rate)?,
+            active_cues: Vec::new(),
+        })
+    }
+
+    pub fn render_tick(&mut self, tick: &ReplayTick) -> Result<Vec<u8>> {
+        let density = empty_density(&tick.events);
+        let sample_rate = self.config.audio.sample_rate;
+        let chunk_start_frame = tick.replay_second * sample_rate as u64;
+        let chunk_frames = sample_rate as usize;
+        let chunk_end_frame = chunk_start_frame + chunk_frames as u64;
+
+        for event in &tick.events {
+            let voice = resolve_voice_config(&self.config, &event.event_type)?;
+            let initial_gain_db = density_gain_for_event(&density, &event.event_type);
+            self.active_cues.push(AudioCuePlan {
+                event_id: event.event_id.clone(),
+                event_type: event.event_type.clone(),
+                voice_preset: voice.preset.clone(),
+                waveform: waveform_name(&voice.preset).to_string(),
+                source_day: tick.source_day.clone(),
+                second_of_day: tick.second_of_day,
+                spawn_replay_second: tick.replay_second,
+                start_frame: chunk_start_frame,
+                duration_frames: ms_to_frames(voice.duration_ms, sample_rate),
+                base_frequency_hz: round2(base_frequency_hz(&voice.preset, &event.event_type)),
+                pan: round2(voice.pan),
+                voice_gain_db: round2(voice.gain_db),
+                initial_gain_db: round2(initial_gain_db),
+                applied_gain_db: round2(voice.gain_db + initial_gain_db),
+            });
+        }
+
+        let mut left = vec![0.0_f32; chunk_frames];
+        let mut right = vec![0.0_f32; chunk_frames];
+        let sample_rate_f32 = sample_rate as f32;
+
+        for cue in &self.active_cues {
+            let cue_end_frame = cue.start_frame + cue.duration_frames;
+            if cue_end_frame <= chunk_start_frame || cue.start_frame >= chunk_end_frame {
+                continue;
+            }
+
+            let overlap_start = cue.start_frame.max(chunk_start_frame);
+            let overlap_end = cue_end_frame.min(chunk_end_frame);
+            let fade_frames = ((self.config.audio.mix.crossfade_ms as u64 * sample_rate as u64)
+                / 1_000)
+                .min(cue.duration_frames / 2) as usize;
+            let gain = db_to_linear(cue.applied_gain_db) * BASE_CUE_AMPLITUDE;
+            let (left_gain, right_gain) = pan_gains(cue.pan as f32);
+            let waveform = cue.waveform.as_str();
+            let frequency_hz = cue.base_frequency_hz as f32;
+
+            for global_frame in overlap_start..overlap_end {
+                let cue_index = (global_frame - cue.start_frame) as usize;
+                let chunk_index = (global_frame - chunk_start_frame) as usize;
+                let seconds = cue_index as f32 / sample_rate_f32;
+                let sample = oscillator_sample(waveform, frequency_hz, seconds);
+                let envelope = envelope_gain(cue_index, cue.duration_frames as usize, fade_frames);
+                let value = sample * envelope * gain;
+                left[chunk_index] += value * left_gain;
+                right[chunk_index] += value * right_gain;
+            }
+        }
+
+        if let Some(track) = &self.background {
+            mix_background_track_segment(track, chunk_start_frame, &mut left, &mut right);
+        }
+
+        let master_gain = db_to_linear(self.config.audio.master_gain_db);
+        for sample in &mut left {
+            *sample *= master_gain;
+        }
+        for sample in &mut right {
+            *sample *= master_gain;
+        }
+
+        let peak_before_limiter = peak_amplitude(&left, &right);
+        let limiter_ceiling = db_to_linear(self.config.audio.mix.limiter_ceiling_dbfs).min(1.0);
+        if self.config.audio.mix.limiter_enabled && peak_before_limiter > limiter_ceiling {
+            let scale = limiter_ceiling / peak_before_limiter;
+            for sample in &mut left {
+                *sample *= scale;
+            }
+            for sample in &mut right {
+                *sample *= scale;
+            }
+        }
+
+        self.active_cues
+            .retain(|cue| cue.start_frame + cue.duration_frames > chunk_end_frame);
+
+        Ok(interleave_pcm16(&left, &right))
+    }
+}
+
 fn render_mix(
     config: &Config,
     frame_plan: &AudioSampleReport,
@@ -392,6 +502,38 @@ fn mix_background_track(track: &BackgroundTrack, left: &mut [f32], right: &mut [
             index % background_frames
         } else {
             index
+        };
+        left[index] += track.left[source_index] * background_gain;
+        right[index] += track.right[source_index] * background_gain;
+    }
+}
+
+fn mix_background_track_segment(
+    track: &BackgroundTrack,
+    start_frame: u64,
+    left: &mut [f32],
+    right: &mut [f32],
+) {
+    if track.left.is_empty() || track.right.is_empty() {
+        return;
+    }
+
+    let background_gain = db_to_linear(track.summary.gain_db);
+    let frame_count = left.len().min(right.len());
+    let background_frames = track.left.len().min(track.right.len());
+    if background_frames == 0 {
+        return;
+    }
+
+    for index in 0..frame_count {
+        let absolute_index = start_frame as usize + index;
+        if !track.summary.loop_enabled && absolute_index >= background_frames {
+            break;
+        }
+        let source_index = if track.summary.loop_enabled {
+            absolute_index % background_frames
+        } else {
+            absolute_index
         };
         left[index] += track.left[source_index] * background_gain;
         right[index] += track.right[source_index] * background_gain;
@@ -604,6 +746,9 @@ fn load_density_for_ticks(
 ) -> Result<BTreeMap<(String, u32), SecondDensity>> {
     let mut ranges = BTreeMap::<String, (u32, u32)>::new();
     for tick in ticks {
+        if tick.is_fallback {
+            continue;
+        }
         let entry = ranges
             .entry(tick.source_day.clone())
             .or_insert((tick.second_of_day, tick.second_of_day + 1));
@@ -774,6 +919,16 @@ fn write_wav_pcm16(path: &Path, sample_rate: u32, left: &[f32], right: &[f32]) -
     }
 
     fs::write(path, bytes).with_context(|| format!("write wav {}", path.display()))
+}
+
+fn interleave_pcm16(left: &[f32], right: &[f32]) -> Vec<u8> {
+    let frame_count = left.len().min(right.len());
+    let mut bytes = Vec::with_capacity(frame_count * 4);
+    for index in 0..frame_count {
+        bytes.extend_from_slice(&quantize_pcm16(left[index]).to_le_bytes());
+        bytes.extend_from_slice(&quantize_pcm16(right[index]).to_le_bytes());
+    }
+    bytes
 }
 
 fn quantize_pcm16(sample: f32) -> i16 {
@@ -951,6 +1106,26 @@ mod tests {
             report.wav_sha256,
             "d05d4d67ef70b3e37c9f09110ee464991b9610fdaeb880f74fb01c09a41bee82"
         );
+    }
+
+    #[test]
+    fn audio_sample_random_fallback_emits_cues_without_archive() {
+        let temp = tempdir().expect("tempdir");
+        let archive_root = temp.path().join("missing-archive");
+        let mut config = Config::default();
+        config.archive.root_dir = archive_root.display().to_string();
+        config.runtime.mode = crate::config::schema::RuntimeMode::RandomFallback;
+        config.fallback.seed = 5;
+        config.fallback.density_scale = 1.0;
+
+        let report = sample_day_pack(&config, "2026-03-19", Some(&archive_root), 43_200, 4)
+            .expect("sample fallback audio");
+
+        assert!(report.emitted_cue_count > 0);
+        assert!(report
+            .cues
+            .iter()
+            .all(|cue| cue.event_type.ends_with("Event")));
     }
 
     fn write_background_fixture(

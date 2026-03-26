@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -14,9 +14,12 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::audio::LiveAudioRenderer;
 use crate::av::{self, AvProbeSummary, AvRenderReport};
-use crate::config::schema::{Config, MotionMode};
+use crate::config::schema::{Config, MotionMode, StartPolicy};
 use crate::config::RTMP_URL_ENV_VAR;
+use crate::replay::ReplayEngine;
+use crate::video::LiveVideoRenderer;
 
 const FFMPEG_BIN_ENV_VAR: &str = "SONGH_FFMPEG_BIN";
 const FFPROBE_BIN_ENV_VAR: &str = "SONGH_FFPROBE_BIN";
@@ -37,6 +40,21 @@ const EXIT_REPORT_FILE: &str = "stage7_bridge_exit_report.json";
 const LATEST_LOG_FILE: &str = "stage7_bridge_latest.stderr.log";
 const LOG_DIR_NAME: &str = "logs";
 const DURATION_TOLERANCE_SECS: f64 = 0.35;
+
+fn apply_runtime_overrides(
+    config: &Config,
+    motion_mode_override: Option<MotionMode>,
+    angle_deg_override: Option<f64>,
+) -> Config {
+    let mut effective = config.clone();
+    if let Some(mode) = motion_mode_override {
+        effective.video.motion.mode = mode;
+    }
+    if let Some(angle_deg) = angle_deg_override {
+        effective.video.motion.angle_deg = angle_deg;
+    }
+    effective
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Stage7BuildReport {
@@ -80,6 +98,7 @@ struct StreamBridgeManifest {
     ffprobe_bin: Option<PathBuf>,
     video_input: VideoInputContract,
     smoke_generation: SmokeGenerationContract,
+    live_runtime: LiveRuntimeContract,
     live_bridge: LiveBridgeContract,
     preflight: PreflightContract,
     runtime_executor: RuntimeExecutorContract,
@@ -108,6 +127,14 @@ struct SmokeGenerationContract {
     generated: bool,
     duration_tolerance_seconds: f64,
     probe: Option<AvProbeSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LiveRuntimeContract {
+    generator_mode: String,
+    effective_config: Config,
+    start_second: u32,
+    once_duration_seconds: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -244,15 +271,17 @@ pub fn build_day_pack(
     fs::create_dir_all(output_dir)
         .with_context(|| format!("create stage7 output dir {}", output_dir.display()))?;
 
+    let effective_config =
+        apply_runtime_overrides(config, motion_mode_override, angle_deg_override);
     let source = av::render_day_pack(
-        config,
+        &effective_config,
         day,
         archive_root_override,
         output_dir,
         start_second,
         duration_secs,
-        motion_mode_override,
-        angle_deg_override,
+        None,
+        None,
     )?;
 
     let ffmpeg_bin = resolve_binary(FFMPEG_BIN_ENV_VAR, "ffmpeg");
@@ -275,7 +304,7 @@ pub fn build_day_pack(
     let wrapper_script_path = output_dir.join(WRAPPER_SCRIPT_FILE);
 
     let manifest = build_manifest(
-        config,
+        &effective_config,
         day,
         output_dir,
         &source,
@@ -284,6 +313,8 @@ pub fn build_day_pack(
         smoke_probe.clone(),
         &ffmpeg_bin,
         resolved_ffprobe_bin.clone(),
+        start_second,
+        duration_secs,
     )?;
     let args_file = build_args_file(&manifest);
     let taxonomy = default_failure_taxonomy();
@@ -601,6 +632,8 @@ pub fn run_runtime(
     let mut final_exit_code = 0_i32;
     let mut final_exit_class = String::from("clean_exit");
     let mut final_status = String::from("clean_exit");
+    let requested_runtime_seconds =
+        resolve_requested_runtime_seconds(&manifest, loop_mode, max_runtime_seconds)?;
 
     for attempt_index in 1..=manifest.runtime_executor.max_attempts {
         let attempt_log_path = output_log_dir.join(format!(
@@ -609,22 +642,21 @@ pub fn run_runtime(
         let attempt_report_path = output_log_dir.join(format!(
             "stage7_bridge_attempt_{attempt_index:03}.exit_report.json"
         ));
-        let live_args = build_live_ffmpeg_args(
+        let live_result = run_live_generation_attempt(
             &manifest,
             loop_mode,
-            max_runtime_seconds,
+            requested_runtime_seconds,
             &target_url,
             resolve_local_record_path(&manifest.live_bridge)?,
+            artifact_dir,
         )?;
-        let live_output = command_output_strings(&manifest.ffmpeg_bin, &live_args[1..])?;
+        let live_output = live_result.output;
         let stderr = redact_text(&live_output.stderr, &target_url);
         fs::write(&attempt_log_path, stderr.as_bytes())
             .with_context(|| format!("write attempt log {}", attempt_log_path.display()))?;
 
         let mut classified = classify_failure(&stderr, live_output.exit_code, &taxonomy);
-        if live_output.exit_code == 0
-            && runtime_limit_hit(loop_mode, max_runtime_seconds, &manifest)
-        {
+        if live_output.exit_code == 0 && live_result.stopped_by_requested_limit {
             classified.class_id = "runtime_limit_reached".to_string();
             classified.retryable = false;
         }
@@ -643,7 +675,8 @@ pub fn run_runtime(
             "retryable": classified.retryable,
             "matched_tokens": classified.matched_tokens,
             "log_file": attempt_log_path,
-            "command_shell": build_redacted_live_shell(&manifest, loop_mode, max_runtime_seconds),
+            "seconds_generated": live_result.seconds_generated,
+            "command_shell": build_redacted_live_shell(&manifest, loop_mode, requested_runtime_seconds),
         });
         write_json(&attempt_report_path, &attempt_payload)?;
         fs::copy(&attempt_log_path, &latest_log_path).ok();
@@ -744,9 +777,11 @@ fn build_manifest(
     smoke_probe: Option<AvProbeSummary>,
     ffmpeg_bin: &Path,
     ffprobe_bin: Option<PathBuf>,
+    start_second: u32,
+    duration_secs: u32,
 ) -> Result<StreamBridgeManifest> {
     Ok(StreamBridgeManifest {
-        schema_version: "stage7.stream_bridge.v1".to_string(),
+        schema_version: "stage7.stream_bridge.v2".to_string(),
         work_id: format!("songh-stage7-{}", config.meta.label),
         output_dir: output_dir.to_path_buf(),
         source_day: day.to_string(),
@@ -768,6 +803,12 @@ fn build_manifest(
             generated: true,
             duration_tolerance_seconds: DURATION_TOLERANCE_SECS,
             probe: smoke_probe,
+        },
+        live_runtime: LiveRuntimeContract {
+            generator_mode: "tick_live_generator".to_string(),
+            effective_config: config.clone(),
+            start_second,
+            once_duration_seconds: duration_secs,
         },
         live_bridge: LiveBridgeContract {
             stream_url_env_var: RTMP_URL_ENV_VAR.to_string(),
@@ -959,87 +1000,116 @@ fn build_publish_probe_args(ffmpeg_bin: &Path, target_url: &str) -> Vec<String> 
 }
 
 fn live_args_with_placeholders(manifest: &StreamBridgeManifest, loop_mode: &str) -> Vec<String> {
-    let mut args = vec![
-        "ffmpeg".to_string(),
-        "-hide_banner".to_string(),
-        "-nostats".to_string(),
-        "-loglevel".to_string(),
-        "error".to_string(),
-        "-re".to_string(),
-    ];
-    if loop_mode == "infinite" {
-        args.push("-stream_loop".to_string());
-        args.push("-1".to_string());
-    }
-    args.push("-i".to_string());
-    args.push(manifest.video_input.preview_mp4_path.display().to_string());
-    if manifest.live_bridge.local_record_enabled {
-        args.push("-map".to_string());
-        args.push("0:v:0".to_string());
-        args.push("-map".to_string());
-        args.push("0:a:0".to_string());
-        args.push("-c".to_string());
-        args.push("copy".to_string());
-        args.push("-f".to_string());
-        args.push("flv".to_string());
-        args.push("<TARGET_URL>".to_string());
-        args.push("-map".to_string());
-        args.push("0:v:0".to_string());
-        args.push("-map".to_string());
-        args.push("0:a:0".to_string());
-        args.push("-c".to_string());
-        args.push("copy".to_string());
-        args.push("-f".to_string());
-        args.push("flv".to_string());
-        args.push("<LOCAL_RECORD_PATH>".to_string());
+    let requested_runtime_seconds = if loop_mode == "once" {
+        Some(manifest.live_runtime.once_duration_seconds as u64)
     } else {
-        args.push("-map".to_string());
-        args.push("0:v:0".to_string());
-        args.push("-map".to_string());
-        args.push("0:a:0".to_string());
-        args.push("-c".to_string());
-        args.push("copy".to_string());
-        args.push("-f".to_string());
-        args.push("flv".to_string());
-        args.push("<TARGET_URL>".to_string());
-    }
-    args
+        None
+    };
+    build_live_ffmpeg_args_with_limit(
+        manifest,
+        Path::new("<VIDEO_PIPE>"),
+        Path::new("<AUDIO_PIPE>"),
+        "<TARGET_URL>",
+        manifest
+            .live_bridge
+            .local_record_enabled
+            .then(|| PathBuf::from("<LOCAL_RECORD_PATH>")),
+        requested_runtime_seconds,
+    )
+    .unwrap_or_default()
 }
 
-fn build_live_ffmpeg_args(
+fn build_live_ffmpeg_args_with_limit(
     manifest: &StreamBridgeManifest,
-    loop_mode: &str,
-    max_runtime_seconds: Option<u64>,
+    video_pipe_path: &Path,
+    audio_pipe_path: &Path,
     target_url: &str,
     local_record_path: Option<PathBuf>,
+    requested_runtime_seconds: Option<u64>,
 ) -> Result<Vec<String>> {
-    if loop_mode != "once" && loop_mode != "infinite" {
-        bail!("unsupported loop mode: {loop_mode}");
-    }
     let mut args = vec![
         manifest.ffmpeg_bin.display().to_string(),
         "-hide_banner".to_string(),
         "-nostats".to_string(),
         "-loglevel".to_string(),
         "error".to_string(),
-        "-re".to_string(),
+        "-f".to_string(),
+        "rawvideo".to_string(),
+        "-pix_fmt".to_string(),
+        "rgba".to_string(),
+        "-s".to_string(),
+        format!(
+            "{}x{}",
+            manifest.live_runtime.effective_config.video.canvas.width,
+            manifest.live_runtime.effective_config.video.canvas.height
+        ),
+        "-r".to_string(),
+        manifest
+            .live_runtime
+            .effective_config
+            .video
+            .canvas
+            .fps
+            .to_string(),
     ];
-    if loop_mode == "infinite" {
-        args.push("-stream_loop".to_string());
-        args.push("-1".to_string());
-    }
     args.push("-i".to_string());
-    args.push(manifest.video_input.preview_mp4_path.display().to_string());
-    if let Some(seconds) = max_runtime_seconds.filter(|value| *value > 0) {
+    args.push(video_pipe_path.display().to_string());
+    args.push("-f".to_string());
+    args.push("s16le".to_string());
+    args.push("-ar".to_string());
+    args.push(
+        manifest
+            .live_runtime
+            .effective_config
+            .audio
+            .sample_rate
+            .to_string(),
+    );
+    args.push("-ac".to_string());
+    args.push(
+        manifest
+            .live_runtime
+            .effective_config
+            .audio
+            .channels
+            .to_string(),
+    );
+    args.push("-i".to_string());
+    args.push(audio_pipe_path.display().to_string());
+    if let Some(seconds) = requested_runtime_seconds.filter(|value| *value > 0) {
         args.push("-t".to_string());
         args.push(seconds.to_string());
     }
     args.push("-map".to_string());
     args.push("0:v:0".to_string());
     args.push("-map".to_string());
-    args.push("0:a:0".to_string());
-    args.push("-c".to_string());
-    args.push("copy".to_string());
+    args.push("1:a:0".to_string());
+    args.push("-c:v".to_string());
+    args.push("libx264".to_string());
+    args.push("-preset".to_string());
+    args.push(
+        manifest
+            .live_runtime
+            .effective_config
+            .outputs
+            .encode
+            .video_preset
+            .clone(),
+    );
+    args.push("-pix_fmt".to_string());
+    args.push("yuv420p".to_string());
+    args.push("-c:a".to_string());
+    args.push("aac".to_string());
+    args.push("-b:a".to_string());
+    args.push(format!(
+        "{}k",
+        manifest
+            .live_runtime
+            .effective_config
+            .outputs
+            .encode
+            .audio_bitrate_kbps
+    ));
     args.push("-f".to_string());
     args.push("flv".to_string());
     args.push(target_url.to_string());
@@ -1051,14 +1121,246 @@ fn build_live_ffmpeg_args(
         args.push("-map".to_string());
         args.push("0:v:0".to_string());
         args.push("-map".to_string());
-        args.push("0:a:0".to_string());
-        args.push("-c".to_string());
-        args.push("copy".to_string());
+        args.push("1:a:0".to_string());
+        args.push("-c:v".to_string());
+        args.push("libx264".to_string());
+        args.push("-preset".to_string());
+        args.push(
+            manifest
+                .live_runtime
+                .effective_config
+                .outputs
+                .encode
+                .video_preset
+                .clone(),
+        );
+        args.push("-pix_fmt".to_string());
+        args.push("yuv420p".to_string());
+        args.push("-c:a".to_string());
+        args.push("aac".to_string());
+        args.push("-b:a".to_string());
+        args.push(format!(
+            "{}k",
+            manifest
+                .live_runtime
+                .effective_config
+                .outputs
+                .encode
+                .audio_bitrate_kbps
+        ));
         args.push("-f".to_string());
         args.push("flv".to_string());
         args.push(path.display().to_string());
     }
     Ok(args)
+}
+
+#[derive(Debug)]
+struct LiveAttemptResult {
+    output: CommandOutput,
+    seconds_generated: u64,
+    stopped_by_requested_limit: bool,
+}
+
+fn resolve_requested_runtime_seconds(
+    manifest: &StreamBridgeManifest,
+    loop_mode: &str,
+    max_runtime_seconds: Option<u64>,
+) -> Result<Option<u64>> {
+    if loop_mode != "once" && loop_mode != "infinite" {
+        bail!("unsupported loop mode: {loop_mode}");
+    }
+
+    let override_limit = max_runtime_seconds.filter(|value| *value > 0);
+    if loop_mode == "once" {
+        Ok(Some(
+            override_limit.unwrap_or(manifest.live_runtime.once_duration_seconds as u64),
+        ))
+    } else {
+        Ok(override_limit)
+    }
+}
+
+fn run_live_generation_attempt(
+    manifest: &StreamBridgeManifest,
+    loop_mode: &str,
+    requested_runtime_seconds: Option<u64>,
+    target_url: &str,
+    local_record_path: Option<PathBuf>,
+    artifact_dir: &Path,
+) -> Result<LiveAttemptResult> {
+    if loop_mode != "once" && loop_mode != "infinite" {
+        bail!("unsupported loop mode: {loop_mode}");
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (manifest, requested_runtime_seconds, target_url, local_record_path, artifact_dir);
+        bail!("stage7 live runtime currently requires unix named pipes");
+    }
+    #[cfg(unix)]
+    {
+        let pipe_dir = artifact_dir.join("live_runtime");
+        fs::create_dir_all(&pipe_dir)
+            .with_context(|| format!("create live runtime dir {}", pipe_dir.display()))?;
+        let video_pipe_path = pipe_dir.join("video.rgba.pipe");
+        let audio_pipe_path = pipe_dir.join("audio.s16le.pipe");
+        recreate_named_pipe(&video_pipe_path)?;
+        recreate_named_pipe(&audio_pipe_path)?;
+
+        let ffmpeg_args = build_live_ffmpeg_args_with_limit(
+            manifest,
+            &video_pipe_path,
+            &audio_pipe_path,
+            target_url,
+            local_record_path,
+            requested_runtime_seconds,
+        )?;
+        let child = Command::new(&manifest.ffmpeg_bin)
+            .args(&ffmpeg_args[1..])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("spawn ffmpeg {}", manifest.ffmpeg_bin.display()))?;
+
+        let mut video_writer = fs::OpenOptions::new()
+            .write(true)
+            .open(&video_pipe_path)
+            .with_context(|| format!("open live video pipe {}", video_pipe_path.display()))?;
+        let mut audio_writer = fs::OpenOptions::new()
+            .write(true)
+            .open(&audio_pipe_path)
+            .with_context(|| format!("open live audio pipe {}", audio_pipe_path.display()))?;
+
+        let mut engine = ReplayEngine::open(
+            &manifest.live_runtime.effective_config,
+            &manifest.source_day,
+            None,
+            manifest.live_runtime.start_second,
+        )?;
+        let mut video_renderer = LiveVideoRenderer::new(
+            &manifest.live_runtime.effective_config,
+            None,
+            None,
+        )?;
+        let mut audio_renderer = LiveAudioRenderer::new(&manifest.live_runtime.effective_config)?;
+
+        if manifest.live_runtime.effective_config.runtime.start_policy == StartPolicy::AlignToNextSecond {
+            align_to_next_second();
+        }
+
+        let pacing_origin = Instant::now();
+        let mut seconds_generated = 0_u64;
+        let mut stopped_by_requested_limit = false;
+        let generation_result = (|| -> Result<()> {
+            loop {
+                if requested_runtime_seconds
+                    .map(|seconds| seconds_generated >= seconds)
+                    .unwrap_or(false)
+                {
+                    stopped_by_requested_limit = true;
+                    break;
+                }
+
+                let Some(tick) = engine.next_tick()? else {
+                    break;
+                };
+
+                let frames = video_renderer.render_tick(&tick)?;
+                let audio_bytes = audio_renderer.render_tick(&tick)?;
+                for frame in frames {
+                    video_writer
+                        .write_all(frame.as_raw())
+                        .with_context(|| "write live video frame to pipe")?;
+                }
+                audio_writer
+                    .write_all(&audio_bytes)
+                    .with_context(|| "write live audio chunk to pipe")?;
+                video_writer.flush().ok();
+                audio_writer.flush().ok();
+
+                seconds_generated += 1;
+                pace_live_tick(
+                    &manifest.live_runtime.effective_config,
+                    &pacing_origin,
+                    seconds_generated,
+                );
+            }
+            Ok(())
+        })();
+
+        drop(video_writer);
+        drop(audio_writer);
+        let output = child
+            .wait_with_output()
+            .with_context(|| format!("wait ffmpeg {}", manifest.ffmpeg_bin.display()))?;
+        fs::remove_file(&video_pipe_path).ok();
+        fs::remove_file(&audio_pipe_path).ok();
+
+        let command_output = CommandOutput {
+            exit_code: output.status.code().unwrap_or(1),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        };
+        if let Err(error) = generation_result {
+            if command_output.exit_code == 0 {
+                return Err(error);
+            }
+        }
+
+        Ok(LiveAttemptResult {
+            output: command_output,
+            seconds_generated,
+            stopped_by_requested_limit,
+        })
+    }
+}
+
+#[cfg(unix)]
+fn recreate_named_pipe(path: &Path) -> Result<()> {
+    if path.exists() {
+        fs::remove_file(path).with_context(|| format!("remove stale pipe {}", path.display()))?;
+    }
+    let output = Command::new("mkfifo")
+        .arg(path)
+        .output()
+        .with_context(|| format!("spawn mkfifo for {}", path.display()))?;
+    if !output.status.success() {
+        bail!(
+            "mkfifo {} exited with {}: {}",
+            path.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+fn align_to_next_second() {
+    use std::time::UNIX_EPOCH;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0));
+    let nanos = now.subsec_nanos();
+    if nanos > 0 {
+        thread::sleep(Duration::from_nanos(1_000_000_000_u64.saturating_sub(nanos as u64)));
+    }
+}
+
+fn pace_live_tick(config: &Config, pacing_origin: &Instant, seconds_generated: u64) {
+    if !matches!(
+        config.runtime.clock,
+        crate::config::schema::RuntimeClock::RealtimeDay
+    ) {
+        return;
+    }
+
+    let target_elapsed = Duration::from_secs(seconds_generated);
+    let elapsed = pacing_origin.elapsed();
+    if elapsed < target_elapsed {
+        thread::sleep(target_elapsed - elapsed);
+    }
 }
 
 fn resolve_local_record_path(contract: &LiveBridgeContract) -> Result<Option<PathBuf>> {
@@ -1249,20 +1551,6 @@ fn classify_failure(stderr: &str, exit_code: i32, taxonomy: &FailureTaxonomy) ->
     }
 }
 
-fn runtime_limit_hit(
-    loop_mode: &str,
-    max_runtime_seconds: Option<u64>,
-    manifest: &StreamBridgeManifest,
-) -> bool {
-    match max_runtime_seconds {
-        Some(seconds) if seconds > 0 => {
-            loop_mode == "infinite"
-                || (manifest.video_input.expected_duration_seconds.ceil() as u64) > seconds
-        }
-        _ => false,
-    }
-}
-
 fn persist_preflight_failure(
     preflight_report_path: &Path,
     preflight_log_path: &Path,
@@ -1313,28 +1601,44 @@ fn build_redacted_publish_probe_shell(ffmpeg_bin: &Path, stream_env_var: &str) -
 fn build_redacted_live_shell(
     manifest: &StreamBridgeManifest,
     loop_mode: &str,
-    max_runtime_seconds: Option<u64>,
+    requested_runtime_seconds: Option<u64>,
 ) -> String {
     let mut parts = vec![
         manifest.ffmpeg_bin.display().to_string(),
         "-hide_banner".to_string(),
         "-nostats".to_string(),
         "-loglevel error".to_string(),
-        "-re".to_string(),
+        "-f rawvideo -pix_fmt rgba".to_string(),
+        format!(
+            "-s {}x{}",
+            manifest.live_runtime.effective_config.video.canvas.width,
+            manifest.live_runtime.effective_config.video.canvas.height
+        ),
+        format!("-r {}", manifest.live_runtime.effective_config.video.canvas.fps),
+        "-i <VIDEO_PIPE>".to_string(),
+        "-f s16le".to_string(),
+        format!("-ar {}", manifest.live_runtime.effective_config.audio.sample_rate),
+        format!("-ac {}", manifest.live_runtime.effective_config.audio.channels),
+        "-i <AUDIO_PIPE>".to_string(),
     ];
-    if loop_mode == "infinite" {
-        parts.push("-stream_loop -1".to_string());
-    }
-    parts.push(format!(
-        "-i {}",
-        manifest.video_input.preview_mp4_path.display()
-    ));
-    if let Some(seconds) = max_runtime_seconds.filter(|value| *value > 0) {
+    if let Some(seconds) = requested_runtime_seconds.filter(|value| *value > 0) {
         parts.push(format!("-t {seconds}"));
     }
-    parts.push("-map 0:v:0 -map 0:a:0 -c copy -f flv ${SONGH_RTMP_URL}".to_string());
+    parts.push(format!(
+        "# generator_mode={} loop_mode={loop_mode}",
+        manifest.live_runtime.generator_mode
+    ));
+    parts.push(format!(
+        "-map 0:v:0 -map 1:a:0 -c:v libx264 -preset {} -pix_fmt yuv420p -c:a aac -b:a {}k -f flv ${{SONGH_RTMP_URL}}",
+        manifest.live_runtime.effective_config.outputs.encode.video_preset,
+        manifest.live_runtime.effective_config.outputs.encode.audio_bitrate_kbps,
+    ));
     if manifest.live_bridge.local_record_enabled {
-        parts.push("-map 0:v:0 -map 0:a:0 -c copy -f flv <LOCAL_RECORD_PATH>".to_string());
+        parts.push(format!(
+            "-map 0:v:0 -map 1:a:0 -c:v libx264 -preset {} -pix_fmt yuv420p -c:a aac -b:a {}k -f flv <LOCAL_RECORD_PATH>",
+            manifest.live_runtime.effective_config.outputs.encode.video_preset,
+            manifest.live_runtime.effective_config.outputs.encode.audio_bitrate_kbps,
+        ));
     }
     parts.join(" ")
 }
@@ -1687,7 +1991,7 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
         assert!(report.manifest_path.exists());
         assert!(report.wrapper_script_path.exists());
         assert!(report.validation_report_path.exists());
-        assert_eq!(report.schema_version, "stage7.stream_bridge.v1");
+        assert_eq!(report.schema_version, "stage7.stream_bridge.v2");
     }
 
     #[test]
@@ -1696,5 +2000,79 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
         let classified = classify_failure("Server returned 403 Forbidden", 1, &taxonomy);
         assert_eq!(classified.class_id, "auth_failure");
         assert!(!classified.retryable);
+    }
+
+    #[test]
+    fn live_args_placeholder_uses_fifo_inputs() {
+        let manifest = StreamBridgeManifest {
+            schema_version: "stage7.stream_bridge.v2".to_string(),
+            work_id: "songh-stage7-test".to_string(),
+            output_dir: PathBuf::from("/tmp/songh-stage7"),
+            source_day: "2026-03-19".to_string(),
+            config_label: "songh".to_string(),
+            ffmpeg_bin: PathBuf::from("ffmpeg"),
+            ffprobe_bin: None,
+            video_input: VideoInputContract {
+                preview_mp4_path: PathBuf::from("/tmp/offline_preview.mp4"),
+                render_manifest_path: PathBuf::from("/tmp/render-manifest.json"),
+                sha256: "deadbeef".to_string(),
+                expected_fps: 30,
+                expected_frame_count: 240,
+                expected_duration_seconds: 8.0,
+                probe: None,
+            },
+            smoke_generation: SmokeGenerationContract {
+                smoke_flv_path: PathBuf::from("/tmp/stage7_bridge_smoke.flv"),
+                smoke_probe_path: None,
+                generated: true,
+                duration_tolerance_seconds: DURATION_TOLERANCE_SECS,
+                probe: None,
+            },
+            live_runtime: LiveRuntimeContract {
+                generator_mode: "tick_live_generator".to_string(),
+                effective_config: Config::default(),
+                start_second: 750,
+                once_duration_seconds: 8,
+            },
+            live_bridge: LiveBridgeContract {
+                stream_url_env_var: RTMP_URL_ENV_VAR.to_string(),
+                supported_schemes: vec!["rtmp".to_string(), "rtmps".to_string()],
+                default_loop_mode: "infinite".to_string(),
+                remote_output_default_enabled: true,
+                local_record_enabled: true,
+                local_record_path_template: "/tmp/{date}/{label}.flv".to_string(),
+                record_label: "songh".to_string(),
+                dual_output_supported: true,
+            },
+            preflight: PreflightContract {
+                checks: vec![],
+                tcp_connect_timeout_seconds: 3,
+                publish_probe_timeout_seconds: 8,
+            },
+            runtime_executor: RuntimeExecutorContract {
+                max_attempts: 1,
+                backoff_seconds: vec![],
+                retryable_class_ids: vec![],
+            },
+            runtime_observability: RuntimeObservabilityContract {
+                log_dir: LOG_DIR_NAME.to_string(),
+                preflight_report_file: PREFLIGHT_REPORT_FILE.to_string(),
+                preflight_log_file: PREFLIGHT_LOG_FILE.to_string(),
+                runtime_report_file: RUNTIME_REPORT_FILE.to_string(),
+                exit_report_file: EXIT_REPORT_FILE.to_string(),
+                latest_stderr_log_file: LATEST_LOG_FILE.to_string(),
+                attempt_log_pattern: "a".to_string(),
+                attempt_report_pattern: "b".to_string(),
+            },
+            failure_taxonomy_file: FAILURE_TAXONOMY_FILE.to_string(),
+            ffmpeg_args_file: FFMPEG_ARGS_FILE.to_string(),
+            validation_report_file: VALIDATION_REPORT_FILE.to_string(),
+            wrapper_script_file: WRAPPER_SCRIPT_FILE.to_string(),
+        };
+
+        let args = live_args_with_placeholders(&manifest, "once");
+        assert!(args.iter().any(|arg| arg == "rawvideo"));
+        assert!(args.iter().any(|arg| arg == "<VIDEO_PIPE>"));
+        assert!(args.iter().any(|arg| arg == "<AUDIO_PIPE>"));
     }
 }

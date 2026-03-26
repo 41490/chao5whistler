@@ -148,7 +148,9 @@ make -C src/songh stage6-render-fixture
   - 输出 `stage7_bridge_smoke.flv` + `stream_bridge_manifest.json` + `stream_bridge_ffmpeg_args.json`
   - 真实开播前会做 `target_scheme / protocol_support / dns_resolution / tcp_connectivity / publish_probe`
   - runtime 会写 `logs/stage7_bridge_preflight_report.json` / `stage7_bridge_runtime_report.json` / `stage7_bridge_latest.stderr.log`
-  - bridge 默认从 stage6 `offline_preview.mp4` loop，支持 `RTMP/RTMPS + 本地 .flv`
+  - build 阶段仍会冻结一份 stage6 `offline_preview.mp4` 并产出本地 smoke `.flv`
+  - 但真正 `run-stream-bridge` 已切到按秒 live generator：Rust 持续生成 raw RGBA frame + PCM chunk，ffmpeg 常驻读取 FIFO 后推 `RTMP/RTMPS + 本地 .flv`
+  - live runtime 会遵守 `runtime.start_policy` 和 `runtime.clock`
 - stage7 make target 已补：
   - `stage7-build-fixture`
   - `stage7-manual`
@@ -156,6 +158,10 @@ make -C src/songh stage6-render-fixture
 - runtime tick 事件已冻结为共享契约：
   - `src/songh/src/model/runtime_event.rs`
   - 后续 archive replay / fallback synthetic / audio / video 共用这一层
+- fallback synthetic runtime 现已接通到 replay/audio/video：
+  - `runtime.mode = random_fallback` 时可直接产出 synthetic tick / cue / sprite
+  - 当请求的 day-pack 缺失且 `fallback.enabled = true` 时，会自动回退到 synthetic 输出
+  - `fallback.density_source = history_if_available` 时会优先复用本地 complete day-pack 的 minute density
 - stage 3 冻结决策已同步到配置层：
   - `runtime.clock` 允许 `realtime_day | fast`
   - `replay.selection_order` 固定为 `weight_desc -> event_id_asc`
@@ -169,9 +175,8 @@ make -C src/songh stage6-render-fixture
 stage 7 当前判断：
 
 - stage4 PNG 序列和 stage5 WAV 现已能合流为 `offline_preview.mp4`
-- stage7 现已把该 mp4 冻结为 live bridge 输入，并产出本地 smoke `stage7_bridge_smoke.flv`
+- stage7 现已把该 mp4 冻结为 smoke/build 基线，并产出本地 `stage7_bridge_smoke.flv`
+- stage7 runtime 已能脱离 loop mp4，改为真正按秒推进的常驻 live A/V 生成链路
 - 真实推流前会前置暴露 URL scheme、ffmpeg protocol support、DNS、TCP 和 publish probe 问题
 - 但进入长期真实直播前，当前还缺：
-  - 真正按秒推进的常驻 live runtime，而不是 loop stage6 preview
-  - archive 缺失时的真实 fallback synthetic runtime
   - 更真实的 voice backend / sample backend

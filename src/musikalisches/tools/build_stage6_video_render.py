@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import shutil
 import subprocess
 import tempfile
@@ -100,6 +101,483 @@ def hex_to_rgb(value: str) -> tuple[int, int, int]:
     return tuple(int(value[index : index + 2], 16) for index in (1, 3, 5))
 
 
+FONT_5X7 = {
+    " ": ("00000", "00000", "00000", "00000", "00000", "00000", "00000"),
+    ",": ("00000", "00000", "00000", "00000", "00110", "00110", "00100"),
+    ".": ("00000", "00000", "00000", "00000", "00000", "00110", "00110"),
+    "/": ("00001", "00010", "00100", "01000", "10000", "00000", "00000"),
+    ":": ("00000", "00110", "00110", "00000", "00110", "00110", "00000"),
+    "=": ("00000", "11111", "00000", "11111", "00000", "00000", "00000"),
+    "-": ("00000", "00000", "00000", "11111", "00000", "00000", "00000"),
+    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
+    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
+    "2": ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
+    "3": ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
+    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+    "5": ("11111", "10000", "10000", "11110", "00001", "00001", "11110"),
+    "6": ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
+    "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
+    "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
+    "B": ("11110", "10001", "10001", "11110", "10001", "10001", "11110"),
+    "C": ("01110", "10001", "10000", "10000", "10000", "10001", "01110"),
+    "D": ("11100", "10010", "10001", "10001", "10001", "10010", "11100"),
+    "E": ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
+    "F": ("11111", "10000", "10000", "11110", "10000", "10000", "10000"),
+    "G": ("01110", "10001", "10000", "10111", "10001", "10001", "01110"),
+    "H": ("10001", "10001", "10001", "11111", "10001", "10001", "10001"),
+    "I": ("01110", "00100", "00100", "00100", "00100", "00100", "01110"),
+    "J": ("00111", "00010", "00010", "00010", "10010", "10010", "01100"),
+    "K": ("10001", "10010", "10100", "11000", "10100", "10010", "10001"),
+    "L": ("10000", "10000", "10000", "10000", "10000", "10000", "11111"),
+    "M": ("10001", "11011", "10101", "10101", "10001", "10001", "10001"),
+    "N": ("10001", "11001", "10101", "10011", "10001", "10001", "10001"),
+    "O": ("01110", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "P": ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
+    "Q": ("01110", "10001", "10001", "10001", "10101", "10010", "01101"),
+    "R": ("11110", "10001", "10001", "11110", "10100", "10010", "10001"),
+    "S": ("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
+    "T": ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
+    "U": ("10001", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "V": ("10001", "10001", "10001", "10001", "10001", "01010", "00100"),
+    "W": ("10001", "10001", "10001", "10101", "10101", "10101", "01010"),
+    "X": ("10001", "10001", "01010", "00100", "01010", "10001", "10001"),
+    "Y": ("10001", "10001", "01010", "00100", "00100", "00100", "00100"),
+    "Z": ("11111", "00001", "00010", "00100", "01000", "10000", "11111"),
+}
+
+
+def text_columns(text: str) -> int:
+    return max(0, len(text) * 6 - 1)
+
+
+def choose_text_scale(text: str, *, max_width: int, preferred_font_size: int) -> int:
+    preferred_scale = max(1, int(round(preferred_font_size / 8)))
+    max_scale_by_width = max(1, max_width // max(1, text_columns(text)))
+    return max(1, min(preferred_scale, max_scale_by_width))
+
+
+def measure_text(text: str, scale: int) -> tuple[int, int]:
+    return text_columns(text) * scale, 7 * scale
+
+
+def glyph_for_char(character: str) -> tuple[str, ...]:
+    glyph = FONT_5X7.get(character)
+    if glyph is not None:
+        return glyph
+    uppercase = character.upper()
+    return FONT_5X7.get(uppercase, FONT_5X7[" "])
+
+
+def draw_text(
+    buffer: bytearray,
+    width: int,
+    height: int,
+    text: str,
+    x: int,
+    y: int,
+    scale: int,
+    color: tuple[int, int, int],
+    alpha: float,
+) -> None:
+    cursor_x = x
+    for character in text:
+        glyph = glyph_for_char(character)
+        for row_index, row in enumerate(glyph):
+            for column_index, bit in enumerate(row):
+                if bit != "1":
+                    continue
+                for dy in range(scale):
+                    for dx in range(scale):
+                        blend_pixel(
+                            buffer,
+                            width,
+                            height,
+                            cursor_x + column_index * scale + dx,
+                            y + row_index * scale + dy,
+                            color,
+                            alpha,
+                        )
+        cursor_x += 6 * scale
+
+
+def draw_rect_stroke(
+    buffer: bytearray,
+    width: int,
+    height: int,
+    x: int,
+    y: int,
+    rect_width: int,
+    rect_height: int,
+    stroke_width: int,
+    color: tuple[int, int, int],
+    alpha: float,
+) -> None:
+    for offset in range(max(1, stroke_width)):
+        draw_hline(buffer, width, height, x, y + offset, x + rect_width, color, alpha)
+        draw_hline(
+            buffer,
+            width,
+            height,
+            x,
+            y + rect_height - 1 - offset,
+            x + rect_width,
+            color,
+            alpha,
+        )
+        draw_vline(buffer, width, height, x + offset, y, y + rect_height, color, alpha)
+        draw_vline(
+            buffer,
+            width,
+            height,
+            x + rect_width - 1 - offset,
+            y,
+            y + rect_height,
+            color,
+            alpha,
+        )
+
+
+def draw_line(
+    buffer: bytearray,
+    width: int,
+    height: int,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    color: tuple[int, int, int],
+    alpha: float,
+    stroke_width: int,
+) -> None:
+    steps = max(abs(int(round(x1 - x0))), abs(int(round(y1 - y0))), 1)
+    for step in range(steps + 1):
+        ratio = step / steps
+        x = int(round(lerp(x0, x1, ratio)))
+        y = int(round(lerp(y0, y1, ratio)))
+        radius = max(0, stroke_width // 2)
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                blend_pixel(buffer, width, height, x + dx, y + dy, color, alpha)
+
+
+def draw_polyline(
+    buffer: bytearray,
+    width: int,
+    height: int,
+    points: list[tuple[float, float]],
+    color: tuple[int, int, int],
+    alpha: float,
+    stroke_width: int,
+) -> None:
+    for index in range(len(points) - 1):
+        draw_line(
+            buffer,
+            width,
+            height,
+            points[index][0],
+            points[index][1],
+            points[index + 1][0],
+            points[index + 1][1],
+            color,
+            alpha,
+            stroke_width,
+        )
+
+
+def rect_contains_rect(outer: dict, inner: dict) -> bool:
+    return (
+        inner.get("x", 0) >= outer.get("x", 0)
+        and inner.get("y", 0) >= outer.get("y", 0)
+        and inner.get("x", 0) + inner.get("width", 0)
+        <= outer.get("x", 0) + outer.get("width", 0)
+        and inner.get("y", 0) + inner.get("height", 0)
+        <= outer.get("y", 0) + outer.get("height", 0)
+    )
+
+
+def is_window_active(window: dict, clock_seconds: float) -> bool:
+    return window.get("start_seconds", 0.0) <= clock_seconds < window.get("end_seconds", 0.0)
+
+
+def find_active_selector_sprite(selector_block: dict, clock_seconds: float) -> dict | None:
+    for sprite in selector_block.get("sprites", []):
+        if any(is_window_active(window, clock_seconds) for window in sprite.get("active_windows", [])):
+            return sprite
+    return None
+
+
+def find_spectrum_active_point_index(spectrum_block: dict, clock_seconds: float) -> int | None:
+    sampled_points = spectrum_block.get("sampled_points", [])
+    if not sampled_points:
+        return None
+    active_index = 0
+    for index, point in enumerate(sampled_points):
+        if point.get("clock_seconds", 0.0) <= clock_seconds:
+            active_index = index
+        else:
+            break
+    return active_index
+
+
+def spectrum_point_x(spectrum_block: dict, index: int) -> float:
+    count = max(1, spectrum_block.get("sampled_point_count", 0) - 1)
+    return spectrum_block["x"] + index * (spectrum_block["width"] / count)
+
+
+def build_title_line_layout(title_area: dict) -> list[dict]:
+    text_lines = title_area.get("text_lines", [])
+    if not text_lines:
+        return []
+    line_gap = title_area["line_gap_px"]
+    preferred = title_area["base_font_size_px"]
+    scales = [
+        choose_text_scale(
+            line,
+            max_width=title_area["width"],
+            preferred_font_size=preferred,
+        )
+        for line in text_lines
+    ]
+    line_heights = [7 * scale for scale in scales]
+    total_height = sum(line_heights) + line_gap * max(0, len(text_lines) - 1)
+    cursor_y = title_area["y"] + max(0, (title_area["height"] - total_height) // 2)
+    layout: list[dict] = []
+    for index, line in enumerate(text_lines):
+        line_width, line_height = measure_text(line, scales[index])
+        layout.append(
+            {
+                "text": line,
+                "scale": scales[index],
+                "x": int(round(title_area["x"] + (title_area["width"] - line_width) / 2)),
+                "y": int(round(cursor_y)),
+                "width": line_width,
+                "height": line_height,
+            }
+        )
+        cursor_y += line_height + line_gap
+    return layout
+
+
+def draw_title_overlay(
+    buffer: bytearray,
+    width: int,
+    height: int,
+    title_area: dict,
+    frame: dict,
+    scene: dict,
+) -> None:
+    accent_rgb = hex_to_rgb(frame["cycle_accent_color"])
+    text_rgb = hex_to_rgb(scene["palette"]["text_color"])
+    for line_index, line in enumerate(build_title_line_layout(title_area)):
+        phase = frame["clock_seconds"] * 2.4 + line_index * 0.9
+        jitter_x = int(round(lerp(-2.0, 2.0, (1.0 + math.sin(phase)) / 2.0)))
+        jitter_y = int(round(lerp(-1.0, 1.0, (1.0 + math.cos(phase * 0.7)) / 2.0)))
+        for glow_offset in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            draw_text(
+                buffer,
+                width,
+                height,
+                line["text"],
+                line["x"] + jitter_x + glow_offset[0],
+                line["y"] + jitter_y + glow_offset[1],
+                line["scale"],
+                accent_rgb,
+                0.12,
+            )
+        draw_text(
+            buffer,
+            width,
+            height,
+            line["text"],
+            line["x"],
+            line["y"],
+            line["scale"],
+            text_rgb,
+            0.95,
+        )
+
+
+def draw_footer_overlay(
+    buffer: bytearray,
+    width: int,
+    height: int,
+    footer_area: dict,
+    frame: dict,
+    scene: dict,
+) -> None:
+    text = footer_area.get("text", "")
+    scale = choose_text_scale(
+        text,
+        max_width=footer_area["width"],
+        preferred_font_size=footer_area["font_size_px"],
+    )
+    text_width, text_height = measure_text(text, scale)
+    x = int(round(footer_area["x"] + (footer_area["width"] - text_width) / 2))
+    y = int(round(footer_area["y"] + (footer_area["height"] - text_height) / 2))
+    accent_rgb = hex_to_rgb(frame["cycle_accent_color"])
+    text_rgb = hex_to_rgb(scene["palette"]["text_color"])
+    draw_text(buffer, width, height, text, x, y + 1, scale, accent_rgb, 0.18)
+    draw_text(buffer, width, height, text, x, y, scale, text_rgb, 0.92)
+
+
+def draw_selector_overlay(
+    buffer: bytearray,
+    width: int,
+    height: int,
+    selector_block: dict,
+    frame: dict,
+    scene: dict,
+) -> None:
+    text_rgb = hex_to_rgb(scene["palette"]["text_color"])
+    panel_rgb = hex_to_rgb(scene["palette"]["panel_color"])
+    safe_layout = scene["short_safe_layout"]
+    for sprite in selector_block.get("sprites", []):
+        active_windows = sprite.get("active_windows", [])
+        active_window = next(
+            (window for window in active_windows if is_window_active(window, frame["clock_seconds"])),
+            None,
+        )
+        idle_phase = frame["clock_seconds"] * 1.6 + sprite["position_index"] * 0.7
+        drift_ratio = (1.0 + math.sin(idle_phase)) / 2.0
+        x_offset = lerp(
+            -sprite["idle_motion"]["drift_px"],
+            sprite["idle_motion"]["drift_px"],
+            drift_ratio,
+        )
+        y_offset = 0.0
+        scale_multiplier = 1.0
+        fill_alpha = 0.74
+        stroke_alpha = 0.8
+        if active_window is not None:
+            progress = clamp(
+                (frame["clock_seconds"] - active_window["start_seconds"])
+                / max(1e-9, active_window["end_seconds"] - active_window["start_seconds"]),
+                0.0,
+                1.0,
+            )
+            bounce = math.sin(progress * math.pi)
+            y_offset = -sprite["active_motion"]["bounce_y_px"] * bounce
+            scale_multiplier = 1.0 + (
+                sprite["active_motion"]["scale_multiplier"] - 1.0
+            ) * bounce
+            fill_alpha = 0.88
+            stroke_alpha = 0.95
+        rect_width = max(1, int(round(sprite["width"] * scale_multiplier)))
+        rect_height = max(1, int(round(sprite["height"] * scale_multiplier)))
+        rect_x = int(round(sprite["x"] + x_offset - (rect_width - sprite["width"]) / 2))
+        rect_y = int(round(sprite["y"] + y_offset - (rect_height - sprite["height"]) / 2))
+        rect_x = min(
+            max(rect_x, safe_layout["x"]),
+            safe_layout["x"] + safe_layout["width"] - rect_width,
+        )
+        rect_y = min(
+            max(rect_y, safe_layout["y"]),
+            safe_layout["y"] + safe_layout["height"] - rect_height,
+        )
+        accent_rgb = hex_to_rgb(sprite["accent_color"])
+        fill_rect(buffer, width, height, rect_x, rect_y, rect_width, rect_height, panel_rgb, fill_alpha)
+        draw_rect_stroke(
+            buffer,
+            width,
+            height,
+            rect_x,
+            rect_y,
+            rect_width,
+            rect_height,
+            2 if active_window is not None else 1,
+            accent_rgb,
+            stroke_alpha,
+        )
+        scale = choose_text_scale(
+            sprite["text"],
+            max_width=max(1, rect_width - 12),
+            preferred_font_size=int(round(sprite["font_size_px"] * scale_multiplier)),
+        )
+        text_width, text_height = measure_text(sprite["text"], scale)
+        text_x = rect_x + max(0, (rect_width - text_width) // 2)
+        text_y = rect_y + max(0, (rect_height - text_height) // 2)
+        draw_text(buffer, width, height, sprite["text"], text_x, text_y, scale, accent_rgb, 0.18)
+        draw_text(buffer, width, height, sprite["text"], text_x, text_y, scale, text_rgb, 0.95)
+
+
+def draw_spectrum_overlay(
+    buffer: bytearray,
+    width: int,
+    height: int,
+    spectrum_block: dict,
+    frame: dict,
+) -> None:
+    sampled_points = spectrum_block.get("sampled_points", [])
+    if len(sampled_points) < 2:
+        return
+    active_index = find_spectrum_active_point_index(spectrum_block, frame["clock_seconds"])
+    if active_index is None:
+        return
+    accent_rgb = hex_to_rgb(frame["cycle_accent_color"])
+    draw_rect_stroke(
+        buffer,
+        width,
+        height,
+        spectrum_block["x"],
+        spectrum_block["y"],
+        spectrum_block["width"],
+        spectrum_block["height"],
+        1,
+        accent_rgb,
+        0.12,
+    )
+    for layer_index in range(spectrum_block.get("trail_count", 0)):
+        layer_end = max(1, active_index - layer_index * 3)
+        layer_start = max(0, layer_end - 18)
+        layer_points = [
+            (
+                spectrum_point_x(spectrum_block, point_index),
+                sampled_points[point_index]["trail_y_px"],
+            )
+            for point_index in range(layer_start, layer_end + 1)
+        ]
+        if len(layer_points) < 2:
+            continue
+        layer_alpha = clamp(
+            spectrum_block["alpha_base"]
+            + ((spectrum_block["trail_count"] - layer_index) / max(1, spectrum_block["trail_count"]))
+            * spectrum_block["alpha_range"],
+            0.04,
+            0.45,
+        )
+        stroke_width = int(
+            round(
+                lerp(
+                    spectrum_block["stroke_min_width_px"],
+                    spectrum_block["stroke_max_width_px"],
+                    1.0 - layer_index / max(1, spectrum_block["trail_count"]),
+                )
+            )
+        )
+        draw_polyline(
+            buffer,
+            width,
+            height,
+            layer_points,
+            accent_rgb,
+            layer_alpha * 0.9,
+            max(1, stroke_width),
+        )
+    active_point = sampled_points[active_index]
+    draw_circle_fill(
+        buffer,
+        width,
+        height,
+        int(round(spectrum_point_x(spectrum_block, active_index))),
+        int(round(active_point["trail_y_px"])),
+        5,
+        accent_rgb,
+        0.38,
+    )
+
+
 def build_frame_sequence(scene: dict) -> dict:
     keyframes = scene.get("keyframes", [])
     if not keyframes:
@@ -191,6 +669,15 @@ def build_frame_sequence(scene: dict) -> dict:
                 }
             )
 
+        active_selector = find_active_selector_sprite(
+            scene.get("selector_label_sprites", {}),
+            clock_seconds,
+        )
+        active_spectrum_index = find_spectrum_active_point_index(
+            scene.get("spectrum_trails", {}),
+            clock_seconds,
+        )
+
         frames.append(
             {
                 "frame_index": frame_index + 1,
@@ -220,6 +707,16 @@ def build_frame_sequence(scene: dict) -> dict:
                     2,
                 ),
                 "background_color": scene["canvas"]["background_color"],
+                "active_selector_sprite_id": (
+                    active_selector.get("sprite_id") if active_selector else None
+                ),
+                "active_selector_position_index": (
+                    active_selector.get("position_index") if active_selector else None
+                ),
+                "active_selector_value": (
+                    active_selector.get("selector_value") if active_selector else None
+                ),
+                "spectrum_active_point_index": active_spectrum_index,
                 "voice_pulses": voice_pulses,
             }
         )
@@ -244,12 +741,21 @@ def build_frame_sequence(scene: dict) -> dict:
             "clock_source": scene["motion"]["clock_source"],
             "keyframe_source": scene["motion"]["keyframe_source"],
         },
+        "title_area": scene["title_area"],
+        "footer_progress_area": scene["footer_progress_area"],
+        "selector_label_sprites": scene["selector_label_sprites"],
+        "spectrum_trails": scene["spectrum_trails"],
+        "short_safe_layout": scene["short_safe_layout"],
+        "text_overrides": scene["text_overrides"],
         "frames": frames,
         "summary": {
             "frame_count": len(frames),
             "lane_count": scene["summary"]["lane_count"],
             "cycle_count": scene["summary"]["cycle_count"],
             "window_count": scene["summary"]["window_count"],
+            "selector_label_count": scene["summary"]["selector_label_count"],
+            "title_line_count": scene["summary"]["title_line_count"],
+            "spectrum_sampled_point_count": scene["spectrum_trails"]["sampled_point_count"],
             "fps": scene["canvas"]["fps"],
             "frame_interval_seconds": round6(1.0 / scene["canvas"]["fps"]),
             "render_duration_seconds": round6(len(frames) / scene["canvas"]["fps"]),
@@ -277,6 +783,20 @@ def build_base_canvas(scene: dict) -> bytearray:
         hex_to_rgb(palette["panel_color"]),
         1.0,
     )
+    safe_layout = scene.get("short_safe_layout", {})
+    if safe_layout:
+        draw_rect_stroke(
+            buffer,
+            width,
+            height,
+            safe_layout["x"],
+            safe_layout["y"],
+            safe_layout["width"],
+            safe_layout["height"],
+            1,
+            hex_to_rgb(palette["grid_color"]),
+            0.16,
+        )
     guide_alpha = clamp(scene["motion"]["grid_alpha_base"] + 0.08, 0.0, 0.4)
     for lane in scene.get("lane_layout", []):
         draw_hline(
@@ -318,6 +838,13 @@ def render_frame_bytes(scene: dict, frame: dict, base_canvas: bytearray) -> byte
         hex_to_rgb(scene["palette"]["grid_color"]),
         clamp(frame["grid_alpha"], 0.05, 0.45),
     )
+    draw_spectrum_overlay(
+        buffer,
+        width,
+        height,
+        scene.get("spectrum_trails", {}),
+        frame,
+    )
 
     for pulse in frame.get("voice_pulses", []):
         center_x = int(round(pulse["center_x"] + pulse["orbit_offset_px"]))
@@ -348,6 +875,31 @@ def render_frame_bytes(scene: dict, frame: dict, base_canvas: bytearray) -> byte
             color,
             opacity,
         )
+
+    draw_selector_overlay(
+        buffer,
+        width,
+        height,
+        scene.get("selector_label_sprites", {}),
+        frame,
+        scene,
+    )
+    draw_title_overlay(
+        buffer,
+        width,
+        height,
+        scene.get("title_area", {}),
+        frame,
+        scene,
+    )
+    draw_footer_overlay(
+        buffer,
+        width,
+        height,
+        scene.get("footer_progress_area", {}),
+        frame,
+        scene,
+    )
 
     return bytes(buffer)
 
@@ -824,6 +1376,11 @@ def main() -> int:
             "window_count": frame_sequence["summary"]["window_count"],
             "cycle_count": frame_sequence["summary"]["cycle_count"],
             "lane_count": frame_sequence["summary"]["lane_count"],
+            "selector_label_count": frame_sequence["summary"]["selector_label_count"],
+            "title_line_count": frame_sequence["summary"]["title_line_count"],
+            "spectrum_sampled_point_count": frame_sequence["summary"][
+                "spectrum_sampled_point_count"
+            ],
             "frame_interval_seconds": frame_sequence["summary"]["frame_interval_seconds"],
             "render_duration_seconds": frame_sequence["summary"]["render_duration_seconds"],
             "total_duration_seconds": frame_sequence["summary"]["total_duration_seconds"],

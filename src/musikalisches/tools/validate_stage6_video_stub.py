@@ -335,6 +335,24 @@ def main() -> int:
             rect_within_canvas(selector_label_sprites, canvas)
             and selector_label_sprites.get("sprite_count") == len(selector_label_sprites.get("sprites", []))
             and selector_label_sprites.get("sprite_count") == scene.get("summary", {}).get("selector_label_count")
+            and all(
+                rect_within_canvas(
+                    {
+                        "x": int(sprite.get("x", 0)),
+                        "y": int(sprite.get("y", 0)),
+                        "width": int(sprite.get("width", 0)),
+                        "height": int(sprite.get("height", 0)),
+                    },
+                    canvas,
+                )
+                and sprite.get("x", 0) >= selector_label_sprites.get("x", 0)
+                and sprite.get("y", 0) >= selector_label_sprites.get("y", 0)
+                and sprite.get("x", 0) + sprite.get("width", 0)
+                <= selector_label_sprites.get("x", 0) + selector_label_sprites.get("width", 0)
+                and sprite.get("y", 0) + sprite.get("height", 0)
+                <= selector_label_sprites.get("y", 0) + selector_label_sprites.get("height", 0)
+                for sprite in selector_label_sprites.get("sprites", [])
+            )
             and selector_label_sprites.get("sprite_count") == 16,
             {
                 "sprite_count": selector_label_sprites.get("sprite_count"),

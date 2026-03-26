@@ -281,6 +281,31 @@ def ppm_header(path: Path) -> tuple[str, int, int, int] | None:
     return magic, int(dimensions[0]), int(dimensions[1]), int(max_value)
 
 
+def rect_within_canvas(rect: dict, canvas: dict) -> bool:
+    required = ("x", "y", "width", "height")
+    if any(not isinstance(rect.get(field), int) for field in required):
+        return False
+    return (
+        rect["x"] >= 0
+        and rect["y"] >= 0
+        and rect["width"] > 0
+        and rect["height"] > 0
+        and rect["x"] + rect["width"] <= canvas.get("width", 0)
+        and rect["y"] + rect["height"] <= canvas.get("height", 0)
+    )
+
+
+def rect_within_rect(inner: dict, outer: dict) -> bool:
+    return (
+        inner.get("x", 0) >= outer.get("x", 0)
+        and inner.get("y", 0) >= outer.get("y", 0)
+        and inner.get("x", 0) + inner.get("width", 0)
+        <= outer.get("x", 0) + outer.get("width", 0)
+        and inner.get("y", 0) + inner.get("height", 0)
+        <= outer.get("y", 0) + outer.get("height", 0)
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Validate stage6 render-video skeleton artifacts."
@@ -308,6 +333,7 @@ def main() -> int:
     poster_header = ppm_header(artifact_dir / "video_render_poster.ppm")
     source_dir = Path(manifest.get("source_artifact_dir", ""))
     source_scene_path = source_dir / manifest.get("source_scene_file", "")
+    source_scene = load_json(source_scene_path) if source_scene_path.exists() else {}
     checks: list[dict] = []
 
     scene_profile_errors = validate_scene_profile_payload(
@@ -316,6 +342,12 @@ def main() -> int:
     )
     frames = frame_sequence.get("frames", [])
     canvas = frame_sequence.get("canvas", {})
+    title_area = frame_sequence.get("title_area", {})
+    footer_progress_area = frame_sequence.get("footer_progress_area", {})
+    selector_label_sprites = frame_sequence.get("selector_label_sprites", {})
+    spectrum_trails = frame_sequence.get("spectrum_trails", {})
+    short_safe_layout = frame_sequence.get("short_safe_layout", {})
+    text_overrides = frame_sequence.get("text_overrides", {})
     mp4_generated = manifest.get("mp4_generation", {}).get("generated", False)
     mp4_path = artifact_dir / "offline_preview.mp4"
     manifest_probe = manifest.get("mp4_generation", {}).get("probe")
@@ -443,6 +475,34 @@ def main() -> int:
     )
     checks.append(
         build_check(
+            "scene_contract_blocks",
+            frame_sequence.get("title_area") == source_scene.get("title_area")
+            and frame_sequence.get("footer_progress_area")
+            == source_scene.get("footer_progress_area")
+            and frame_sequence.get("selector_label_sprites")
+            == source_scene.get("selector_label_sprites")
+            and frame_sequence.get("spectrum_trails") == source_scene.get("spectrum_trails")
+            and frame_sequence.get("short_safe_layout") == source_scene.get("short_safe_layout")
+            and frame_sequence.get("text_overrides") == source_scene.get("text_overrides"),
+            {
+                "frame_sequence_contract_keys": sorted(
+                    key
+                    for key in (
+                        "title_area",
+                        "footer_progress_area",
+                        "selector_label_sprites",
+                        "spectrum_trails",
+                        "short_safe_layout",
+                        "text_overrides",
+                    )
+                    if key in frame_sequence
+                ),
+                "source_scene_present": bool(source_scene),
+            },
+        )
+    )
+    checks.append(
+        build_check(
             "canvas",
             canvas.get("width") == scene_profile.get("canvas", {}).get("width")
             and canvas.get("height") == scene_profile.get("canvas", {}).get("height")
@@ -562,6 +622,179 @@ def main() -> int:
             {
                 "summary_frame_count": frame_sequence.get("summary", {}).get("frame_count"),
                 "actual_frame_count": len(frames),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "title_area_contract",
+            rect_within_canvas(title_area, canvas)
+            and rect_within_rect(title_area, short_safe_layout)
+            and title_area.get("line_count") == len(title_area.get("text_lines", []))
+            and title_area.get("line_count")
+            == frame_sequence.get("summary", {}).get("title_line_count")
+            and title_area.get("text_lines")
+            == text_overrides.get("resolved_title_lines"),
+            {
+                "title_area": title_area,
+                "short_safe_layout": short_safe_layout,
+                "summary_title_line_count": frame_sequence.get("summary", {}).get(
+                    "title_line_count"
+                ),
+                "resolved_title_lines": text_overrides.get("resolved_title_lines"),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "footer_progress_contract",
+            rect_within_canvas(footer_progress_area, canvas)
+            and rect_within_rect(footer_progress_area, short_safe_layout)
+            and isinstance(footer_progress_area.get("text"), str)
+            and footer_progress_area.get("text", "").strip() != "",
+            {
+                "footer_progress_area": footer_progress_area,
+                "short_safe_layout": short_safe_layout,
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "selector_contract",
+            rect_within_canvas(selector_label_sprites, canvas)
+            and rect_within_rect(selector_label_sprites, short_safe_layout)
+            and selector_label_sprites.get("sprite_count")
+            == len(selector_label_sprites.get("sprites", []))
+            and selector_label_sprites.get("sprite_count")
+            == frame_sequence.get("summary", {}).get("selector_label_count"),
+            {
+                "selector_label_sprites": selector_label_sprites,
+                "summary_selector_label_count": frame_sequence.get("summary", {}).get(
+                    "selector_label_count"
+                ),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "selector_sprite_visibility",
+            all(
+                rect_within_rect(
+                    {
+                        "x": int(sprite.get("x", 0)),
+                        "y": int(sprite.get("y", 0)),
+                        "width": int(sprite.get("width", 0)),
+                        "height": int(sprite.get("height", 0)),
+                    },
+                    short_safe_layout,
+                )
+                and isinstance(sprite.get("text"), str)
+                and sprite.get("text", "").strip() != ""
+                and sprite.get("idle_motion", {}).get("drift_px", 0)
+                <= selector_label_sprites.get("label_padding_px", 0)
+                for sprite in selector_label_sprites.get("sprites", [])
+            ),
+            {
+                "short_safe_layout": short_safe_layout,
+                "sprite_layout": {
+                    sprite.get("sprite_id"): {
+                        "x": sprite.get("x"),
+                        "y": sprite.get("y"),
+                        "width": sprite.get("width"),
+                        "height": sprite.get("height"),
+                        "drift_px": sprite.get("idle_motion", {}).get("drift_px"),
+                    }
+                    for sprite in selector_label_sprites.get("sprites", [])
+                },
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "selector_activity_timeline",
+            all(
+                sum(
+                    1
+                    for sprite in selector_label_sprites.get("sprites", [])
+                    if any(
+                        window.get("start_seconds", 0.0)
+                        <= frame.get("clock_seconds", 0.0)
+                        < window.get("end_seconds", 0.0)
+                        for window in sprite.get("active_windows", [])
+                    )
+                )
+                <= 1
+                for frame in frames
+            )
+            and {
+                frame.get("active_selector_sprite_id")
+                for frame in frames
+                if frame.get("active_selector_sprite_id")
+            }
+            == {
+                sprite.get("sprite_id")
+                for sprite in selector_label_sprites.get("sprites", [])
+                if sprite.get("sprite_id")
+            },
+            {
+                "active_sprite_ids_in_frames": sorted(
+                    {
+                        frame.get("active_selector_sprite_id")
+                        for frame in frames
+                        if frame.get("active_selector_sprite_id")
+                    }
+                ),
+                "expected_sprite_ids": sorted(
+                    sprite.get("sprite_id")
+                    for sprite in selector_label_sprites.get("sprites", [])
+                    if sprite.get("sprite_id")
+                ),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "spectrum_contract",
+            rect_within_canvas(spectrum_trails, canvas)
+            and rect_within_rect(spectrum_trails, short_safe_layout)
+            and spectrum_trails.get("sampled_point_count")
+            == len(spectrum_trails.get("sampled_points", []))
+            and spectrum_trails.get("sampled_point_count")
+            == frame_sequence.get("summary", {}).get("spectrum_sampled_point_count"),
+            {
+                "spectrum_trails": spectrum_trails,
+                "summary_spectrum_sampled_point_count": frame_sequence.get("summary", {}).get(
+                    "spectrum_sampled_point_count"
+                ),
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "spectrum_point_bounds",
+            all(
+                spectrum_trails.get("y", 0)
+                <= point.get("trail_y_px", -1)
+                <= spectrum_trails.get("y", 0) + spectrum_trails.get("height", 0)
+                for point in spectrum_trails.get("sampled_points", [])
+            )
+            and all(
+                point.get("clock_seconds", 0.0) >= 0.0
+                for point in spectrum_trails.get("sampled_points", [])
+            )
+            and all(
+                frame.get("spectrum_active_point_index") is None
+                or 0
+                <= int(frame.get("spectrum_active_point_index"))
+                < spectrum_trails.get("sampled_point_count", 0)
+                for frame in frames
+            ),
+            {
+                "sampled_point_count": spectrum_trails.get("sampled_point_count"),
+                "first_point": spectrum_trails.get("sampled_points", [None])[0],
+                "last_point": spectrum_trails.get("sampled_points", [None])[-1]
+                if spectrum_trails.get("sampled_points")
+                else None,
             },
         )
     )

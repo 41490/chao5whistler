@@ -217,6 +217,8 @@ def build_selector_label_sprites(
         label_height = int(round(max(cell_height * 0.58, font_size * 1.8)))
         x = area["x"] + column * cell_width + area["label_padding_px"] + jitter_x
         y = area["y"] + row * cell_height + area["label_padding_px"] + jitter_y
+        x = min(max(x, area["x"]), area["x"] + area["width"] - max(1, label_width))
+        y = min(max(y, area["y"]), area["y"] + area["height"] - max(1, label_height))
         active_windows = [
             {
                 "cycle_index": fragment["cycle_index"],

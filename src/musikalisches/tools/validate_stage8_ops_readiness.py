@@ -143,6 +143,7 @@ def main() -> int:
     soak_report = load_json(soak_report_path)
     args_payload = load_json(args_path) if args_path.exists() else {}
     stage8_ops = manifest.get("stage8_ops", {})
+    sample_retention = stage8_ops.get("sample_retention", {})
     bridge_consistency = manifest.get("bridge_consistency", {})
     audio_input = manifest.get("audio_input", {})
     video_input = manifest.get("video_input", {})
@@ -194,9 +195,20 @@ def main() -> int:
             == "unset_for_formal_soak"
             and isinstance(stage8_ops.get("required_env_vars"), list)
             and bool(stage8_ops.get("required_env_vars"))
-            and stage8_ops.get("readiness_report_file") == readiness_report_path.name,
+            and stage8_ops.get("readiness_report_file") == readiness_report_path.name
+            and isinstance(sample_retention, dict)
+            and Path(sample_retention.get("tool_path", "")).exists()
+            and sample_retention.get("samples_dir") == "stage8-samples"
+            and sample_retention.get("operator_summary_template_file")
+            == "operator_summary_template.md"
+            and sample_retention.get("attempt_log_index_file") == "attempt_log_index.json"
+            and sample_retention.get("runtime_artifact_digest_file")
+            == "runtime_artifact_digest.json"
+            and sample_retention.get("retention_report_file")
+            == "stage8_sample_retention_report.json",
             {
                 "stage8_ops": stage8_ops,
+                "sample_retention": sample_retention,
                 "run_script_file": run_script_path.name,
                 "readiness_report_file": readiness_report_path.name,
             },
@@ -287,11 +299,13 @@ def main() -> int:
             and Path(runtime_observability.get("runtime_tool_path", "")).exists()
             and Path(runtime_observability.get("classifier_tool_path", "")).exists()
             and args_payload.get("url_env_var") in stage8_ops.get("required_env_vars", [])
-            and log_dir.exists(),
+            and log_dir.exists()
+            and Path(sample_retention.get("tool_path", "")).exists(),
             {
                 "run_script_path": str(run_script_path),
                 "runtime_tool_path": runtime_observability.get("runtime_tool_path"),
                 "classifier_tool_path": runtime_observability.get("classifier_tool_path"),
+                "sample_retention_tool_path": sample_retention.get("tool_path"),
                 "log_dir": str(log_dir),
                 "required_env_vars": stage8_ops.get("required_env_vars"),
             },
@@ -326,8 +340,13 @@ def main() -> int:
             "foreground_soak_example": (
                 f"export {env_var}='rtmps://...'; export {loop_env}=infinite; {run_script_path}"
             ),
+            "sample_retention_example": (
+                "make -C src/musikalisches stage8-sample-retain "
+                "STAGE8_RUN_LABEL=<label>"
+            ),
             "background_files": stage8_ops.get("background_files"),
             "required_runtime_reports": stage8_ops.get("required_runtime_reports"),
+            "sample_retention": sample_retention,
         },
     }
     write_json(readiness_report_path, report)

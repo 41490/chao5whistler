@@ -75,6 +75,7 @@ help:
 	'  make stage7-preflight-regression-check Validate automated stage7 preflight fail observability' \
 	'  make stage7-soak-check    Validate pre-stage8 soak readiness contract' \
 	'  make stage8-readiness-check Validate stage8 real-soak ops readiness gate' \
+	'  make stage8-sample-retain Retain stage8 preflight/soak sample bundle and operator summary template' \
 	'  make stage7-ffmpeg-build  Build repo-managed ffmpeg/ffprobe with RTMPS output support' \
 	'  make stage7-ffmpeg-check  Validate repo-managed ffmpeg/ffprobe capability' \
 	'  make stage7-bridge-profile-show Show default stage7 bridge profile path' \
@@ -103,6 +104,7 @@ help:
 	'  STAGE7_AUDIO_SOURCE_DIR=/path/to/artifacts Override stage7 audio source dir' \
 	'  STAGE7_VIDEO_SOURCE_DIR=/path/to/artifacts Override stage7 video source dir' \
 	'  STAGE7_BRIDGE_PROFILE=/path/to/profile.json Override stage7 bridge profile' \
+	'  STAGE8_RUN_LABEL=<label>           Override retained sample label for stage8-sample-retain' \
 	'  FFMPEG_BIN=/path/to/ffmpeg             Override ffmpeg binary used by stage6/stage7' \
 	'  FFPROBE_BIN=/path/to/ffprobe           Override ffprobe binary used by stage7 checks'
 
@@ -395,6 +397,15 @@ stage8-readiness-check:
 	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage8_ops_readiness.py \
 		--ffmpeg-bin "$(FFMPEG_BIN)" \
 		--ffprobe-bin "$(FFPROBE_BIN)" \
+		$(STREAM_BRIDGE_OUT)
+
+.PHONY: stage8-sample-retain
+stage8-sample-retain:
+	@if [[ ! -f "$(STREAM_BRIDGE_OUT)/stage8_ops_readiness_report.json" ]]; then \
+		$(MAKE) stage8-readiness-check; \
+	fi
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/retain_stage8_ops_samples.py \
+		$(if $(STAGE8_RUN_LABEL),--run-label "$(STAGE8_RUN_LABEL)",) \
 		$(STREAM_BRIDGE_OUT)
 .PHONY: stage5-all
 stage5-all:

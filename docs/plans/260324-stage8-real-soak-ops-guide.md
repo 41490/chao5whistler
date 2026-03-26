@@ -88,6 +88,7 @@ PY
 
 - 都指向 `ops/bin/ffmpeg` / `ops/bin/ffprobe`
 - `ops/out/stream-bridge/stage8_ops_readiness_report.json` 为 `status = passed`
+- `stream_bridge_manifest.json > stage8_ops.sample_retention` 已包含样本留存模板约定
 
 ## 5. 短时 preflight 验证
 
@@ -224,18 +225,41 @@ kill -INT "$(cat ops/out/stream-bridge/logs/stage8_soak.pid)"
 
 ## 8. 结束后汇总
 
-结束后必须留存：
+结束后先执行样本留存：
 
 ```bash
-sed -n '1,260p' ops/out/stream-bridge/logs/stage7_bridge_preflight_report.json
-sed -n '1,260p' ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json
-sed -n '1,260p' ops/out/stream-bridge/logs/stage7_bridge_exit_report.json
+make -C src/musikalisches stage8-sample-retain STAGE8_RUN_LABEL=<label>
+```
+
+默认会在以下目录生成独立样本包：
+
+```text
+ops/out/stream-bridge/stage8-samples/<label>
+```
+
+其中至少会带出：
+
+- `operator_summary_template.md`
+- `attempt_log_index.json`
+- `runtime_artifact_digest.json`
+- `stage8_sample_retention_report.json`
+- `logs/stage7_bridge_preflight_report.json`
+- `logs/stage7_bridge_runtime_report.json`
+- `logs/stage7_bridge_exit_report.json`
+- `logs/stage7_bridge_latest.stderr.log`
+
+如需人工复查，优先看：
+
+```bash
+sed -n '1,260p' ops/out/stream-bridge/stage8-samples/<label>/operator_summary_template.md
+sed -n '1,260p' ops/out/stream-bridge/stage8-samples/<label>/attempt_log_index.json
+sed -n '1,260p' ops/out/stream-bridge/stage8-samples/<label>/runtime_artifact_digest.json
 ```
 
 如有多次重连，还应检查：
 
 ```bash
-find ops/out/stream-bridge/logs -maxdepth 1 -name 'stage7_bridge_attempt_*' | sort
+find ops/out/stream-bridge/stage8-samples/<label>/logs -maxdepth 1 -name 'stage7_bridge_attempt_*' | sort
 ```
 
 建议人工记录以下 8 项：
@@ -251,7 +275,7 @@ find ops/out/stream-bridge/logs -maxdepth 1 -name 'stage7_bridge_attempt_*' | so
 
 ## 9. 最小结论模板
 
-建议在 issue 中按以下格式汇报：
+建议直接基于 `ops/out/stream-bridge/stage8-samples/<label>/operator_summary_template.md` 回填 issue；其字段模板为：
 
 ```text
 - stage8 soak host: <platform/host>

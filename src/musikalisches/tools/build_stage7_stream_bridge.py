@@ -21,6 +21,7 @@ from stage7_bridge_profile import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STAGE8_GUIDE_PATH = REPO_ROOT / "docs" / "plans" / "260324-stage8-real-soak-ops-guide.md"
+STAGE8_SAMPLE_TOOL_PATH = Path(__file__).resolve().parent / "retain_stage8_ops_samples.py"
 REQUIRED_AUDIO_FILES = {
     "artifact_summary.json",
     "render_request.json",
@@ -1230,6 +1231,14 @@ def main() -> int:
                 f"{LOG_DIR_NAME}/{EXIT_REPORT_FILE}",
             ],
             "readiness_report_file": "stage8_ops_readiness_report.json",
+            "sample_retention": {
+                "tool_path": str(STAGE8_SAMPLE_TOOL_PATH),
+                "samples_dir": "stage8-samples",
+                "operator_summary_template_file": "operator_summary_template.md",
+                "attempt_log_index_file": "attempt_log_index.json",
+                "runtime_artifact_digest_file": "runtime_artifact_digest.json",
+                "retention_report_file": "stage8_sample_retention_report.json",
+            },
         },
         "live_command": {
             "ffmpeg_bin": resolved_ffmpeg_path,

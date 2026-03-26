@@ -343,6 +343,7 @@ docs/plans/260322-stage7-stream-bridge-guide.md
 - `stage7_bridge_validation_report.json`
 - `stage7_soak_validation_report.json`
 - `stage8_ops_readiness_report.json`（通过 `stage8-readiness-check` 生成）
+- `stage8-samples/<run-label>/...`（通过 `stage8-sample-retain` 生成）
 
 默认输出目录：
 
@@ -371,6 +372,7 @@ ops/out/stream-bridge
 - runtime 会把 `stderr` 写到 `logs/stage7_bridge_latest.stderr.log`
 - runtime 会把退出分类写到 `logs/stage7_bridge_exit_report.json`
 - runtime 会把聚合执行结果写到 `logs/stage7_bridge_runtime_report.json`
+- `make -C src/musikalisches stage8-sample-retain STAGE8_RUN_LABEL=<label>` 会把当前 preflight/runtime/exit/attempt 日志与 readiness/validation 报告收成 `ops/out/stream-bridge/stage8-samples/<label>/`，并自动生成 `operator_summary_template.md` / `attempt_log_index.json` / `runtime_artifact_digest.json`
 - `make -C src/musikalisches stage7-preflight-regression-check` 会自动回归 `target_scheme / protocol_support / dns_resolution / tcp_connectivity / publish_probe` 五条 preflight fail 路径，并把结果写到 `ops/out/stage7-preflight-regressions/stage7_preflight_regression_report.json`
 
 失败分类当前至少覆盖：
@@ -398,6 +400,8 @@ stage 8 真实 soak 的人工运维草稿见：
 ```text
 docs/plans/260324-stage8-real-soak-ops-guide.md
 ```
+
+真实 preflight / soak 结束后，执行 `make -C src/musikalisches stage8-sample-retain STAGE8_RUN_LABEL=<label>` 可把现场日志与报告固化到独立样本目录，便于 issue 回填与复盘。
 
 运行 stage 5 golden regression：
 

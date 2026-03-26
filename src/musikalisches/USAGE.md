@@ -236,6 +236,19 @@ sed -n '1,220p' ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json
 sed -n '1,220p' ops/out/stream-bridge/logs/stage7_bridge_exit_report.json
 ```
 
+如果要把这次真实 preflight / soak 收成可回填 issue 的独立样本包，执行：
+
+```bash
+make -C src/musikalisches stage8-sample-retain STAGE8_RUN_LABEL=<label>
+```
+
+默认会生成：
+
+- `ops/out/stream-bridge/stage8-samples/<label>/operator_summary_template.md`
+- `ops/out/stream-bridge/stage8-samples/<label>/attempt_log_index.json`
+- `ops/out/stream-bridge/stage8-samples/<label>/runtime_artifact_digest.json`
+- `ops/out/stream-bridge/stage8-samples/<label>/stage8_sample_retention_report.json`
+
 如果需要做真实平台长时 soak，直接按 `docs/plans/260324-stage8-real-soak-ops-guide.md` 执行。
 
 ## 8. 一句话结论

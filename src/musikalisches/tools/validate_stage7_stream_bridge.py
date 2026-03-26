@@ -609,6 +609,16 @@ def main() -> int:
             f"{runtime_observability.get('log_dir')}/{runtime_observability.get('exit_report_file')}",
         ],
         "readiness_report_file": "stage8_ops_readiness_report.json",
+        "sample_retention": {
+            "tool_path": str(
+                Path(__file__).resolve().parent / "retain_stage8_ops_samples.py"
+            ),
+            "samples_dir": "stage8-samples",
+            "operator_summary_template_file": "operator_summary_template.md",
+            "attempt_log_index_file": "attempt_log_index.json",
+            "runtime_artifact_digest_file": "runtime_artifact_digest.json",
+            "retention_report_file": "stage8_sample_retention_report.json",
+        },
     }
 
     failure_classes = failure_taxonomy.get("classes", [])

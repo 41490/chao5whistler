@@ -126,16 +126,11 @@ fn deep_merge(base: &mut Value, overlay: Value) {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::sync::{Mutex, OnceLock};
 
     use tempfile::tempdir;
 
     use super::*;
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
+    use crate::test_support;
 
     #[test]
     fn tracked_template_loads_cleanly() {
@@ -181,7 +176,7 @@ mod tests {
 
     #[test]
     fn local_override_wins_over_main_file() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = test_support::env_lock().lock().expect("env lock");
         let saved_env = std::env::var(RTMP_URL_ENV_VAR).ok();
         std::env::remove_var(RTMP_URL_ENV_VAR);
 
@@ -223,7 +218,7 @@ url = "rtmp://example.invalid/live"
 
     #[test]
     fn env_override_supplies_rtmp_url() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = test_support::env_lock().lock().expect("env lock");
         let temp = tempdir().expect("tempdir");
         let main_path = temp.path().join("songh.toml");
         fs::write(

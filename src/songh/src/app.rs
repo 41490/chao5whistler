@@ -6,12 +6,14 @@ use crate::archive;
 use crate::audio;
 use crate::av;
 use crate::cli::{
-    CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs, RenderAudioSampleArgs,
-    RenderAvSampleArgs, RenderVideoSampleArgs, ReplayDryRunArgs, SampleAudioArgs, SampleReplayArgs,
-    SampleVideoArgs, SeedFixtureRawArgs, ValidateDayPackArgs,
+    BuildStreamBridgeArgs, CheckConfigArgs, CliCommand, PrepareDayPackArgs, PrintDefaultConfigArgs,
+    RenderAudioSampleArgs, RenderAvSampleArgs, RenderVideoSampleArgs, ReplayDryRunArgs,
+    RunStreamBridgeArgs, SampleAudioArgs, SampleReplayArgs, SampleVideoArgs, SeedFixtureRawArgs,
+    ValidateDayPackArgs,
 };
 use crate::config::{self, OutputFormat};
 use crate::replay;
+use crate::stage7;
 use crate::video;
 
 pub fn run<I>(args: I) -> Result<()>
@@ -35,6 +37,8 @@ where
         CliCommand::SampleVideo(args) => run_sample_video(args)?,
         CliCommand::RenderVideoSample(args) => run_render_video_sample(args)?,
         CliCommand::RenderAvSample(args) => run_render_av_sample(args)?,
+        CliCommand::BuildStreamBridge(args) => run_build_stream_bridge(args)?,
+        CliCommand::RunStreamBridge(args) => run_stream_bridge(args)?,
     }
 
     Ok(())
@@ -445,6 +449,79 @@ fn run_render_av_sample(args: RenderAvSampleArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&report)?);
     }
 
+    Ok(())
+}
+
+fn run_build_stream_bridge(args: BuildStreamBridgeArgs) -> Result<()> {
+    let config_path = args
+        .config_path
+        .clone()
+        .unwrap_or_else(default_runtime_config_path);
+    let loaded = config::load_from_path(&config_path, None)?;
+    let report = stage7::build_day_pack(
+        &loaded.config,
+        &args.day,
+        args.archive_root.as_deref(),
+        &args.output_dir,
+        args.start_second,
+        args.duration_secs,
+        args.motion_mode_override,
+        args.angle_deg_override,
+    )?;
+
+    println!("songh stage7 stream bridge build passed");
+    println!("main config: {}", config_path.display());
+    println!("source day: {}", args.day);
+    println!("output dir: {}", report.output_dir.display());
+    println!("preview mp4: {}", report.source_preview_mp4_path.display());
+    println!("smoke flv: {}", report.smoke_flv_path.display());
+    println!("manifest: {}", report.manifest_path.display());
+    println!("ffmpeg args: {}", report.ffmpeg_args_path.display());
+    println!(
+        "failure taxonomy: {}",
+        report.failure_taxonomy_path.display()
+    );
+    println!(
+        "validation report: {}",
+        report.validation_report_path.display()
+    );
+    println!("run wrapper: {}", report.wrapper_script_path.display());
+
+    if args.dump_json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    Ok(())
+}
+
+fn run_stream_bridge(args: RunStreamBridgeArgs) -> Result<()> {
+    let report = stage7::run_runtime(
+        &args.artifact_dir,
+        &args.loop_mode,
+        if args.max_runtime_secs > 0 {
+            Some(args.max_runtime_secs)
+        } else {
+            None
+        },
+    )?;
+
+    println!("songh stage7 stream bridge runtime passed");
+    println!("artifact dir: {}", report.artifact_dir.display());
+    println!("status: {}", report.status);
+    println!(
+        "preflight report: {}",
+        report.preflight_report_path.display()
+    );
+    println!("runtime report: {}", report.runtime_report_path.display());
+    println!(
+        "latest exit report: {}",
+        report.latest_exit_report_path.display()
+    );
+    println!("latest stderr log: {}", report.latest_log_path.display());
+    println!(
+        "attempts/final exit: {}/{}:{}",
+        report.attempts_total, report.final_exit_class_id, report.final_exit_code
+    );
     Ok(())
 }
 

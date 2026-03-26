@@ -8,6 +8,7 @@
 - 许可证白名单先只允许 `CC0` / `public_domain` / `pixabay_no_attribution`
 - P2 只冻结最小 seed pack：`ambient` 1 个、`drone` 1 个
 - P3 之前，stage5 还不会直接消费“裸目录随机 wav”，必须通过 manifest/index 接入
+- 从 P3 开始，stage5 默认通过 `stage5_default_soundscape_profile.json` 消费这里的 manifest 化资产池，并把选中的 `ambient + drone` 下沉到 `offline_audio.wav`
 
 目录约定：
 

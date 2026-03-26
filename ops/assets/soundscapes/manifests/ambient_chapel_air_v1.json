@@ -1,5 +1,7 @@
 {
   "asset_id": "ambient_chapel_air_v1",
+  "label": "Chapel Air",
+  "description": "Slow-moving chapel pad bed for the first issue9 seed soundscape pack.",
   "layer_kind": "ambient",
   "asset_format": "wav",
   "asset_path": "ops/assets/soundscapes/ambient/ambient_chapel_air_v1.wav",
@@ -12,10 +14,10 @@
   "attribution_required": false,
   "loop_duration_seconds": 24.0,
   "loudness_target_dbfs": -24.0,
-  "sha256": "fddc70c66d06057e598f9031d4809a61d7163e67978a1601d5cda247c62b1215",
+  "sha256": "3016e86b476d7c5d008d3eb4f9b6906af4ec91fac300fdfc31dcfe645196c52f",
   "audio": {
     "duration_seconds": 24.0,
-    "sample_rate": 24000,
+    "sample_rate": 44100,
     "channels": 2,
     "sample_format": "pcm_s16le",
     "peak_dbfs": -14.83,
@@ -24,7 +26,7 @@
   "generator": {
     "path": "src/musikalisches/tools/generate_soundscape_seed_assets.py",
     "method": "deterministic additive pad swarm",
-    "sample_rate": 24000,
+    "sample_rate": 44100,
     "channels": 2
   },
   "notes": [

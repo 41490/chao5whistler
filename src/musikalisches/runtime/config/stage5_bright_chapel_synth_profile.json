@@ -1,0 +1,24 @@
+{
+  "profile_id": "stage5_bright_chapel_principal",
+  "description": "Brighter chapel-style pairing with a more present principal lead and a tighter stereo field.",
+  "voice_groups": [
+    {
+      "part_index": 1,
+      "channel": 0,
+      "program": 19,
+      "velocity": 98,
+      "base_amplitude": 0.13,
+      "left_gain": 0.66,
+      "right_gain": 0.52
+    },
+    {
+      "part_index": 2,
+      "channel": 1,
+      "program": 19,
+      "velocity": 88,
+      "base_amplitude": 0.102,
+      "left_gain": 0.52,
+      "right_gain": 0.66
+    }
+  ]
+}

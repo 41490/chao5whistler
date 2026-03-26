@@ -1,0 +1,39 @@
+{
+  "profile_id": "stage5_default_multilayer_soundscape_v1",
+  "description": "Default issue9 P3 soundscape profile: deterministic registration pool plus ambient and drone seed layers.",
+  "selection_mode": "deterministic_combination_hash_v1",
+  "asset_pack_manifest_path": "ops/assets/soundscapes/manifests/soundscape_asset_pack_v1.json",
+  "required_layer_kinds": [
+    "ambient",
+    "drone"
+  ],
+  "main_registration_profiles": [
+    {
+      "registration_id": "church_reed_duo",
+      "label": "Church + Reed Duo",
+      "synth_profile_path": "src/musikalisches/runtime/config/stage5_default_synth_profile.json"
+    },
+    {
+      "registration_id": "bright_chapel_principal",
+      "label": "Bright Chapel Principal",
+      "synth_profile_path": "src/musikalisches/runtime/config/stage5_bright_chapel_synth_profile.json"
+    },
+    {
+      "registration_id": "processional_reeds_pair",
+      "label": "Processional Reeds Pair",
+      "synth_profile_path": "src/musikalisches/runtime/config/stage5_processional_reeds_synth_profile.json"
+    }
+  ],
+  "mix_bus_profile": {
+    "profile_id": "stage5_soundscape_mix_bus_v1",
+    "main_gain_db": -1.0,
+    "drone_gain_db": -15.0,
+    "ambient_gain_db": -20.0,
+    "master_gain_db": 0.0,
+    "peak_ceiling_amplitude": 0.92,
+    "target_peak_min_amplitude": 0.12,
+    "target_peak_max_amplitude": 0.92,
+    "target_rms_min_dbfs": -28.0,
+    "target_rms_max_dbfs": -10.0
+  }
+}

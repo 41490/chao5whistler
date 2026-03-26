@@ -45,6 +45,13 @@ make -C src/musikalisches soundscape-assets-check
 
 这一步只验证 manifest / license / hash / loop duration contract，不会改动现有 stage7 live 基线。
 
+从 issue #9 `P3` 开始，`stage5-stream` / `stage5-sf2` 默认还会继续做一层 soundscape mix bus：
+
+- 会按 `combination_id` 从 curated registration 池里选一个 organ profile
+- 会从 `soundscape_asset_pack_v1.json` 中确定一组 `drone + ambient`
+- 会把三层结果统一混进 stage5 的 `offline_audio.wav`
+- 会额外生成 `soundscape_selection.json`
+
 ## 2. 检查通过的判据
 
 以下报告文件都应为 `status = passed`：
@@ -102,10 +109,18 @@ ops/out/video-render-sf2
 
 重点文件：
 
+- `ops/out/stream-sf2/soundscape_selection.json`
 - `ops/out/video-render-sf2/offline_preview.mp4`
 - `ops/out/video-render-sf2/offline_frame_sequence.json`
 - `ops/out/video-render-sf2/video_render_manifest.json`
 - `ops/out/video-render-sf2/stage6_render_validation_report.json`
+
+其中 `ops/out/stream-sf2/soundscape_selection.json` 会记录本次 stage5 实际选中的：
+
+- `registration`
+- `drone asset`
+- `ambient asset`
+- `mix_bus` peak / RMS / gain guardrail 摘要
 
 注意：
 

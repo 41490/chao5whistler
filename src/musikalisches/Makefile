@@ -14,6 +14,7 @@ STREAM_BRIDGE_OUT := $(ROOT)/ops/out/stream-bridge
 FFMPEG_TOOLCHAIN_OUT := $(ROOT)/ops/out/ffmpeg-rtmps-check
 STAGE7_PREFLIGHT_REGRESSION_OUT := $(ROOT)/ops/out/stage7-preflight-regressions
 DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_synth_profile.json
+DEFAULT_SOUNDSCAPE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_soundscape_profile.json
 DEFAULT_STAGE6_SCENE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage6_default_scene_profile.json
 DEFAULT_STAGE6_TEXT_CONFIG := $(ROOT)/src/musikalisches/runtime/config/stage6_default_text_overrides.toml
 DEFAULT_STAGE7_BRIDGE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage7_default_bridge_profile.json
@@ -48,13 +49,14 @@ help:
 	'  make stage5-demo           Render fallback demo artifacts' \
 	'  make stage5-validate       Validate fallback demo artifacts' \
 	'  make stage5-stream         Render looped stream artifacts from a unique persisted combination ledger' \
-	'  make stage5-stream-check   Validate looped stream artifacts and unique selection metadata' \
+	'  make stage5-stream-check   Validate looped stream artifacts, unique selection metadata, and soundscape mix-bus contract' \
 	'  make stage5-stream-play    Play looped demo WAV with ffplay' \
 	'  make stage5-sf2            Render looped SoundFont artifacts from a unique persisted combination ledger' \
-	'  make stage5-sf2-check      Validate looped SoundFont artifacts and unique selection metadata' \
+	'  make stage5-sf2-check      Validate looped SoundFont artifacts, unique selection metadata, and soundscape mix-bus contract' \
 	'  make soundscape-assets-generate Generate deterministic seed soundscape assets/manifests for issue9 P2' \
 	'  make soundscape-assets-check Validate soundscape asset pack and license manifest' \
 	'  make stage5-profile-show   Show default synth profile path' \
+	'  make stage5-soundscape-profile-show Show default stage5 soundscape profile path' \
 	'' \
 	'Stage 6 preflight:' \
 	'  make stage6-video-stub    Derive visual stub artifacts from analyzer output' \
@@ -96,6 +98,7 @@ help:
 	'Variables:' \
 	'  SOUND_FONT=/path/to/file.sf2       Override SoundFont for stage5-sf2' \
 	'  SYNTH_PROFILE=/path/to/profile.json Override synth routing profile' \
+	'  SOUNDSCAPE_PROFILE=/path/to/profile.json Override stage5 soundscape profile' \
 	'  LOOP_COUNT=4                       Override loop count for stream targets' \
 	'  LIVE_LOOP_COUNT=16                 Default hold cycles for stage7/stage8 live-source rebuilds' \
 	'  ANALYSIS_WINDOW_MS=40              Override analyzer window size' \
@@ -159,12 +162,13 @@ stage5-stream:
 		--ledger-path "$${STAGE5_LEDGER_PATH:-$(DEFAULT_STAGE5_LEDGER)}" \
 		--loop-count $${LOOP_COUNT:-4} \
 		--analysis-window-ms $${ANALYSIS_WINDOW_MS:-40} \
+		$(if $(SOUNDSCAPE_PROFILE),--soundscape-profile $(SOUNDSCAPE_PROFILE),) \
 		$(if $(SYNTH_PROFILE),--synth-profile $(SYNTH_PROFILE),) \
 		--output-dir $(STREAM_DEMO_OUT)
 
 .PHONY: stage5-stream-check
 stage5-stream-check:
-	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection $(STREAM_DEMO_OUT)
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection --require-soundscape $(STREAM_DEMO_OUT)
 
 .PHONY: stage5-stream-play
 stage5-stream-play:
@@ -197,16 +201,21 @@ stage5-sf2:
 		--loop-count $${LOOP_COUNT:-4} \
 		--analysis-window-ms $${ANALYSIS_WINDOW_MS:-40} \
 		--soundfont "$$SF2" \
+		$(if $(SOUNDSCAPE_PROFILE),--soundscape-profile $(SOUNDSCAPE_PROFILE),) \
 		$(if $(SYNTH_PROFILE),--synth-profile $(SYNTH_PROFILE),) \
 		--output-dir $(STREAM_SF2_OUT)
 
 .PHONY: stage5-sf2-check
 stage5-sf2-check:
-	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection $(STREAM_SF2_OUT)
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection --require-soundscape $(STREAM_SF2_OUT)
 
 .PHONY: stage5-profile-show
 stage5-profile-show:
 	@printf '%s\n' $(DEFAULT_SYNTH_PROFILE)
+
+.PHONY: stage5-soundscape-profile-show
+stage5-soundscape-profile-show:
+	@printf '%s\n' $(DEFAULT_SOUNDSCAPE_PROFILE)
 
 .PHONY: soundscape-assets-generate
 soundscape-assets-generate:

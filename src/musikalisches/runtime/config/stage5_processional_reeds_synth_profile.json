@@ -1,0 +1,24 @@
+{
+  "profile_id": "stage5_processional_reeds_pair",
+  "description": "Processional organ pairing that leans into reed texture while keeping the bass anchor centered.",
+  "voice_groups": [
+    {
+      "part_index": 1,
+      "channel": 0,
+      "program": 20,
+      "velocity": 94,
+      "base_amplitude": 0.116,
+      "left_gain": 0.62,
+      "right_gain": 0.48
+    },
+    {
+      "part_index": 2,
+      "channel": 1,
+      "program": 19,
+      "velocity": 86,
+      "base_amplitude": 0.106,
+      "left_gain": 0.48,
+      "right_gain": 0.62
+    }
+  ]
+}

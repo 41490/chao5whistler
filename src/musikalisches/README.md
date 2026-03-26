@@ -116,6 +116,7 @@ make -C src/musikalisches help
 - stage7/stage8 默认 live 输入已切到 `ops/out/stream-sf2` 与 `ops/out/video-render-sf2`
 - formal live source pair 默认固定为 `16` cycles / 组合；`stage8-readiness-check` 也会显式验证该约束
 - issue #9 `P2` 现已引入 `ops/assets/soundscapes/` 资产包约定；seed pack 先冻结 `ambient + drone` manifest、许可证白名单和 `sha256` 校验
+- issue #9 `P3` 现已把 `main organ + drone + ambient` 下沉到 stage5：默认会根据 `combination_id` 选 registration/profile 和 soundscape assets，并把统一混音结果直接写回 `offline_audio.wav`
 - stage 7 默认只产出本地 `flv` smoke 与 redacted live command，不默认发起真实推流
 - 如系统自带 `ffmpeg` 缺少 `rtmps` output，可直接执行 `make -C src/musikalisches stage7-ffmpeg-build` 生成仓库内本地 toolchain，并由 stage6/stage7 目标自动优先使用 `ops/bin/ffmpeg` 与 `ops/bin/ffprobe`
 
@@ -141,6 +142,41 @@ make -C src/musikalisches soundscape-assets-check
 ```
 
 P2 只负责冻结素材池和 license manifest，不在这一阶段把这些层真正混进 stage5；那部分属于后续 `P3`。
+
+## stage5 soundscape mix bus
+
+当前默认 stage5 unique-stream 构建已进入 issue #9 `P3`：
+
+- 默认 soundscape profile：`src/musikalisches/runtime/config/stage5_default_soundscape_profile.json`
+- 默认 registration 池：
+  - `stage5_default_synth_profile.json`
+  - `stage5_bright_chapel_synth_profile.json`
+  - `stage5_processional_reeds_synth_profile.json`
+- 默认会生成 `soundscape_selection.json`
+- 默认会把 `ambient + drone` 真正混入 stage5 的 `offline_audio.wav`
+
+新的 stage5 关键 contract：
+
+- `combination_selection.json`: 组合与 hold 元数据
+- `soundscape_selection.json`: registration + ambient/drone 选择结果与 mix-bus 摘要
+- `artifact_summary.json` / `render_request.json` / `stream_loop_plan.json` / `m1_validation_report.json`
+  现会同步带出 `soundscape` 摘要和 `output_files.soundscape_selection`
+
+常用命令：
+
+```bash
+make -C src/musikalisches stage5-soundscape-profile-show
+make -C src/musikalisches stage5-sf2 LOOP_COUNT=16
+make -C src/musikalisches stage5-sf2-check
+```
+
+如需覆盖默认 soundscape profile：
+
+```bash
+make -C src/musikalisches stage5-sf2 \
+  LOOP_COUNT=16 \
+  SOUNDSCAPE_PROFILE=/path/to/stage5_soundscape_profile.json
+```
 
 ## ops quickstart
 

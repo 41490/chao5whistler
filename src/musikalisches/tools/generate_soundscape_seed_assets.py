@@ -16,7 +16,7 @@ AMBIENT_DIR = ASSET_ROOT / "ambient"
 DRONE_DIR = ASSET_ROOT / "drone"
 IMPULSE_DIR = ASSET_ROOT / "impulse"
 MANIFEST_DIR = ASSET_ROOT / "manifests"
-SAMPLE_RATE = 24_000
+SAMPLE_RATE = 44_100
 SAMPLE_WIDTH_BYTES = 2
 CHANNELS = 2
 REPO_BLOB_ROOT = "https://github.com/41490/chao5whistler/blob/main"
@@ -113,6 +113,8 @@ def relative_blob_url(path: Path) -> str:
 def asset_manifest(
     *,
     asset_id: str,
+    label: str,
+    description: str,
     layer_kind: str,
     asset_path: Path,
     synthesis_method: str,
@@ -122,6 +124,8 @@ def asset_manifest(
     rel_asset_path = asset_path.relative_to(ROOT).as_posix()
     return {
         "asset_id": asset_id,
+        "label": label,
+        "description": description,
         "layer_kind": layer_kind,
         "asset_format": "wav",
         "asset_path": rel_asset_path,
@@ -164,6 +168,8 @@ def main() -> int:
 
     ambient_manifest = asset_manifest(
         asset_id="ambient_chapel_air_v1",
+        label="Chapel Air",
+        description="Slow-moving chapel pad bed for the first issue9 seed soundscape pack.",
         layer_kind="ambient",
         asset_path=ambient_path,
         synthesis_method="deterministic additive pad swarm",
@@ -172,6 +178,8 @@ def main() -> int:
     )
     drone_manifest = asset_manifest(
         asset_id="drone_c_pedal_v1",
+        label="C Pedal Drone",
+        description="Soft C pedal support layer for the first issue9 seed soundscape pack.",
         layer_kind="drone",
         asset_path=drone_path,
         synthesis_method="deterministic pedal-tone stack",

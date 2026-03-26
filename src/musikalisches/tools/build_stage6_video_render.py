@@ -422,6 +422,97 @@ def draw_footer_overlay(
     draw_text(buffer, width, height, text, x, y, scale, text_rgb, 0.92)
 
 
+def layout_soundscape_badges(soundscape_badges: dict) -> list[dict]:
+    badges = soundscape_badges.get("badges", [])
+    badge_count = len(badges)
+    if badge_count == 0:
+        return []
+    gap = soundscape_badges.get("badge_gap_px", 0)
+    badge_height = max(
+        1,
+        int(
+            (soundscape_badges["height"] - gap * max(0, badge_count - 1))
+            / max(1, badge_count)
+        ),
+    )
+    rows: list[dict] = []
+    for index, badge in enumerate(badges):
+        rows.append(
+            {
+                "badge": badge,
+                "x": soundscape_badges["x"],
+                "y": soundscape_badges["y"] + index * (badge_height + gap),
+                "width": soundscape_badges["width"],
+                "height": badge_height,
+            }
+        )
+    return rows
+
+
+def resolve_soundscape_badge_text(badge: dict, frame: dict) -> str:
+    progress = badge.get("progress")
+    if isinstance(progress, dict):
+        total_cycles = max(1, int(progress.get("total_cycles", 1)))
+        current_cycle = max(
+            1,
+            min(total_cycles, int(frame.get("cycle_index", progress.get("current_cycle_index", 1)))),
+        )
+        return progress.get("value_template", "{current_cycle} / {total_cycles}").format(
+            current_cycle=current_cycle,
+            total_cycles=total_cycles,
+        )
+    return badge.get("value", "")
+
+
+def draw_soundscape_overlay(
+    buffer: bytearray,
+    width: int,
+    height: int,
+    soundscape_badges: dict,
+    frame: dict,
+    scene: dict,
+) -> None:
+    panel_rgb = hex_to_rgb(scene["palette"]["panel_color"])
+    text_rgb = hex_to_rgb(scene["palette"]["text_color"])
+    for row in layout_soundscape_badges(soundscape_badges):
+        badge = row["badge"]
+        accent_rgb = hex_to_rgb(badge["accent_color"])
+        fill_rect(
+            buffer,
+            width,
+            height,
+            row["x"],
+            row["y"],
+            row["width"],
+            row["height"],
+            panel_rgb,
+            0.82,
+        )
+        draw_rect_stroke(
+            buffer,
+            width,
+            height,
+            row["x"],
+            row["y"],
+            row["width"],
+            row["height"],
+            2,
+            accent_rgb,
+            0.92,
+        )
+        text = f"{badge['title']}: {resolve_soundscape_badge_text(badge, frame)}"
+        scale = choose_text_scale(
+            text,
+            max_width=max(1, row["width"] - 24),
+            preferred_font_size=soundscape_badges["font_size_px"],
+        )
+        text_height = measure_text(text, scale)[1]
+        x = row["x"] + 12
+        y = int(round(row["y"] + (row["height"] - text_height) / 2))
+        draw_text(buffer, width, height, text, x, y + 1, scale, accent_rgb, 0.18)
+        draw_text(buffer, width, height, text, x, y, scale, text_rgb, 0.94)
+
+
 def draw_selector_overlay(
     buffer: bytearray,
     width: int,
@@ -742,6 +833,7 @@ def build_frame_sequence(scene: dict) -> dict:
             "keyframe_source": scene["motion"]["keyframe_source"],
         },
         "title_area": scene["title_area"],
+        "soundscape_badges": scene["soundscape_badges"],
         "footer_progress_area": scene["footer_progress_area"],
         "selector_label_sprites": scene["selector_label_sprites"],
         "spectrum_trails": scene["spectrum_trails"],
@@ -754,6 +846,7 @@ def build_frame_sequence(scene: dict) -> dict:
             "cycle_count": scene["summary"]["cycle_count"],
             "window_count": scene["summary"]["window_count"],
             "selector_label_count": scene["summary"]["selector_label_count"],
+            "soundscape_badge_count": scene["summary"]["soundscape_badge_count"],
             "title_line_count": scene["summary"]["title_line_count"],
             "spectrum_sampled_point_count": scene["spectrum_trails"]["sampled_point_count"],
             "fps": scene["canvas"]["fps"],
@@ -889,6 +982,14 @@ def render_frame_bytes(scene: dict, frame: dict, base_canvas: bytearray) -> byte
         width,
         height,
         scene.get("title_area", {}),
+        frame,
+        scene,
+    )
+    draw_soundscape_overlay(
+        buffer,
+        width,
+        height,
+        scene.get("soundscape_badges", {}),
         frame,
         scene,
     )
@@ -1377,6 +1478,7 @@ def main() -> int:
             "cycle_count": frame_sequence["summary"]["cycle_count"],
             "lane_count": frame_sequence["summary"]["lane_count"],
             "selector_label_count": frame_sequence["summary"]["selector_label_count"],
+            "soundscape_badge_count": frame_sequence["summary"]["soundscape_badge_count"],
             "title_line_count": frame_sequence["summary"]["title_line_count"],
             "spectrum_sampled_point_count": frame_sequence["summary"][
                 "spectrum_sampled_point_count"

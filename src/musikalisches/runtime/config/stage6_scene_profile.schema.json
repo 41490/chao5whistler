@@ -12,6 +12,7 @@
     "motion",
     "preview",
     "title_area",
+    "soundscape_badges",
     "footer_progress_area",
     "selector_label_sprites",
     "spectrum_trails",
@@ -315,6 +316,51 @@
             "line_gap_px": {
               "type": "integer",
               "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "soundscape_badges": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/rect"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height",
+            "badge_gap_px",
+            "font_size_px"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "badge_gap_px": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "font_size_px": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         }

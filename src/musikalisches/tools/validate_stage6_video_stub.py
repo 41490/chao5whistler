@@ -112,6 +112,7 @@ def main() -> int:
     cycles = scene.get("cycles", [])
     canvas = scene.get("canvas", {})
     title_area = scene.get("title_area", {})
+    soundscape_badges = scene.get("soundscape_badges", {})
     footer_progress_area = scene.get("footer_progress_area", {})
     selector_label_sprites = scene.get("selector_label_sprites", {})
     short_safe_layout = scene.get("short_safe_layout", {})
@@ -322,6 +323,27 @@ def main() -> int:
     )
     checks.append(
         build_check(
+            "soundscape_badges",
+            rect_within_canvas(soundscape_badges, canvas)
+            and soundscape_badges.get("badge_count") == len(soundscape_badges.get("badges", []))
+            and soundscape_badges.get("badge_count") == 3
+            and soundscape_badges.get("badge_count")
+            == scene.get("summary", {}).get("soundscape_badge_count")
+            and isinstance(soundscape_badges.get("registration_label"), str)
+            and soundscape_badges.get("registration_label", "").strip() != ""
+            and isinstance(soundscape_badges.get("ambient_label"), str)
+            and soundscape_badges.get("ambient_label", "").strip() != ""
+            and soundscape_badges.get("combination_hold_progress", {}).get("total_cycles", 0) > 0,
+            {
+                "soundscape_badges": soundscape_badges,
+                "summary_soundscape_badge_count": scene.get("summary", {}).get(
+                    "soundscape_badge_count"
+                ),
+            },
+        )
+    )
+    checks.append(
+        build_check(
             "footer_progress_area",
             rect_within_canvas(footer_progress_area, canvas)
             and isinstance(footer_progress_area.get("text"), str)
@@ -397,6 +419,24 @@ def main() -> int:
             and isinstance(text_overrides.get("source_path"), str)
             and text_overrides.get("source_path", "").endswith(".toml"),
             {"text_overrides": text_overrides},
+        )
+    )
+    checks.append(
+        build_check(
+            "soundscape_badge_ids",
+            [badge.get("badge_id") for badge in soundscape_badges.get("badges", [])]
+            == [
+                "registration_label",
+                "ambient_label",
+                "combination_hold_progress",
+            ]
+            and all(
+                isinstance(badge.get("value"), str) and badge.get("value", "").strip() != ""
+                for badge in soundscape_badges.get("badges", [])
+            ),
+            {
+                "badge_ids": [badge.get("badge_id") for badge in soundscape_badges.get("badges", [])],
+            },
         )
     )
 

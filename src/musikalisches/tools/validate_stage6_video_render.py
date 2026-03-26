@@ -343,6 +343,7 @@ def main() -> int:
     frames = frame_sequence.get("frames", [])
     canvas = frame_sequence.get("canvas", {})
     title_area = frame_sequence.get("title_area", {})
+    soundscape_badges = frame_sequence.get("soundscape_badges", {})
     footer_progress_area = frame_sequence.get("footer_progress_area", {})
     selector_label_sprites = frame_sequence.get("selector_label_sprites", {})
     spectrum_trails = frame_sequence.get("spectrum_trails", {})
@@ -477,6 +478,7 @@ def main() -> int:
         build_check(
             "scene_contract_blocks",
             frame_sequence.get("title_area") == source_scene.get("title_area")
+            and frame_sequence.get("soundscape_badges") == source_scene.get("soundscape_badges")
             and frame_sequence.get("footer_progress_area")
             == source_scene.get("footer_progress_area")
             and frame_sequence.get("selector_label_sprites")
@@ -489,6 +491,7 @@ def main() -> int:
                     key
                     for key in (
                         "title_area",
+                        "soundscape_badges",
                         "footer_progress_area",
                         "selector_label_sprites",
                         "spectrum_trails",
@@ -647,6 +650,28 @@ def main() -> int:
     )
     checks.append(
         build_check(
+            "soundscape_badges_contract",
+            rect_within_canvas(soundscape_badges, canvas)
+            and rect_within_rect(soundscape_badges, short_safe_layout)
+            and soundscape_badges.get("badge_count")
+            == len(soundscape_badges.get("badges", []))
+            and soundscape_badges.get("badge_count")
+            == frame_sequence.get("summary", {}).get("soundscape_badge_count")
+            and isinstance(soundscape_badges.get("registration_label"), str)
+            and soundscape_badges.get("registration_label", "").strip() != ""
+            and isinstance(soundscape_badges.get("ambient_label"), str)
+            and soundscape_badges.get("ambient_label", "").strip() != ""
+            and soundscape_badges.get("combination_hold_progress", {}).get("total_cycles", 0) > 0,
+            {
+                "soundscape_badges": soundscape_badges,
+                "summary_soundscape_badge_count": frame_sequence.get("summary", {}).get(
+                    "soundscape_badge_count"
+                ),
+            },
+        )
+    )
+    checks.append(
+        build_check(
             "footer_progress_contract",
             rect_within_canvas(footer_progress_area, canvas)
             and rect_within_rect(footer_progress_area, short_safe_layout)
@@ -655,6 +680,24 @@ def main() -> int:
             {
                 "footer_progress_area": footer_progress_area,
                 "short_safe_layout": short_safe_layout,
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "soundscape_badge_ids",
+            [badge.get("badge_id") for badge in soundscape_badges.get("badges", [])]
+            == [
+                "registration_label",
+                "ambient_label",
+                "combination_hold_progress",
+            ]
+            and all(
+                isinstance(badge.get("value"), str) and badge.get("value", "").strip() != ""
+                for badge in soundscape_badges.get("badges", [])
+            ),
+            {
+                "badge_ids": [badge.get("badge_id") for badge in soundscape_badges.get("badges", [])],
             },
         )
     )

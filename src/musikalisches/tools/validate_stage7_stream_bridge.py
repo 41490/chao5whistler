@@ -39,6 +39,11 @@ REQUIRED_PREFLIGHT_CHECKS = {
     "tcp_connectivity",
     "publish_probe",
 }
+REQUIRED_SOUNDSCAPE_BADGE_IDS = [
+    "registration_label",
+    "ambient_label",
+    "combination_hold_progress",
+]
 
 
 def load_json(path: Path) -> dict:
@@ -97,6 +102,7 @@ def write_report(output_dir: Path, manifest: dict, checks: list[dict]) -> dict:
             "soak_runtime_hours": manifest.get("soak_plan_summary", {}).get("minimum_runtime_hours"),
             "smoke_generated": manifest.get("smoke_generation", {}).get("generated", False),
         },
+        "soundscape": manifest.get("soundscape"),
         "checks": checks,
     }
     (output_dir / "stage7_bridge_validation_report.json").write_text(
@@ -135,6 +141,133 @@ def int_close(left: int | None, right: int | None, tolerance: int) -> bool:
     if left is None or right is None:
         return False
     return abs(left - right) <= tolerance
+
+
+def approx_equal(left: object, right: object, *, tolerance: float) -> bool:
+    if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+        return False
+    return abs(float(left) - float(right)) <= tolerance
+
+
+def resolve_expected_soundscape(
+    *,
+    audio_summary: dict,
+    render_request: dict,
+    audio_loop_plan: dict,
+    audio_report: dict,
+    soundscape_selection: dict,
+    stage6_scene: dict,
+) -> tuple[dict | None, list[str]]:
+    errors: list[str] = []
+    soundscape = audio_summary.get("soundscape")
+    if not isinstance(soundscape, dict):
+        return None, ["artifact_summary.json missing soundscape summary"]
+
+    selection_file = soundscape.get("selection_file")
+    if selection_file != "soundscape_selection.json":
+        errors.append("artifact_summary.json soundscape.selection_file must be soundscape_selection.json")
+
+    for payload_name, payload in (
+        ("render_request.json", render_request),
+        ("stream_loop_plan.json", audio_loop_plan),
+        ("m1_validation_report.json", audio_report),
+    ):
+        if payload.get("soundscape") != soundscape:
+            errors.append(f"{payload_name} soundscape summary must match artifact_summary.json")
+        if payload.get("output_files", {}).get("soundscape_selection") != selection_file:
+            errors.append(
+                f"{payload_name} output_files.soundscape_selection must be {selection_file}"
+            )
+
+    if soundscape_selection.get("stage") != "stage5_soundscape_selection":
+        errors.append("soundscape_selection.json stage must be stage5_soundscape_selection")
+
+    layers_by_kind = {
+        layer.get("layer_kind"): layer
+        for layer in soundscape_selection.get("layers", [])
+        if isinstance(layer, dict)
+    }
+    registration = soundscape_selection.get("registration", {})
+    ambient_layer = layers_by_kind.get("ambient", {})
+    drone_layer = layers_by_kind.get("drone", {})
+    if not registration or not ambient_layer or not drone_layer:
+        errors.append(
+            "soundscape_selection.json must expose registration, ambient layer, and drone layer"
+        )
+
+    if soundscape.get("profile_id") != soundscape_selection.get("soundscape_profile_id"):
+        errors.append("artifact_summary.json soundscape.profile_id mismatch")
+    if soundscape.get("mix_bus_profile_id") != soundscape_selection.get("mix_bus", {}).get("profile_id"):
+        errors.append("artifact_summary.json soundscape.mix_bus_profile_id mismatch")
+    if soundscape.get("registration_id") != registration.get("registration_id"):
+        errors.append("artifact_summary.json soundscape.registration_id mismatch")
+    if soundscape.get("registration_label") != registration.get("label"):
+        errors.append("artifact_summary.json soundscape.registration_label mismatch")
+    if soundscape.get("ambient_asset_id") != ambient_layer.get("asset_id"):
+        errors.append("artifact_summary.json soundscape.ambient_asset_id mismatch")
+    if soundscape.get("ambient_label") != ambient_layer.get("label"):
+        errors.append("artifact_summary.json soundscape.ambient_label mismatch")
+    if soundscape.get("drone_asset_id") != drone_layer.get("asset_id"):
+        errors.append("artifact_summary.json soundscape.drone_asset_id mismatch")
+    if soundscape.get("drone_label") != drone_layer.get("label"):
+        errors.append("artifact_summary.json soundscape.drone_label mismatch")
+    if soundscape.get("layer_count") != len(soundscape_selection.get("layers", [])):
+        errors.append("artifact_summary.json soundscape.layer_count mismatch")
+    mix_bus = soundscape_selection.get("mix_bus", {})
+    if not approx_equal(soundscape.get("duration_seconds"), mix_bus.get("output_duration_seconds"), tolerance=0.01):
+        errors.append("artifact_summary.json soundscape.duration_seconds mismatch")
+    if not approx_equal(soundscape.get("peak_amplitude"), mix_bus.get("peak_amplitude"), tolerance=1e-4):
+        errors.append("artifact_summary.json soundscape.peak_amplitude mismatch")
+    if not approx_equal(soundscape.get("rms_dbfs"), mix_bus.get("rms_dbfs"), tolerance=0.1):
+        errors.append("artifact_summary.json soundscape.rms_dbfs mismatch")
+
+    soundscape_badges = stage6_scene.get("soundscape_badges")
+    if not isinstance(soundscape_badges, dict):
+        errors.append("stage6 video_stub_scene.json missing soundscape_badges")
+        return None, errors
+    badge_ids = [badge.get("badge_id") for badge in soundscape_badges.get("badges", [])]
+    if badge_ids != REQUIRED_SOUNDSCAPE_BADGE_IDS:
+        errors.append("stage6 soundscape_badges badge order must match stage6 contract")
+    if soundscape_badges.get("registration_label") != soundscape.get("registration_label"):
+        errors.append("stage6 soundscape_badges registration_label mismatch")
+    if soundscape_badges.get("ambient_label") != soundscape.get("ambient_label"):
+        errors.append("stage6 soundscape_badges ambient_label mismatch")
+    if soundscape_badges.get("drone_label") != soundscape.get("drone_label"):
+        errors.append("stage6 soundscape_badges drone_label mismatch")
+    if soundscape_badges.get("soundscape_profile_id") != soundscape.get("profile_id"):
+        errors.append("stage6 soundscape_badges soundscape_profile_id mismatch")
+    hold_progress = soundscape_badges.get("combination_hold_progress")
+    if not isinstance(hold_progress, dict):
+        errors.append("stage6 soundscape_badges combination_hold_progress must be an object")
+    else:
+        if hold_progress.get("total_cycles") != soundscape_selection.get("combination_hold_cycles"):
+            errors.append(
+                "stage6 soundscape_badges total hold cycles mismatch soundscape_selection.json"
+            )
+        if not isinstance(hold_progress.get("current_cycle_index"), int) or hold_progress.get("current_cycle_index") <= 0:
+            errors.append("stage6 soundscape_badges current hold cycle must be a positive integer")
+        elif isinstance(hold_progress.get("total_cycles"), int) and hold_progress.get("current_cycle_index") > hold_progress.get(
+            "total_cycles"
+        ):
+            errors.append("stage6 soundscape_badges current hold cycle exceeds total cycles")
+    if stage6_scene.get("input_summary", {}).get("soundscape_selection_file") != selection_file:
+        errors.append("stage6 input_summary soundscape_selection_file mismatch")
+
+    if errors:
+        return None, errors
+    return {
+        **soundscape,
+        "combination_id": soundscape_selection.get("combination_id"),
+        "combination_hold_cycles": soundscape_selection.get("combination_hold_cycles"),
+        "combination_hold_progress": hold_progress,
+        "layer_palette_hint": soundscape_badges.get("layer_palette_hint"),
+        "badge_ids": badge_ids,
+        "source_contracts": {
+            "audio_summary_file": "artifact_summary.json",
+            "selection_file": selection_file,
+            "stage6_scene_file": "video_stub_scene.json",
+        },
+    }, []
 
 
 def probe_keyframes(path: Path, ffprobe_bin: str | None, fps: float | None) -> dict | None:
@@ -544,8 +677,24 @@ def main() -> int:
     }
     if smoke_generation.get("generated"):
         required_integrity_files.add(smoke_generation.get("output_file", ""))
+    audio_manifest_dir = Path(manifest.get("source_audio_artifact_dir", ""))
+    audio_summary_path = audio_manifest_dir / "artifact_summary.json"
+    render_request_path = audio_manifest_dir / "render_request.json"
+    audio_loop_plan_path = audio_manifest_dir / "stream_loop_plan.json"
+    audio_report_path = audio_manifest_dir / "m1_validation_report.json"
+    soundscape_selection_path = audio_manifest_dir / "soundscape_selection.json"
+    audio_summary = load_json(audio_summary_path) if audio_summary_path.exists() else {}
+    render_request = load_json(render_request_path) if render_request_path.exists() else {}
+    audio_loop_plan = load_json(audio_loop_plan_path) if audio_loop_plan_path.exists() else {}
+    audio_report = load_json(audio_report_path) if audio_report_path.exists() else {}
+    soundscape_selection = (
+        load_json(soundscape_selection_path) if soundscape_selection_path.exists() else {}
+    )
     video_manifest_path = Path(manifest.get("source_video_artifact_dir", "")) / "video_render_manifest.json"
     stage6_manifest = load_json(video_manifest_path) if video_manifest_path.exists() else {}
+    stage6_source_dir = Path(stage6_manifest.get("source_artifact_dir", ""))
+    stage6_scene_path = stage6_source_dir / "video_stub_scene.json"
+    stage6_scene = load_json(stage6_scene_path) if stage6_scene_path.exists() else {}
     video_input = manifest.get("video_input", {})
     source_video_path = Path(video_input.get("path", ""))
     source_video_contract = video_input.get("source_contract", {})
@@ -623,6 +772,14 @@ def main() -> int:
             "retention_report_file": "stage8_sample_retention_report.json",
         },
     }
+    expected_soundscape, soundscape_errors = resolve_expected_soundscape(
+        audio_summary=audio_summary,
+        render_request=render_request,
+        audio_loop_plan=audio_loop_plan,
+        audio_report=audio_report,
+        soundscape_selection=soundscape_selection,
+        stage6_scene=stage6_scene,
+    )
 
     failure_classes = failure_taxonomy.get("classes", [])
     failure_class_ids = [
@@ -833,6 +990,19 @@ def main() -> int:
             {
                 "stage8_ops": stage8_ops,
                 "expected_stage8_ops": expected_stage8_ops,
+            },
+        )
+    )
+    checks.append(
+        build_check(
+            "soundscape_contract",
+            not soundscape_errors and manifest.get("soundscape") == expected_soundscape,
+            {
+                "manifest_soundscape": manifest.get("soundscape"),
+                "expected_soundscape": expected_soundscape,
+                "source_audio_artifact_dir": str(audio_manifest_dir),
+                "source_stage6_scene_file": str(stage6_scene_path),
+                "errors": soundscape_errors,
             },
         )
     )

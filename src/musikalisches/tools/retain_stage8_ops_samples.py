@@ -22,6 +22,11 @@ CONTRACT_FILES = [
     "stage7_soak_validation_report.json",
     "stage8_ops_readiness_report.json",
 ]
+REQUIRED_SOUNDSCAPE_BADGE_IDS = [
+    "registration_label",
+    "ambient_label",
+    "combination_hold_progress",
+]
 
 
 def load_json(path: Path) -> dict:
@@ -67,6 +72,53 @@ def fail(errors: list[str]) -> int:
 
 def utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def validate_soundscape_summary(soundscape: object) -> list[str]:
+    if not isinstance(soundscape, dict):
+        return ["stream_bridge_manifest.json soundscape must be an object"]
+
+    errors: list[str] = []
+    for key in [
+        "selection_file",
+        "profile_id",
+        "mix_bus_profile_id",
+        "registration_id",
+        "registration_label",
+        "ambient_asset_id",
+        "ambient_label",
+        "drone_asset_id",
+        "drone_label",
+        "combination_id",
+    ]:
+        if not isinstance(soundscape.get(key), str) or not soundscape.get(key, "").strip():
+            errors.append(f"stream_bridge_manifest.json soundscape.{key} must be a non-empty string")
+    if soundscape.get("selection_file") != "soundscape_selection.json":
+        errors.append("stream_bridge_manifest.json soundscape.selection_file must be soundscape_selection.json")
+    if not isinstance(soundscape.get("layer_count"), int) or soundscape.get("layer_count") < 3:
+        errors.append("stream_bridge_manifest.json soundscape.layer_count must be an integer >= 3")
+    if not isinstance(soundscape.get("combination_hold_cycles"), int) or soundscape.get("combination_hold_cycles") <= 0:
+        errors.append("stream_bridge_manifest.json soundscape.combination_hold_cycles must be a positive integer")
+    hold_progress = soundscape.get("combination_hold_progress")
+    if not isinstance(hold_progress, dict):
+        errors.append("stream_bridge_manifest.json soundscape.combination_hold_progress must be an object")
+    elif hold_progress.get("total_cycles") != soundscape.get("combination_hold_cycles"):
+        errors.append(
+            "stream_bridge_manifest.json soundscape.combination_hold_progress.total_cycles must match combination_hold_cycles"
+        )
+    if soundscape.get("badge_ids") != REQUIRED_SOUNDSCAPE_BADGE_IDS:
+        errors.append("stream_bridge_manifest.json soundscape.badge_ids must match the frozen stage6 soundscape badge order")
+    source_contracts = soundscape.get("source_contracts")
+    if not isinstance(source_contracts, dict):
+        errors.append("stream_bridge_manifest.json soundscape.source_contracts must be an object")
+    else:
+        if source_contracts.get("audio_summary_file") != "artifact_summary.json":
+            errors.append("stream_bridge_manifest.json soundscape.source_contracts.audio_summary_file must be artifact_summary.json")
+        if source_contracts.get("selection_file") != "soundscape_selection.json":
+            errors.append("stream_bridge_manifest.json soundscape.source_contracts.selection_file must be soundscape_selection.json")
+        if source_contracts.get("stage6_scene_file") != "video_stub_scene.json":
+            errors.append("stream_bridge_manifest.json soundscape.source_contracts.stage6_scene_file must be video_stub_scene.json")
+    return errors
 
 
 def sanitize_label(label: str) -> str:
@@ -152,6 +204,7 @@ def build_operator_summary(
     preflight_report: dict,
     runtime_report: dict,
     exit_report: dict,
+    soundscape: dict,
     attempt_index_file: str,
     runtime_digest_file: str,
 ) -> str:
@@ -171,6 +224,15 @@ def build_operator_summary(
             f"- runtime_duration_seconds: {runtime_report.get('elapsed_seconds')}",
             f"- attempts_total: {runtime_report.get('attempts_total')}",
             f"- final_exit_class_id: {runtime_report.get('final_exit_class_id') or exit_report.get('exit_class_id')}",
+            f"- soundscape_profile_id: {soundscape.get('profile_id')}",
+            f"- registration_label: {soundscape.get('registration_label')}",
+            f"- ambient_label: {soundscape.get('ambient_label')}",
+            f"- drone_label: {soundscape.get('drone_label')}",
+            (
+                "- combination_hold_progress: "
+                f"{soundscape.get('combination_hold_progress', {}).get('current_cycle_index')} / "
+                f"{soundscape.get('combination_hold_progress', {}).get('total_cycles')}"
+            ),
             "- drift observation: <none / details>",
             "- operator notes: <details>",
             "",
@@ -212,6 +274,16 @@ def main() -> int:
         return fail([f"missing manifest: {manifest_path}"])
 
     manifest = load_json(manifest_path)
+    bridge_report = load_json(artifact_dir / "stage7_bridge_validation_report.json")
+    readiness_report = load_json(artifact_dir / "stage8_ops_readiness_report.json")
+    soundscape = manifest.get("soundscape", {})
+    soundscape_errors = validate_soundscape_summary(soundscape)
+    if soundscape_errors:
+        return fail(soundscape_errors)
+    if bridge_report.get("soundscape") != soundscape:
+        return fail(["stage7_bridge_validation_report.json soundscape must match stream_bridge_manifest.json"])
+    if readiness_report.get("soundscape") != soundscape:
+        return fail(["stage8_ops_readiness_report.json soundscape must match stream_bridge_manifest.json"])
     stage8_ops = manifest.get("stage8_ops", {})
     sample_retention = stage8_ops.get("sample_retention", {})
     if not isinstance(sample_retention, dict):
@@ -358,6 +430,7 @@ def main() -> int:
         preflight_report=preflight_report,
         runtime_report=runtime_report,
         exit_report=exit_report,
+        soundscape=soundscape,
         attempt_index_file=attempt_index_file,
         runtime_digest_file=runtime_digest_file,
     )
@@ -377,8 +450,13 @@ def main() -> int:
             "attempts_total": runtime_report.get("attempts_total"),
             "final_exit_class_id": runtime_report.get("final_exit_class_id")
             or exit_report.get("exit_class_id"),
+            "soundscape_profile_id": soundscape.get("profile_id"),
+            "registration_label": soundscape.get("registration_label"),
+            "ambient_label": soundscape.get("ambient_label"),
+            "combination_hold_cycles": soundscape.get("combination_hold_cycles"),
             "files_retained_total": len(copied_entries) + 4,
         },
+        "soundscape": soundscape,
         "outputs": {
             "operator_summary_template_file": operator_summary_file,
             "attempt_log_index_file": attempt_index_file,

@@ -341,7 +341,7 @@ stage7-ffmpeg-check:
 stage7-bridge:
 	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_SF2_OUT)}"; \
 	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_SF2_OUT)}"; \
-	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav; do \
+	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav soundscape_selection.json; do \
 		if [[ ! -f "$$AUDIO_DIR/$$required" ]]; then \
 			$(MAKE) stage5-sf2 LOOP_COUNT=$(LIVE_LOOP_COUNT); \
 			break; \
@@ -372,7 +372,7 @@ stage7-bridge-check:
 stage7-preflight-regression-check:
 	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_SF2_OUT)}"; \
 	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_SF2_OUT)}"; \
-	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav; do \
+	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav soundscape_selection.json; do \
 		if [[ ! -f "$$AUDIO_DIR/$$required" ]]; then \
 			$(MAKE) stage5-sf2 LOOP_COUNT=$(LIVE_LOOP_COUNT); \
 			break; \

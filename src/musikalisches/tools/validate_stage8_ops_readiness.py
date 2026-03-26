@@ -19,6 +19,11 @@ REQUIRED_PREFLIGHT_CHECKS = {
 }
 REQUIRED_LIVE_AUDIO_RENDER_BACKEND = "soundfont_rustysynth"
 REQUIRED_LIVE_COMBINATION_HOLD_CYCLES = 16
+REQUIRED_SOUNDSCAPE_BADGE_IDS = [
+    "registration_label",
+    "ambient_label",
+    "combination_hold_progress",
+]
 
 
 def load_json(path: Path) -> dict:
@@ -109,6 +114,64 @@ def parse_protocols(output: str) -> dict[str, set[str]]:
     return sections
 
 
+def validate_soundscape_summary(soundscape: object) -> list[str]:
+    if not isinstance(soundscape, dict):
+        return ["manifest soundscape must be an object"]
+
+    errors: list[str] = []
+    for key in [
+        "selection_file",
+        "profile_id",
+        "mix_bus_profile_id",
+        "registration_id",
+        "registration_label",
+        "ambient_asset_id",
+        "ambient_label",
+        "drone_asset_id",
+        "drone_label",
+        "combination_id",
+    ]:
+        if not isinstance(soundscape.get(key), str) or not soundscape.get(key, "").strip():
+            errors.append(f"manifest soundscape.{key} must be a non-empty string")
+    if soundscape.get("selection_file") != "soundscape_selection.json":
+        errors.append("manifest soundscape.selection_file must be soundscape_selection.json")
+    if not isinstance(soundscape.get("layer_count"), int) or soundscape.get("layer_count") < 3:
+        errors.append("manifest soundscape.layer_count must be an integer >= 3")
+    if not isinstance(soundscape.get("combination_hold_cycles"), int) or soundscape.get("combination_hold_cycles") <= 0:
+        errors.append("manifest soundscape.combination_hold_cycles must be a positive integer")
+    hold_progress = soundscape.get("combination_hold_progress")
+    if not isinstance(hold_progress, dict):
+        errors.append("manifest soundscape.combination_hold_progress must be an object")
+    else:
+        if hold_progress.get("total_cycles") != soundscape.get("combination_hold_cycles"):
+            errors.append(
+                "manifest soundscape.combination_hold_progress.total_cycles must match combination_hold_cycles"
+            )
+        if not isinstance(hold_progress.get("current_cycle_index"), int) or hold_progress.get("current_cycle_index") <= 0:
+            errors.append(
+                "manifest soundscape.combination_hold_progress.current_cycle_index must be a positive integer"
+            )
+        elif hold_progress.get("current_cycle_index") > hold_progress.get("total_cycles"):
+            errors.append(
+                "manifest soundscape.combination_hold_progress.current_cycle_index must not exceed total_cycles"
+            )
+    if not isinstance(soundscape.get("badge_ids"), list) or soundscape.get("badge_ids") != REQUIRED_SOUNDSCAPE_BADGE_IDS:
+        errors.append("manifest soundscape.badge_ids must match the frozen stage6 soundscape badge order")
+    if not isinstance(soundscape.get("layer_palette_hint"), dict):
+        errors.append("manifest soundscape.layer_palette_hint must be an object")
+    source_contracts = soundscape.get("source_contracts")
+    if not isinstance(source_contracts, dict):
+        errors.append("manifest soundscape.source_contracts must be an object")
+    else:
+        if source_contracts.get("audio_summary_file") != "artifact_summary.json":
+            errors.append("manifest soundscape.source_contracts.audio_summary_file must be artifact_summary.json")
+        if source_contracts.get("selection_file") != "soundscape_selection.json":
+            errors.append("manifest soundscape.source_contracts.selection_file must be soundscape_selection.json")
+        if source_contracts.get("stage6_scene_file") != "video_stub_scene.json":
+            errors.append("manifest soundscape.source_contracts.stage6_scene_file must be video_stub_scene.json")
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Validate stage8 live ops readiness from a frozen stage7 bridge artifact directory."
@@ -148,6 +211,7 @@ def main() -> int:
     sample_retention = stage8_ops.get("sample_retention", {})
     bridge_consistency = manifest.get("bridge_consistency", {})
     bridge_summary = manifest.get("bridge_summary", {})
+    soundscape = manifest.get("soundscape", {})
     loop_bridge = manifest.get("loop_bridge", {})
     audio_input = manifest.get("audio_input", {})
     video_input = manifest.get("video_input", {})
@@ -187,6 +251,23 @@ def main() -> int:
         )
 
     checks: list[dict] = []
+    soundscape_errors = validate_soundscape_summary(soundscape)
+    checks.append(
+        build_check(
+            "soundscape_contract",
+            not soundscape_errors
+            and bridge_report.get("soundscape") == soundscape
+            and soundscape.get("combination_hold_cycles") == loop_bridge.get("combination_hold_cycles")
+            and soundscape.get("combination_hold_progress", {}).get("total_cycles")
+            == loop_bridge.get("combination_hold_cycles"),
+            {
+                "soundscape": soundscape,
+                "bridge_report_soundscape": bridge_report.get("soundscape"),
+                "loop_bridge_combination_hold_cycles": loop_bridge.get("combination_hold_cycles"),
+                "errors": soundscape_errors,
+            },
+        )
+    )
     checks.append(
         build_check(
             "stage8_ops_contract",
@@ -357,7 +438,11 @@ def main() -> int:
             "recommended_loop_mode": stage8_ops.get("recommended_loop_mode"),
             "source_audio_render_backend": bridge_summary.get("source_audio_render_backend"),
             "combination_hold_cycles": loop_bridge.get("combination_hold_cycles"),
+            "soundscape_profile_id": soundscape.get("profile_id"),
+            "registration_label": soundscape.get("registration_label"),
+            "ambient_label": soundscape.get("ambient_label"),
         },
+        "soundscape": soundscape,
         "checks": checks,
         "ops_entry": {
             "guide_file": stage8_ops.get("guide_file"),

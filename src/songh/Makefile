@@ -3,6 +3,7 @@ SHELL := /bin/bash
 ROOT := $(abspath $(CURDIR)/../..)
 MANIFEST := $(ROOT)/src/songh/Cargo.toml
 TRACKED_TEMPLATE := $(ROOT)/docs/plans/260321-songh-template.toml
+DEFAULT_SYSTEMD_CONFIG := $(ROOT)/ops/systemd/songh.toml
 STAGE2_FIXTURE_ROOT := $(ROOT)/ops/out/songh-stage2-archive
 STAGE2_FIXTURE_DAY := 2026-03-19
 STAGE3_SAMPLE_START := 0
@@ -22,6 +23,7 @@ STAGE6_RENDER_ROOT := $(ROOT)/ops/out/songh-stage6-av-sample
 STAGE7_SAMPLE_START := 750
 STAGE7_SAMPLE_DURATION := 8
 STAGE7_RENDER_ROOT := $(ROOT)/ops/out/songh-stage7-stream-bridge
+PYTHON ?= python3
 CARGO ?= cargo
 MAKEFLAGS += --no-print-directory
 
@@ -74,7 +76,11 @@ help:
 	'Stage 7: live bridge + real-stream preflight' \
 	'  make stage7-build-fixture   Build stage7 bridge artifacts + local smoke flv' \
 	'  make stage7-manual          Unified stage-7 local bridge verification command' \
-	'  make stage7-all             fmt + test + stage2-manual + stage7 bridge build'
+	'  make stage7-all             fmt + test + stage2-manual + stage7 bridge build' \
+	'  make systemd-user-install   Install songh systemd --user units from TOML without starting them' \
+	'' \
+	'Variables:' \
+	'  SYSTEMD_CONFIG=/path/to/songh.toml Override systemd --user config source'
 
 .PHONY: stage1-fmt
 stage1-fmt:
@@ -309,3 +315,8 @@ stage7-all:
 	@$(MAKE) stage1-test
 	@$(MAKE) stage2-manual
 	@$(MAKE) stage7-build-fixture
+
+.PHONY: systemd-user-install
+systemd-user-install:
+	cd $(ROOT) && $(PYTHON) ops/systemd/install_user_units.py \
+		--config "$${SYSTEMD_CONFIG:-$(DEFAULT_SYSTEMD_CONFIG)}"

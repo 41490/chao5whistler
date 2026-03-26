@@ -18,6 +18,18 @@ make -C src/songh stage7-manual
 make -C src/songh stage7-all
 ```
 
+当前阶段 systemd --user 安装入口：
+
+```bash
+make -C src/songh systemd-user-install
+```
+
+当前阶段人工运行文档：
+
+```text
+src/songh/USAGE.md
+```
+
 当前阶段连续 tick 观察入口：
 
 ```bash

@@ -1,0 +1,54 @@
+# songh systemd --user stage7 service configuration.
+# Copy this file to a private path before writing a real stream key.
+
+version = 1
+
+[service]
+runner_script = "run_songh_user_service.py"
+unit_name_prefix = "songh-live"
+description = "songh stage7 live runtime"
+working_directory = "."
+artifact_dir = "ops/out/songh-stage7-stream-bridge"
+user_unit_dir = "~/.config/systemd/user"
+python_bin = "python3"
+songh_bin = "src/songh/target/debug/songh"
+cargo_bin = "cargo"
+cargo_manifest = "src/songh/Cargo.toml"
+journal_identifier_prefix = "songh-live"
+require_validation_passed = true
+stream_url = "rtmps://a.rtmps.youtube.com/live2/<stream-key>"
+
+[prepare]
+config_path = "docs/plans/260321-songh-template.toml"
+archive_root = "ops/out/songh-stage2-archive"
+output_dir = "ops/out/songh-stage7-stream-bridge"
+day = "2026-03-19"
+start_second = 750
+duration_secs = 8
+motion_mode = "vertical"
+
+[modes.prepare]
+action = "prepare"
+service_type = "oneshot"
+description = "Build stage7 fixture and local smoke artifacts"
+
+[modes."300s"]
+action = "run"
+description = "Short controlled real-platform publish validation"
+loop_mode = "infinite"
+max_runtime_seconds = 300
+
+[modes."8h"]
+action = "run"
+description = "Formal 8-hour soak run"
+loop_mode = "infinite"
+max_runtime_seconds = 28800
+
+[modes.forever]
+action = "run"
+description = "Continuous live run without runtime budget"
+loop_mode = "infinite"
+max_runtime_seconds = 0
+
+[install]
+wanted_by = ["default.target"]

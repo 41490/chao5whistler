@@ -39,6 +39,10 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def round6(value: float) -> float:
+    return round(value, 6)
+
+
 def combination_id_for_rolls(rolls: list[int]) -> str:
     return ",".join(str(value) for value in rolls)
 
@@ -154,8 +158,30 @@ def build_selection_payload(
 
 
 def augment_artifact(artifact_dir: Path, selection: dict) -> None:
+    stream_plan_payload = load_json(artifact_dir / "stream_loop_plan.json")
+    summary_payload = load_json(artifact_dir / "artifact_summary.json")
+    enriched_selection = dict(selection)
+
+    loop_count = stream_plan_payload.get("loop_count")
+    cycle_duration_seconds = stream_plan_payload.get("cycle_duration_seconds")
+    if isinstance(loop_count, int) and loop_count > 0:
+        enriched_selection["combination_hold_cycles"] = loop_count
+    if isinstance(cycle_duration_seconds, (int, float)):
+        enriched_selection["source_cycle_duration_seconds"] = round6(float(cycle_duration_seconds))
+    if (
+        isinstance(loop_count, int)
+        and loop_count > 0
+        and isinstance(cycle_duration_seconds, (int, float))
+    ):
+        enriched_selection["combination_duration_seconds"] = round6(
+            float(loop_count) * float(cycle_duration_seconds)
+        )
+    audio_render_backend = summary_payload.get("audio", {}).get("render_backend")
+    if isinstance(audio_render_backend, str) and audio_render_backend:
+        enriched_selection["audio_render_backend"] = audio_render_backend
+
     selection_path = artifact_dir / SELECTION_FILE
-    write_json(selection_path, selection)
+    write_json(selection_path, enriched_selection)
 
     for file_name in (
         "render_request.json",
@@ -165,7 +191,7 @@ def augment_artifact(artifact_dir: Path, selection: dict) -> None:
     ):
         path = artifact_dir / file_name
         payload = load_json(path)
-        payload["selection"] = selection
+        payload["selection"] = enriched_selection
         output_files = payload.get("output_files")
         if isinstance(output_files, dict):
             output_files["combination_selection"] = SELECTION_FILE

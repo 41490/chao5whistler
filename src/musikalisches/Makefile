@@ -21,6 +21,7 @@ DEFAULT_SOUNDFONT := $(ROOT)/ops/assets/soundfonts/default.sf2
 DEFAULT_SYSTEM_SOUNDFONTS := /usr/share/sounds/sf2/FluidR3_GM.sf2 /usr/share/sounds/sf2/TimGM6mb.sf2 /usr/share/sounds/sf2/FluidR3Mono_GM.sf2 /usr/local/share/sounds/sf2/default.sf2
 DEFAULT_STAGE5_LEDGER := $(ROOT)/ops/out/state/musikalisches/stage5_stream_combination_ledger.json
 DEFAULT_STAGE5_SF2_LEDGER := $(ROOT)/ops/out/state/musikalisches/stage5_stream_sf2_combination_ledger.json
+LIVE_LOOP_COUNT ?= 16
 REPO_FFMPEG_BIN := $(ROOT)/ops/bin/ffmpeg
 REPO_FFPROBE_BIN := $(ROOT)/ops/bin/ffprobe
 FFMPEG_BIN ?= $(if $(wildcard $(REPO_FFMPEG_BIN)),$(REPO_FFMPEG_BIN),ffmpeg)
@@ -94,6 +95,7 @@ help:
 	'  SOUND_FONT=/path/to/file.sf2       Override SoundFont for stage5-sf2' \
 	'  SYNTH_PROFILE=/path/to/profile.json Override synth routing profile' \
 	'  LOOP_COUNT=4                       Override loop count for stream targets' \
+	'  LIVE_LOOP_COUNT=16                 Default hold cycles for stage7/stage8 live-source rebuilds' \
 	'  ANALYSIS_WINDOW_MS=40              Override analyzer window size' \
 	'  STAGE5_LEDGER_PATH=/path/to/ledger.json Override unique-combination ledger for stage5-stream' \
 	'  STAGE5_SF2_LEDGER_PATH=/path/to/ledger.json Override unique-combination ledger for stage5-sf2' \
@@ -318,17 +320,17 @@ stage7-ffmpeg-check:
 
 .PHONY: stage7-bridge
 stage7-bridge:
-	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_DEMO_OUT)}"; \
-	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_OUT)}"; \
+	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_SF2_OUT)}"; \
+	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_SF2_OUT)}"; \
 	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav; do \
 		if [[ ! -f "$$AUDIO_DIR/$$required" ]]; then \
-			$(MAKE) stage5-stream; \
+			$(MAKE) stage5-sf2 LOOP_COUNT=$(LIVE_LOOP_COUNT); \
 			break; \
 		fi; \
 	done; \
 	for required in video_render_manifest.json stage6_render_validation_report.json offline_preview.mp4 visual_scene_profile.json; do \
 		if [[ ! -f "$$VIDEO_DIR/$$required" ]]; then \
-			$(MAKE) stage6-video-render; \
+			$(MAKE) stage6-video-render-sf2; \
 			break; \
 		fi; \
 	done; \
@@ -349,17 +351,17 @@ stage7-bridge-check:
 
 .PHONY: stage7-preflight-regression-check
 stage7-preflight-regression-check:
-	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_DEMO_OUT)}"; \
-	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_OUT)}"; \
+	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_SF2_OUT)}"; \
+	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_SF2_OUT)}"; \
 	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav; do \
 		if [[ ! -f "$$AUDIO_DIR/$$required" ]]; then \
-			$(MAKE) stage5-stream; \
+			$(MAKE) stage5-sf2 LOOP_COUNT=$(LIVE_LOOP_COUNT); \
 			break; \
 		fi; \
 	done; \
 	for required in video_render_manifest.json stage6_render_validation_report.json offline_preview.mp4 visual_scene_profile.json; do \
 		if [[ ! -f "$$VIDEO_DIR/$$required" ]]; then \
-			$(MAKE) stage6-video-render; \
+			$(MAKE) stage6-video-render-sf2; \
 			break; \
 		fi; \
 	done; \
@@ -435,8 +437,8 @@ stage6-sf2-all:
 
 .PHONY: stage7-all
 stage7-all:
-	@$(MAKE) stage5-stream
-	@$(MAKE) stage6-video-render
+	@$(MAKE) stage5-sf2 LOOP_COUNT=$(LIVE_LOOP_COUNT)
+	@$(MAKE) stage6-video-render-sf2
 	@$(MAKE) stage7-ffmpeg-check
 	@$(MAKE) stage7-bridge
 	@$(MAKE) stage7-bridge-check

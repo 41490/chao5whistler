@@ -17,6 +17,8 @@ REQUIRED_PREFLIGHT_CHECKS = {
     "tcp_connectivity",
     "publish_probe",
 }
+REQUIRED_LIVE_AUDIO_RENDER_BACKEND = "soundfont_rustysynth"
+REQUIRED_LIVE_COMBINATION_HOLD_CYCLES = 16
 
 
 def load_json(path: Path) -> dict:
@@ -145,6 +147,8 @@ def main() -> int:
     stage8_ops = manifest.get("stage8_ops", {})
     sample_retention = stage8_ops.get("sample_retention", {})
     bridge_consistency = manifest.get("bridge_consistency", {})
+    bridge_summary = manifest.get("bridge_summary", {})
+    loop_bridge = manifest.get("loop_bridge", {})
     audio_input = manifest.get("audio_input", {})
     video_input = manifest.get("video_input", {})
     runtime_observability = manifest.get("runtime_observability", {})
@@ -247,6 +251,28 @@ def main() -> int:
     )
     checks.append(
         build_check(
+            "live_audio_baseline",
+            audio_input.get("render_backend") == REQUIRED_LIVE_AUDIO_RENDER_BACKEND
+            and bridge_summary.get("source_audio_render_backend")
+            == REQUIRED_LIVE_AUDIO_RENDER_BACKEND
+            and loop_bridge.get("combination_hold_cycles")
+            == REQUIRED_LIVE_COMBINATION_HOLD_CYCLES
+            and loop_bridge.get("source_render_loop_count")
+            == REQUIRED_LIVE_COMBINATION_HOLD_CYCLES,
+            {
+                "audio_input_render_backend": audio_input.get("render_backend"),
+                "bridge_summary_source_audio_render_backend": bridge_summary.get(
+                    "source_audio_render_backend"
+                ),
+                "combination_hold_cycles": loop_bridge.get("combination_hold_cycles"),
+                "source_render_loop_count": loop_bridge.get("source_render_loop_count"),
+                "required_render_backend": REQUIRED_LIVE_AUDIO_RENDER_BACKEND,
+                "required_combination_hold_cycles": REQUIRED_LIVE_COMBINATION_HOLD_CYCLES,
+            },
+        )
+    )
+    checks.append(
+        build_check(
             "bridge_preflight_reuse",
             isinstance(bridge_consistency, dict)
             and isinstance(preflight, dict)
@@ -329,6 +355,8 @@ def main() -> int:
             "entry_script_file": run_script_path.name,
             "required_env_var": env_var,
             "recommended_loop_mode": stage8_ops.get("recommended_loop_mode"),
+            "source_audio_render_backend": bridge_summary.get("source_audio_render_backend"),
+            "combination_hold_cycles": loop_bridge.get("combination_hold_cycles"),
         },
         "checks": checks,
         "ops_entry": {

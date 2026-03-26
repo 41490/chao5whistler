@@ -259,6 +259,28 @@ def main() -> int:
             errors.append("combination_selection.json played_unique_count must be > 0")
         if selection_payload.get("total_combinations") != 11 ** 16:
             errors.append("combination_selection.json total_combinations must equal 11^16")
+        if selection_payload.get("combination_hold_cycles") != stream_plan_payload.get("loop_count"):
+            errors.append(
+                "combination_selection.json combination_hold_cycles must match stream_loop_plan.json loop_count"
+            )
+        if (
+            selection_payload.get("source_cycle_duration_seconds")
+            != stream_plan_payload.get("cycle_duration_seconds")
+        ):
+            errors.append(
+                "combination_selection.json source_cycle_duration_seconds must match stream_loop_plan.json cycle_duration_seconds"
+            )
+        if (
+            selection_payload.get("combination_duration_seconds")
+            != stream_plan_payload.get("total_duration_seconds")
+        ):
+            errors.append(
+                "combination_selection.json combination_duration_seconds must match stream_loop_plan.json total_duration_seconds"
+            )
+        if selection_payload.get("audio_render_backend") != summary_payload.get("audio", {}).get("render_backend"):
+            errors.append(
+                "combination_selection.json audio_render_backend must match artifact_summary.json audio.render_backend"
+            )
         selector_results = selection_payload.get("selector_results", [])
         if len(selector_results) != 16:
             errors.append("combination_selection.json must expose 16 selector_results entries")
@@ -289,6 +311,7 @@ def main() -> int:
     if selection_payload is not None:
         print(f"combination_id: {selection_payload['combination_id']}")
         print(f"played_unique_count: {selection_payload['played_unique_count']}")
+        print(f"combination_hold_cycles: {selection_payload['combination_hold_cycles']}")
     return 0
 
 

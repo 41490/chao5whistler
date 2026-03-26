@@ -89,6 +89,7 @@ make -C src/musikalisches help
 
 - stage 6 当前产出的 `offline_preview.mp4` 仍是视频-only 本地预览，不含正式直播音轨
 - 因此 `128 Kbps` 音频目标属于后续 stage 7 `FFmpeg / RTMP bridge` 的桥接规格，不是当前 stage 6 已完成能力
+- formal live baseline 现冻结为：`stage5-sf2 + stage6-video-render-sf2 + 16-cycle source pair`
 
 ## ops prerequisites
 
@@ -112,6 +113,8 @@ make -C src/musikalisches help
 - 默认 stage5 synth profile 已切到 organ family GM 预设：`program 19 = Church Organ`、`program 20 = Reed Organ`
 - 默认 ledger 路径分别为 `ops/out/state/musikalisches/stage5_stream_combination_ledger.json` 与 `ops/out/state/musikalisches/stage5_stream_sf2_combination_ledger.json`
 - 每次 `stage5-stream` / `stage5-sf2` 成功运行后，artifact 目录会额外带出 `combination_selection.json`，并把同一份 selection 元数据写入 `render_request.json` / `stream_loop_plan.json` / `artifact_summary.json` / `m1_validation_report.json`
+- stage7/stage8 默认 live 输入已切到 `ops/out/stream-sf2` 与 `ops/out/video-render-sf2`
+- formal live source pair 默认固定为 `16` cycles / 组合；`stage8-readiness-check` 也会显式验证该约束
 - stage 7 默认只产出本地 `flv` smoke 与 redacted live command，不默认发起真实推流
 - 如系统自带 `ffmpeg` 缺少 `rtmps` output，可直接执行 `make -C src/musikalisches stage7-ffmpeg-build` 生成仓库内本地 toolchain，并由 stage6/stage7 目标自动优先使用 `ops/bin/ffmpeg` 与 `ops/bin/ffprobe`
 
@@ -121,27 +124,16 @@ make -C src/musikalisches help
 
 ```bash
 make -C src/musikalisches stage6-scene-profile-check-all
-make -C src/musikalisches stage5-stream
-make -C src/musikalisches stage5-stream-check
-make -C src/musikalisches stage6-video-stub
-make -C src/musikalisches stage6-video-check
-make -C src/musikalisches stage6-video-render
-make -C src/musikalisches stage6-video-render-check
-make -C src/musikalisches stage7-ffmpeg-check
-make -C src/musikalisches stage7-bridge
-make -C src/musikalisches stage7-bridge-check
-make -C src/musikalisches stage7-soak-check
-```
-
-如需走 SoundFont smoke：
-
-```bash
-make -C src/musikalisches stage5-sf2
+make -C src/musikalisches stage5-sf2 LOOP_COUNT=16
 make -C src/musikalisches stage5-sf2-check
 make -C src/musikalisches stage6-video-stub-sf2
 make -C src/musikalisches stage6-video-check-sf2
 make -C src/musikalisches stage6-video-render-sf2
 make -C src/musikalisches stage6-video-render-check-sf2
+make -C src/musikalisches stage7-ffmpeg-check
+make -C src/musikalisches stage7-bridge
+make -C src/musikalisches stage7-bridge-check
+make -C src/musikalisches stage7-soak-check
 ```
 
 如需覆盖默认 ledger 路径：

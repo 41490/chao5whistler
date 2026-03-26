@@ -25,8 +25,9 @@ make -C src/musikalisches stage8-readiness-check
 - `stage5-build` 会重建 release 二进制
 - `stage5-test` 会跑 Rust 测试
 - `stage7-ffmpeg-check` 会确认 `ops/bin/ffmpeg` / `ops/bin/ffprobe` 具备 `rtmps` output、`libx264` 和本地 `flv` smoke 编码能力
-- `stage7-all` 会串起 stage5 音频、stage6 视频、stage7 bridge 的默认构建与校验
+- `stage7-all` 会串起 `stage5-sf2 + stage6-video-render-sf2 + stage7 bridge` 的默认 live 构建与校验
 - `stage8-readiness-check` 会把真实 live soak 前的 stage7 contract、repo toolchain、运行入口脚本和 stage8 ops 约定收成独立 readiness report
+- 默认 formal live baseline 已冻结为 `stage5-sf2`，且每个组合保留 `16` cycles
 
 如果你只想做日常快速回归，不重建 release，也可以直接执行：
 
@@ -40,8 +41,8 @@ make -C src/musikalisches stage7-all
 以下报告文件都应为 `status = passed`：
 
 - `ops/out/ffmpeg-rtmps-check/stage7_ffmpeg_toolchain_validation_report.json`
-- `ops/out/video-stub/stage6_validation_report.json`
-- `ops/out/video-render/stage6_render_validation_report.json`
+- `ops/out/video-stub-sf2/stage6_validation_report.json`
+- `ops/out/video-render-sf2/stage6_render_validation_report.json`
 - `ops/out/stream-bridge/stage7_bridge_validation_report.json`
 - `ops/out/stream-bridge/stage7_soak_validation_report.json`
 - `ops/out/stream-bridge/stage8_ops_readiness_report.json`
@@ -55,8 +56,8 @@ from pathlib import Path
 
 files = [
     "ops/out/ffmpeg-rtmps-check/stage7_ffmpeg_toolchain_validation_report.json",
-    "ops/out/video-stub/stage6_validation_report.json",
-    "ops/out/video-render/stage6_render_validation_report.json",
+    "ops/out/video-stub-sf2/stage6_validation_report.json",
+    "ops/out/video-render-sf2/stage6_render_validation_report.json",
     "ops/out/stream-bridge/stage7_bridge_validation_report.json",
     "ops/out/stream-bridge/stage7_soak_validation_report.json",
     "ops/out/stream-bridge/stage8_ops_readiness_report.json",
@@ -78,22 +79,24 @@ PY
 生成本地离线预览视频：
 
 ```bash
-make -C src/musikalisches stage6-video-render
-make -C src/musikalisches stage6-video-render-check
+make -C src/musikalisches stage5-sf2 LOOP_COUNT=16
+make -C src/musikalisches stage5-sf2-check
+make -C src/musikalisches stage6-video-render-sf2
+make -C src/musikalisches stage6-video-render-check-sf2
 ```
 
 默认输出目录：
 
 ```text
-ops/out/video-render
+ops/out/video-render-sf2
 ```
 
 重点文件：
 
-- `ops/out/video-render/offline_preview.mp4`
-- `ops/out/video-render/offline_frame_sequence.json`
-- `ops/out/video-render/video_render_manifest.json`
-- `ops/out/video-render/stage6_render_validation_report.json`
+- `ops/out/video-render-sf2/offline_preview.mp4`
+- `ops/out/video-render-sf2/offline_frame_sequence.json`
+- `ops/out/video-render-sf2/video_render_manifest.json`
+- `ops/out/video-render-sf2/stage6_render_validation_report.json`
 
 注意：
 
@@ -133,6 +136,7 @@ ops/out/stream-bridge
 - `ops/out/stream-bridge/stage7_soak_validation_report.json`
 
 `stage7_bridge_smoke.flv` 的用途是本地验证 stage7 的音视频封装链路是否正常，不等价于真实推流。
+当前默认 smoke 输入来自 `ops/out/stream-sf2/offline_audio.wav` 与 `ops/out/video-render-sf2/offline_preview.mp4`。
 
 ## 5. 正式推流前要改哪个配置
 
@@ -173,6 +177,10 @@ export MUSIKALISCHES_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/<stream-key>'
 
 ```bash
 make -C src/musikalisches stage7-ffmpeg-check
+make -C src/musikalisches stage5-sf2 LOOP_COUNT=16
+make -C src/musikalisches stage5-sf2-check
+make -C src/musikalisches stage6-video-render-sf2
+make -C src/musikalisches stage6-video-render-check-sf2
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-soak-check
@@ -198,6 +206,7 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 
 - `MUSIKALISCHES_STAGE7_LOOP_MODE=once|infinite`
 - `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
+- `LIVE_LOOP_COUNT=16` 只影响默认 live-source 重建；formal live 基线建议保持 `16`
 
 语义说明：
 

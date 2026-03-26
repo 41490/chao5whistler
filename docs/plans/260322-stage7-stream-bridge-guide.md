@@ -28,8 +28,14 @@ make -C src/musikalisches stage8-readiness-check
 
 默认输入：
 
-- stage5 音频工件：`ops/out/stream-demo`
-- stage6 视频工件：`ops/out/video-render`
+- stage5 音频工件：`ops/out/stream-sf2`
+- stage6 视频工件：`ops/out/video-render-sf2`
+
+formal live baseline：
+
+- 音频后端：`stage5-sf2`
+- 单组合保留：`16` cycles
+- stage8 readiness 会显式验证 `soundfont_rustysynth + 16-cycle hold`
 
 默认输出：
 

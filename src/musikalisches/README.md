@@ -115,8 +115,32 @@ make -C src/musikalisches help
 - 每次 `stage5-stream` / `stage5-sf2` 成功运行后，artifact 目录会额外带出 `combination_selection.json`，并把同一份 selection 元数据写入 `render_request.json` / `stream_loop_plan.json` / `artifact_summary.json` / `m1_validation_report.json`
 - stage7/stage8 默认 live 输入已切到 `ops/out/stream-sf2` 与 `ops/out/video-render-sf2`
 - formal live source pair 默认固定为 `16` cycles / 组合；`stage8-readiness-check` 也会显式验证该约束
+- issue #9 `P2` 现已引入 `ops/assets/soundscapes/` 资产包约定；seed pack 先冻结 `ambient + drone` manifest、许可证白名单和 `sha256` 校验
 - stage 7 默认只产出本地 `flv` smoke 与 redacted live command，不默认发起真实推流
 - 如系统自带 `ffmpeg` 缺少 `rtmps` output，可直接执行 `make -C src/musikalisches stage7-ffmpeg-build` 生成仓库内本地 toolchain，并由 stage6/stage7 目标自动优先使用 `ops/bin/ffmpeg` 与 `ops/bin/ffprobe`
+
+## soundscape asset pack
+
+issue #9 的 `P2` 先把多层声景的素材 contract 单独冻结出来：
+
+- 资产根目录：`ops/assets/soundscapes/`
+- 必需层：至少一组 `ambient` 和一组 `drone`
+- 当前许可证白名单：`CC0` / `public_domain` / `pixabay_no_attribution`
+- 每个 asset manifest 至少显式记录 `asset_id` / `layer_kind` / `source_url` / `license` / `attribution_required` / `loop_duration_seconds` / `loudness_target_dbfs` / `sha256`
+
+生成 seed pack：
+
+```bash
+make -C src/musikalisches soundscape-assets-generate
+```
+
+验证 seed pack：
+
+```bash
+make -C src/musikalisches soundscape-assets-check
+```
+
+P2 只负责冻结素材池和 license manifest，不在这一阶段把这些层真正混进 stage5；那部分属于后续 `P3`。
 
 ## ops quickstart
 

@@ -52,6 +52,8 @@ help:
 	'  make stage5-stream-play    Play looped demo WAV with ffplay' \
 	'  make stage5-sf2            Render looped SoundFont artifacts from a unique persisted combination ledger' \
 	'  make stage5-sf2-check      Validate looped SoundFont artifacts and unique selection metadata' \
+	'  make soundscape-assets-generate Generate deterministic seed soundscape assets/manifests for issue9 P2' \
+	'  make soundscape-assets-check Validate soundscape asset pack and license manifest' \
 	'  make stage5-profile-show   Show default synth profile path' \
 	'' \
 	'Stage 6 preflight:' \
@@ -205,6 +207,14 @@ stage5-sf2-check:
 .PHONY: stage5-profile-show
 stage5-profile-show:
 	@printf '%s\n' $(DEFAULT_SYNTH_PROFILE)
+
+.PHONY: soundscape-assets-generate
+soundscape-assets-generate:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/generate_soundscape_seed_assets.py
+
+.PHONY: soundscape-assets-check
+soundscape-assets-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_soundscape_asset_pack.py
 
 .PHONY: stage6-video-stub
 stage6-video-stub:

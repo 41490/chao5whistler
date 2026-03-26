@@ -1,0 +1,34 @@
+{
+  "asset_id": "ambient_chapel_air_v1",
+  "layer_kind": "ambient",
+  "asset_format": "wav",
+  "asset_path": "ops/assets/soundscapes/ambient/ambient_chapel_air_v1.wav",
+  "source_url": "https://github.com/41490/chao5whistler/blob/main/ops/assets/soundscapes/ambient/ambient_chapel_air_v1.wav",
+  "license": {
+    "spdx": "CC0-1.0",
+    "policy_class": "CC0",
+    "summary": "repo-generated seed loop released under a CC0 baseline for live-safe testing"
+  },
+  "attribution_required": false,
+  "loop_duration_seconds": 24.0,
+  "loudness_target_dbfs": -24.0,
+  "sha256": "fddc70c66d06057e598f9031d4809a61d7163e67978a1601d5cda247c62b1215",
+  "audio": {
+    "duration_seconds": 24.0,
+    "sample_rate": 24000,
+    "channels": 2,
+    "sample_format": "pcm_s16le",
+    "peak_dbfs": -14.83,
+    "rms_dbfs": -25.08
+  },
+  "generator": {
+    "path": "src/musikalisches/tools/generate_soundscape_seed_assets.py",
+    "method": "deterministic additive pad swarm",
+    "sample_rate": 24000,
+    "channels": 2
+  },
+  "notes": [
+    "Seed asset for issue9 P2 manifest/validator work.",
+    "May be replaced by curated field recordings in later phases without changing the manifest contract."
+  ]
+}

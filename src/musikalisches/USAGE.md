@@ -36,6 +36,15 @@ make -C src/musikalisches stage7-ffmpeg-check
 make -C src/musikalisches stage7-all
 ```
 
+如果这次是继续推进 issue #9 的多层声景链路，在进入 stage5 mix bus 之前，先单独冻结并校验资产包：
+
+```bash
+make -C src/musikalisches soundscape-assets-generate
+make -C src/musikalisches soundscape-assets-check
+```
+
+这一步只验证 manifest / license / hash / loop duration contract，不会改动现有 stage7 live 基线。
+
 ## 2. 检查通过的判据
 
 以下报告文件都应为 `status = passed`：

@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 
 use crate::config::schema::{Config, MotionMode, PaletteTheme};
 use crate::model::normalized_event::NormalizedEvent;
+use crate::model::runtime_event::RuntimeEvent;
 use crate::replay::{self, ReplayTick};
 use crate::text;
 
@@ -126,8 +127,8 @@ pub struct VideoFrameItem {
 }
 
 #[derive(Debug, Clone)]
-struct SelectedSourceEvent {
-    event: NormalizedEvent,
+struct SelectedRuntimeEvent {
+    event: RuntimeEvent,
     type_slot_index: u32,
     second_type_count: u32,
     second_type_rank: u32,
@@ -137,7 +138,7 @@ struct SelectedSourceEvent {
 
 #[derive(Debug, Clone)]
 struct SpriteDraft {
-    selected: SelectedSourceEvent,
+    selected: SelectedRuntimeEvent,
     lane_hold_key: String,
     lane_index: u32,
     label: String,
@@ -162,6 +163,16 @@ struct LoadedFont {
 struct LabelMetrics {
     width: f64,
     height: f64,
+}
+
+pub struct LiveVideoRenderer {
+    config: Config,
+    motion_mode: MotionMode,
+    font: LoadedFont,
+    color_by_type: HashMap<String, String>,
+    lane_planner: LanePlannerState,
+    active_sprites: Vec<VideoSpritePlan>,
+    sprite_assets: HashMap<String, RgbaImage>,
 }
 
 pub fn sample_day_pack(
@@ -198,7 +209,7 @@ pub fn sample_day_pack(
     let source_events_by_tick =
         load_source_events_for_ticks(&replay_report.archive_root, &replay_report.ticks)?;
     let type_color_assignments =
-        build_type_color_assignments(&effective_config, &source_events_by_tick)?;
+        build_type_color_assignments(&effective_config, &replay_report.ticks, &source_events_by_tick)?;
     let color_by_type = type_color_assignments
         .iter()
         .map(|entry| (entry.event_type.clone(), entry.color_hex.clone()))
@@ -371,6 +382,79 @@ pub fn render_day_pack(
     Ok(report)
 }
 
+impl LiveVideoRenderer {
+    pub fn new(
+        config: &Config,
+        motion_mode_override: Option<MotionMode>,
+        angle_deg_override: Option<f64>,
+    ) -> Result<Self> {
+        let mut effective_config = config.clone();
+        if let Some(mode) = motion_mode_override {
+            effective_config.video.motion.mode = mode;
+        }
+        if let Some(angle_deg) = angle_deg_override {
+            effective_config.video.motion.angle_deg = angle_deg;
+        }
+
+        let motion_mode = effective_config.video.motion.mode;
+        let font = load_font(&effective_config.video.text.font_path)?;
+        let color_by_type = build_static_color_by_type(&effective_config)?;
+
+        Ok(Self {
+            config: effective_config,
+            motion_mode,
+            font,
+            color_by_type,
+            lane_planner: LanePlannerState::default(),
+            active_sprites: Vec::new(),
+            sprite_assets: HashMap::new(),
+        })
+    }
+
+    pub fn render_tick(&mut self, tick: &ReplayTick) -> Result<Vec<RgbaImage>> {
+        let spawned = build_sprites_for_tick(
+            &self.config,
+            &self.font,
+            self.motion_mode,
+            tick,
+            &[],
+            &self.color_by_type,
+            &mut self.lane_planner,
+        )?;
+        for sprite in spawned {
+            let asset = build_sprite_asset(&self.config, &self.font, &sprite)?;
+            self.sprite_assets.insert(sprite.event_id.clone(), asset);
+            self.active_sprites.push(sprite);
+        }
+
+        let fps = self.config.video.canvas.fps;
+        let mut frames = Vec::with_capacity(fps as usize);
+        for frame_offset in 0..fps {
+            let frame_time_secs = tick.replay_second as f64 + frame_offset as f64 / fps as f64;
+            let active_items = self
+                .active_sprites
+                .iter()
+                .filter_map(|sprite| sprite.sample_at(&self.config, frame_time_secs))
+                .collect::<Vec<_>>();
+            frames.push(render_active_items(
+                &self.config,
+                self.config.video.canvas.width,
+                self.config.video.canvas.height,
+                &active_items,
+                &self.sprite_assets,
+            )?);
+        }
+
+        let cutoff = tick.replay_second as f64 + 1.0;
+        self.active_sprites
+            .retain(|sprite| sprite.spawn_replay_second as f64 + sprite.lifetime_secs > cutoff);
+        self.sprite_assets
+            .retain(|event_id, _| self.active_sprites.iter().any(|sprite| &sprite.event_id == event_id));
+
+        Ok(frames)
+    }
+}
+
 impl VideoSpritePlan {
     fn from_draft(
         config: &Config,
@@ -383,7 +467,7 @@ impl VideoSpritePlan {
         let angle_deg = motion_angle_deg(
             config,
             motion_mode,
-            &draft.selected.event,
+            &draft.selected.event.event_id,
             spawn_replay_second,
         );
         let angle_rad = angle_deg.to_radians();
@@ -467,7 +551,13 @@ fn build_sprites_for_tick(
     color_by_type: &HashMap<String, String>,
     lane_planner: &mut LanePlannerState,
 ) -> Result<Vec<VideoSpritePlan>> {
-    let mut drafts = select_key_events_for_second(config, source_events)
+    let selected_events = if source_events.is_empty() {
+        select_key_runtime_events_for_second(config, &tick.events)
+    } else {
+        select_key_events_for_second(config, source_events)
+    };
+
+    let mut drafts = selected_events
         .into_iter()
         .map(|selected| {
             let label = text::render_template(&config.text, &selected.event.text_fields)?;
@@ -629,14 +719,60 @@ fn render_frame(
     frame: &VideoFrameSample,
     sprite_assets: &HashMap<String, RgbaImage>,
 ) -> Result<RgbaImage> {
-    let background = parse_hex_color(&config.video.palette.background_hex)?;
-    let mut image = ImageBuffer::from_pixel(
+    render_active_items(
+        config,
         frame_plan.canvas_width,
         frame_plan.canvas_height,
+        &frame.active_items,
+        sprite_assets,
+    )
+}
+
+fn build_sprite_assets(
+    config: &Config,
+    font: &LoadedFont,
+    frame_plan: &VideoSampleReport,
+) -> Result<HashMap<String, RgbaImage>> {
+    let mut assets = HashMap::new();
+    for sprite in &frame_plan.sprites {
+        assets.insert(sprite.event_id.clone(), build_sprite_asset(config, font, sprite)?);
+    }
+    Ok(assets)
+}
+
+fn build_sprite_asset(
+    config: &Config,
+    font: &LoadedFont,
+    sprite: &VideoSpritePlan,
+) -> Result<RgbaImage> {
+    let fill_color = parse_hex_color(&sprite.color_hex)?;
+    let outline_color = outline_color_for_fill(config, &sprite.color_hex)?;
+    let text_image = render_text_sprite(
+        font,
+        &sprite.label,
+        sprite.font_size,
+        fill_color,
+        outline_color,
+        config.video.text.stroke_width,
+    )?;
+    Ok(rotate90(&text_image))
+}
+
+fn render_active_items(
+    config: &Config,
+    canvas_width: u32,
+    canvas_height: u32,
+    active_items: &[VideoFrameItem],
+    sprite_assets: &HashMap<String, RgbaImage>,
+) -> Result<RgbaImage> {
+    let background = parse_hex_color(&config.video.palette.background_hex)?;
+    let mut image = ImageBuffer::from_pixel(
+        canvas_width,
+        canvas_height,
         Rgba([background[0], background[1], background[2], 255]),
     );
 
-    for item in &frame.active_items {
+    for item in active_items {
         let base = sprite_assets
             .get(&item.event_id)
             .ok_or_else(|| anyhow!("missing sprite asset for {}", item.event_id))?;
@@ -651,28 +787,6 @@ fn render_frame(
     }
 
     Ok(image)
-}
-
-fn build_sprite_assets(
-    config: &Config,
-    font: &LoadedFont,
-    frame_plan: &VideoSampleReport,
-) -> Result<HashMap<String, RgbaImage>> {
-    let mut assets = HashMap::new();
-    for sprite in &frame_plan.sprites {
-        let fill_color = parse_hex_color(&sprite.color_hex)?;
-        let outline_color = outline_color_for_fill(config, &sprite.color_hex)?;
-        let text_image = render_text_sprite(
-            font,
-            &sprite.label,
-            sprite.font_size,
-            fill_color,
-            outline_color,
-            config.video.text.stroke_width,
-        )?;
-        assets.insert(sprite.event_id.clone(), rotate90(&text_image));
-    }
-    Ok(assets)
 }
 
 fn draw_sprite(
@@ -857,6 +971,9 @@ fn load_source_events_for_ticks(
 ) -> Result<BTreeMap<(String, u32), Vec<NormalizedEvent>>> {
     let mut ranges = BTreeMap::<String, (u32, u32)>::new();
     for tick in ticks {
+        if tick.is_fallback {
+            continue;
+        }
         let entry = ranges
             .entry(tick.source_day.clone())
             .or_insert((tick.second_of_day, tick.second_of_day + 1));
@@ -879,7 +996,18 @@ fn load_source_events_for_ticks(
 fn select_key_events_for_second(
     config: &Config,
     source_events: &[NormalizedEvent],
-) -> Vec<SelectedSourceEvent> {
+) -> Vec<SelectedRuntimeEvent> {
+    let runtime_events = source_events
+        .iter()
+        .map(RuntimeEvent::from)
+        .collect::<Vec<_>>();
+    select_key_runtime_events_for_second(config, &runtime_events)
+}
+
+fn select_key_runtime_events_for_second(
+    config: &Config,
+    source_events: &[RuntimeEvent],
+) -> Vec<SelectedRuntimeEvent> {
     if source_events.is_empty() {
         return Vec::new();
     }
@@ -908,7 +1036,7 @@ fn select_key_events_for_second(
         .map(|(index, (event_type, _))| (event_type.clone(), (index + 1) as u32))
         .collect::<HashMap<_, _>>();
 
-    let mut selected = Vec::<SelectedSourceEvent>::new();
+    let mut selected = Vec::<SelectedRuntimeEvent>::new();
     for (event_type, count) in type_order {
         let mut events = source_events
             .iter()
@@ -924,7 +1052,7 @@ fn select_key_events_for_second(
         });
 
         for (type_slot_index, event) in events.into_iter().enumerate() {
-            selected.push(SelectedSourceEvent {
+            selected.push(SelectedRuntimeEvent {
                 event,
                 type_slot_index: type_slot_index as u32 + 1,
                 second_type_count: count,
@@ -945,19 +1073,27 @@ fn select_key_events_for_second(
 
     selected
 }
-fn lane_hold_key(selected: &SelectedSourceEvent) -> String {
+
+fn lane_hold_key(selected: &SelectedRuntimeEvent) -> String {
     format!("{}#{}", selected.event.event_type, selected.type_slot_index)
 }
 
 fn build_type_color_assignments(
     config: &Config,
+    ticks: &[ReplayTick],
     source_events_by_tick: &BTreeMap<(String, u32), Vec<NormalizedEvent>>,
 ) -> Result<Vec<VideoTypeColorAssignment>> {
     let background = parse_hex_color(&config.video.palette.background_hex)?;
     let mut counts = BTreeMap::<String, u64>::new();
-    for events in source_events_by_tick.values() {
-        for event in events {
-            *counts.entry(event.event_type.clone()).or_insert(0) += 1;
+    for tick in ticks {
+        if let Some(events) = source_events_by_tick.get(&(tick.source_day.clone(), tick.second_of_day)) {
+            for event in events {
+                *counts.entry(event.event_type.clone()).or_insert(0) += 1;
+            }
+        } else {
+            for event in &tick.events {
+                *counts.entry(event.event_type.clone()).or_insert(0) += 1;
+            }
         }
     }
 
@@ -1000,6 +1136,42 @@ fn build_type_color_assignments(
             }
         })
         .collect())
+}
+
+fn build_static_color_by_type(config: &Config) -> Result<HashMap<String, String>> {
+    let background = parse_hex_color(&config.video.palette.background_hex)?;
+    let mut ranked_types = config
+        .events
+        .primary_types
+        .iter()
+        .map(|event_type| {
+            (
+                event_type.as_str().to_string(),
+                event_weight(config, event_type.as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+    ranked_types.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+
+    let mut color_candidates = theme_event_color_candidates(config)?;
+    color_candidates.sort_by(|left, right| {
+        let left_contrast = contrast_ratio(parse_hex_color(left).unwrap_or(background), background);
+        let right_contrast =
+            contrast_ratio(parse_hex_color(right).unwrap_or(background), background);
+        right_contrast
+            .partial_cmp(&left_contrast)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut map = HashMap::new();
+    for (index, (event_type, _)) in ranked_types.into_iter().enumerate() {
+        let color_hex = color_candidates
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| config.video.palette.text_hex.clone());
+        map.insert(event_type, color_hex);
+    }
+    Ok(map)
 }
 
 fn theme_event_color_candidates(config: &Config) -> Result<Vec<String>> {
@@ -1074,7 +1246,7 @@ fn spawn_y(config: &Config, event_id: &str, label_height: f64) -> f64 {
 fn motion_angle_deg(
     config: &Config,
     motion_mode: MotionMode,
-    event: &NormalizedEvent,
+    event_id: &str,
     spawn_replay_second: u64,
 ) -> f64 {
     match motion_mode {
@@ -1083,8 +1255,7 @@ fn motion_angle_deg(
         MotionMode::RandomAngle => {
             let min = config.video.motion.random_min_deg;
             let max = config.video.motion.random_max_deg;
-            min + (max - min)
-                * hashed_unit_interval(&event.event_id, &spawn_replay_second.to_string())
+            min + (max - min) * hashed_unit_interval(event_id, &spawn_replay_second.to_string())
         }
     }
 }
@@ -1433,6 +1604,34 @@ mod tests {
         assert_eq!(angle, second.sprites[0].angle_deg);
         assert!(angle >= config.video.motion.random_min_deg);
         assert!(angle <= config.video.motion.random_max_deg);
+    }
+
+    #[test]
+    fn video_sample_random_fallback_emits_sprites_without_archive() {
+        let temp = tempdir().expect("tempdir");
+        let archive_root = temp.path().join("missing-archive");
+        let mut config = Config::default();
+        config.archive.root_dir = archive_root.display().to_string();
+        config.runtime.mode = crate::config::schema::RuntimeMode::RandomFallback;
+        config.fallback.seed = 13;
+        config.fallback.density_scale = 1.0;
+
+        let report = sample_day_pack(
+            &config,
+            "2026-03-19",
+            Some(&archive_root),
+            43_200,
+            4,
+            Some(MotionMode::Vertical),
+            None,
+        )
+        .expect("sample fallback video");
+
+        assert!(report.emitted_sprite_count > 0);
+        assert!(report
+            .sprites
+            .iter()
+            .all(|sprite| sprite.event_id.starts_with("fallback-")));
     }
 
     #[test]

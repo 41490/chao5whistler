@@ -1,0 +1,36 @@
+{
+  "asset_id": "drone_c_pedal_v1",
+  "label": "C Pedal Drone",
+  "description": "Soft C pedal support layer for the first issue9 seed soundscape pack.",
+  "layer_kind": "drone",
+  "asset_format": "wav",
+  "asset_path": "ops/assets/soundscapes/drone/drone_c_pedal_v1.wav",
+  "source_url": "https://github.com/41490/chao5whistler/blob/main/ops/assets/soundscapes/drone/drone_c_pedal_v1.wav",
+  "license": {
+    "spdx": "CC0-1.0",
+    "policy_class": "CC0",
+    "summary": "repo-generated seed loop released under a CC0 baseline for live-safe testing"
+  },
+  "attribution_required": false,
+  "loop_duration_seconds": 12.0,
+  "loudness_target_dbfs": -20.0,
+  "sha256": "817789c8467c4e2d4ca1f768e5672dd2b421a1c3077d933d70b2a9d9585f9bc3",
+  "audio": {
+    "duration_seconds": 12.0,
+    "sample_rate": 44100,
+    "channels": 2,
+    "sample_format": "pcm_s16le",
+    "peak_dbfs": -10.67,
+    "rms_dbfs": -18.61
+  },
+  "generator": {
+    "path": "src/musikalisches/tools/generate_soundscape_seed_assets.py",
+    "method": "deterministic pedal-tone stack",
+    "sample_rate": 44100,
+    "channels": 2
+  },
+  "notes": [
+    "Seed asset for issue9 P2 manifest/validator work.",
+    "May be replaced by curated field recordings in later phases without changing the manifest contract."
+  ]
+}

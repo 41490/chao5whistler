@@ -453,18 +453,15 @@ fn round4(value: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, OnceLock};
-
     use tempfile::tempdir;
 
     use super::*;
     use crate::archive;
     use crate::config::schema::Config;
+    use crate::test_support;
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-
-    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[derive(Debug)]
     struct EnvVarGuard {
@@ -489,10 +486,6 @@ mod tests {
         }
     }
 
-    fn env_lock() -> &'static Mutex<()> {
-        ENV_LOCK.get_or_init(|| Mutex::new(()))
-    }
-
     fn write_executable_script(path: &Path, body: &str) {
         fs::write(path, body).expect("write script");
         #[cfg(unix)]
@@ -505,7 +498,7 @@ mod tests {
 
     #[test]
     fn render_day_pack_writes_preview_mp4_and_probe_manifest() {
-        let _guard = env_lock().lock().expect("lock env");
+        let _guard = test_support::env_lock().lock().expect("lock env");
         let temp = tempdir().expect("tempdir");
         let archive_root = temp.path().join("archive");
         let output_dir = temp.path().join("render-av");

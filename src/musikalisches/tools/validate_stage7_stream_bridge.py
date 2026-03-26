@@ -89,6 +89,9 @@ def write_report(output_dir: Path, manifest: dict, checks: list[dict]) -> dict:
             "checks_failed": len(failed),
             "work_id": manifest.get("work_id"),
             "duration_seconds": manifest.get("bridge_summary", {}).get("duration_seconds"),
+            "source_audio_render_backend": manifest.get("bridge_summary", {}).get(
+                "source_audio_render_backend"
+            ),
             "video_fps": manifest.get("bridge_summary", {}).get("video_fps"),
             "default_loop_mode": manifest.get("bridge_summary", {}).get("default_loop_mode"),
             "soak_runtime_hours": manifest.get("soak_plan_summary", {}).get("minimum_runtime_hours"),
@@ -847,6 +850,8 @@ def main() -> int:
             and bridge_summary.get("audio_bitrate_kbps") == profile.get("audio", {}).get("bitrate_kbps")
             and bridge_summary.get("audio_sample_rate_hz") == profile.get("audio", {}).get("sample_rate_hz")
             and bridge_summary.get("audio_channels") == profile.get("audio", {}).get("channels")
+            and bridge_summary.get("source_audio_render_backend")
+            == manifest.get("audio_input", {}).get("render_backend")
             and bridge_summary.get("ingest_protocol") == profile.get("ingest", {}).get("protocol")
             and bridge_summary.get("ingest_container") == profile.get("ingest", {}).get("container"),
             {
@@ -866,6 +871,12 @@ def main() -> int:
             and float_close(
                 loop_bridge.get("source_render_duration_seconds"),
                 manifest.get("audio_input", {}).get("duration_seconds"),
+                0.001,
+            )
+            and loop_bridge.get("combination_hold_cycles") == loop_bridge.get("source_render_loop_count")
+            and float_close(
+                loop_bridge.get("combination_duration_seconds"),
+                loop_bridge.get("source_render_duration_seconds"),
                 0.001,
             )
             and float_close(

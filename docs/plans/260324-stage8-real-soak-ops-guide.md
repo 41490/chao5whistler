@@ -60,8 +60,10 @@ ops/bin/ffmpeg -version | sed -n '1,4p'
 ## 4. 重新生成 stage6 / stage7 工件
 
 ```bash
-make -C src/musikalisches stage6-video-render
-make -C src/musikalisches stage6-video-render-check
+make -C src/musikalisches stage5-sf2 LOOP_COUNT=16
+make -C src/musikalisches stage5-sf2-check
+make -C src/musikalisches stage6-video-render-sf2
+make -C src/musikalisches stage6-video-render-check-sf2
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-soak-check
@@ -74,8 +76,10 @@ make -C src/musikalisches stage8-readiness-check
 python3 - <<'PY'
 import json
 from pathlib import Path
-video = json.loads(Path("ops/out/video-render/video_render_manifest.json").read_text())
+video = json.loads(Path("ops/out/video-render-sf2/video_render_manifest.json").read_text())
 bridge = json.loads(Path("ops/out/stream-bridge/stream_bridge_manifest.json").read_text())
+print("stage7 source_audio_render_backend =", bridge["bridge_summary"].get("source_audio_render_backend"))
+print("stage7 combination_hold_cycles =", bridge["loop_bridge"].get("combination_hold_cycles"))
 print("stage6 ffmpeg_bin =", video["mp4_generation"].get("ffmpeg_bin"))
 print("stage6 ffprobe_bin =", video["mp4_generation"].get("ffprobe_bin"))
 print("stage7 live ffmpeg_bin =", bridge["live_command"].get("ffmpeg_bin"))
@@ -87,6 +91,8 @@ PY
 预期：
 
 - 都指向 `ops/bin/ffmpeg` / `ops/bin/ffprobe`
+- `source_audio_render_backend = soundfont_rustysynth`
+- `combination_hold_cycles = 16`
 - `ops/out/stream-bridge/stage8_ops_readiness_report.json` 为 `status = passed`
 - `stream_bridge_manifest.json > stage8_ops.sample_retention` 已包含样本留存模板约定
 

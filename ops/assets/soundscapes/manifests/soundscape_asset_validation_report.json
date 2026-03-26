@@ -1,0 +1,19 @@
+{
+  "stage": "soundscape_asset_pack",
+  "status": "passed",
+  "summary": {
+    "asset_pack_id": "musikalisches_seed_soundscape_v1",
+    "assets_checked": 2,
+    "ambient_assets": 1,
+    "drone_assets": 1,
+    "impulse_assets": 0,
+    "errors": 0
+  },
+  "pack_manifest_path": "/opt/src/41490/chao5whistler-issue9-p2/ops/assets/soundscapes/manifests/soundscape_asset_pack_v1.json",
+  "allowed_policy_classes": [
+    "CC0",
+    "public_domain",
+    "pixabay_no_attribution"
+  ],
+  "errors": []
+}

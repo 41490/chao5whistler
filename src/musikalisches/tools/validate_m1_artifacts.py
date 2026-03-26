@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import wave
+from array import array
 from pathlib import Path
 
 
@@ -23,6 +25,7 @@ REQUIRED_FILES = {
     "offline_audio.wav",
 }
 SELECTION_FILE = "combination_selection.json"
+SOUNDSCAPE_SELECTION_FILE = "soundscape_selection.json"
 
 
 def load_json(path: Path) -> dict:
@@ -34,6 +37,45 @@ def fail(errors: list[str]) -> int:
     for error in errors:
         print(f"- {error}")
     return 1
+
+
+def amplitude_to_dbfs(value: float) -> float:
+    return -180.0 if value <= 0.0 else round(20.0 * math.log10(value), 6)
+
+
+def compute_wav_stats(path: Path) -> dict:
+    with wave.open(str(path), "rb") as wav_file:
+        sample_rate = wav_file.getframerate()
+        channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        frames = wav_file.getnframes()
+        pcm_bytes = wav_file.readframes(frames)
+    pcm = array("h")
+    pcm.frombytes(pcm_bytes)
+    if sys.byteorder != "little":
+        pcm.byteswap()
+    peak_value = max(abs(sample) for sample in pcm) if pcm else 0
+    rms_numerator = sum(int(sample) * int(sample) for sample in pcm)
+    sample_count = len(pcm)
+    peak_amplitude = peak_value / 32767.0 if peak_value else 0.0
+    rms_amplitude = math.sqrt(rms_numerator / sample_count) / 32767.0 if sample_count else 0.0
+    return {
+        "sample_rate": sample_rate,
+        "channels": channels,
+        "sample_width": sample_width,
+        "frames": frames,
+        "duration_seconds": round(frames / sample_rate, 6) if sample_rate else 0.0,
+        "peak_amplitude": round(peak_amplitude, 6),
+        "peak_dbfs": amplitude_to_dbfs(peak_amplitude),
+        "rms_amplitude": round(rms_amplitude, 6),
+        "rms_dbfs": amplitude_to_dbfs(rms_amplitude),
+    }
+
+
+def approx_equal(left: float | None, right: float | None, *, tolerance: float = 1e-4) -> bool:
+    if left is None or right is None:
+        return False
+    return abs(float(left) - float(right)) <= tolerance
 
 
 def main() -> int:
@@ -50,6 +92,11 @@ def main() -> int:
         "--require-selection",
         action="store_true",
         help="require combination_selection.json and verify unique ledger metadata",
+    )
+    parser.add_argument(
+        "--require-soundscape",
+        action="store_true",
+        help="require soundscape_selection.json and validate the P3 multilayer mix-bus contract",
     )
     args = parser.parse_args()
 
@@ -75,6 +122,7 @@ def main() -> int:
     analysis_payload = load_json(artifact_dir / "analysis_window_sequence.json")
     summary_payload = load_json(artifact_dir / "artifact_summary.json")
     report_payload = load_json(artifact_dir / "m1_validation_report.json")
+
     selection_payload = None
     if args.require_selection:
         selection_path = artifact_dir / SELECTION_FILE
@@ -82,6 +130,18 @@ def main() -> int:
             errors.append(f"missing files: {SELECTION_FILE}")
             return fail(errors)
         selection_payload = load_json(selection_path)
+    elif (artifact_dir / SELECTION_FILE).exists():
+        selection_payload = load_json(artifact_dir / SELECTION_FILE)
+
+    soundscape_payload = None
+    if args.require_soundscape:
+        soundscape_path = artifact_dir / SOUNDSCAPE_SELECTION_FILE
+        if not soundscape_path.exists():
+            errors.append(f"missing files: {SOUNDSCAPE_SELECTION_FILE}")
+            return fail(errors)
+        soundscape_payload = load_json(soundscape_path)
+    elif (artifact_dir / SOUNDSCAPE_SELECTION_FILE).exists():
+        soundscape_payload = load_json(artifact_dir / SOUNDSCAPE_SELECTION_FILE)
 
     if request_payload.get("work_id") != "mozart_dicegame_print_1790s":
         errors.append("render_request.json work_id mismatch")
@@ -214,17 +274,16 @@ def main() -> int:
             errors.append("note events overrun the realized fragment duration")
 
     wav_path = artifact_dir / "offline_audio.wav"
-    with wave.open(str(wav_path), "rb") as wav_file:
-        if wav_file.getframerate() != request_payload.get("sample_rate"):
-            errors.append("offline_audio.wav sample rate does not match render_request.json")
-        if wav_file.getnchannels() != 2:
-            errors.append("offline_audio.wav must be stereo")
-        if wav_file.getsampwidth() != 2:
-            errors.append("offline_audio.wav must be 16-bit PCM")
-        frames = wav_file.getnframes()
+    wav_stats = compute_wav_stats(wav_path)
+    if wav_stats["sample_rate"] != request_payload.get("sample_rate"):
+        errors.append("offline_audio.wav sample rate does not match render_request.json")
+    if wav_stats["channels"] != 2:
+        errors.append("offline_audio.wav must be stereo")
+    if wav_stats["sample_width"] != 2:
+        errors.append("offline_audio.wav must be 16-bit PCM")
 
     audio_frames = report_payload.get("summary", {}).get("audio_frames")
-    if audio_frames != frames:
+    if audio_frames != wav_stats["frames"]:
         errors.append("m1_validation_report.json audio_frames does not match offline_audio.wav")
 
     if summary_payload.get("note_event_count") != len(note_events):
@@ -259,6 +318,28 @@ def main() -> int:
             errors.append("combination_selection.json played_unique_count must be > 0")
         if selection_payload.get("total_combinations") != 11 ** 16:
             errors.append("combination_selection.json total_combinations must equal 11^16")
+        if selection_payload.get("combination_hold_cycles") != stream_plan_payload.get("loop_count"):
+            errors.append(
+                "combination_selection.json combination_hold_cycles must match stream_loop_plan.json loop_count"
+            )
+        if (
+            selection_payload.get("source_cycle_duration_seconds")
+            != stream_plan_payload.get("cycle_duration_seconds")
+        ):
+            errors.append(
+                "combination_selection.json source_cycle_duration_seconds must match stream_loop_plan.json cycle_duration_seconds"
+            )
+        if (
+            selection_payload.get("combination_duration_seconds")
+            != stream_plan_payload.get("total_duration_seconds")
+        ):
+            errors.append(
+                "combination_selection.json combination_duration_seconds must match stream_loop_plan.json total_duration_seconds"
+            )
+        if selection_payload.get("audio_render_backend") != summary_payload.get("audio", {}).get("render_backend"):
+            errors.append(
+                "combination_selection.json audio_render_backend must match artifact_summary.json audio.render_backend"
+            )
         selector_results = selection_payload.get("selector_results", [])
         if len(selector_results) != 16:
             errors.append("combination_selection.json must expose 16 selector_results entries")
@@ -273,6 +354,108 @@ def main() -> int:
             if payload.get("selection", {}).get("combination_id") != selection_payload.get("combination_id"):
                 errors.append(f"{payload_name} selection.combination_id must match combination_selection.json")
 
+    if soundscape_payload is not None:
+        if soundscape_payload.get("stage") != "stage5_soundscape_selection":
+            errors.append("soundscape_selection.json stage must be stage5_soundscape_selection")
+        if not soundscape_payload.get("soundscape_profile_id"):
+            errors.append("soundscape_selection.json soundscape_profile_id must be present")
+        if soundscape_payload.get("combination_id") != selection_payload.get("combination_id"):
+            errors.append("soundscape_selection.json combination_id must match combination_selection.json")
+        if soundscape_payload.get("combination_duration_seconds") != stream_plan_payload.get("total_duration_seconds"):
+            errors.append(
+                "soundscape_selection.json combination_duration_seconds must match stream_loop_plan.json total_duration_seconds"
+            )
+        registration = soundscape_payload.get("registration", {})
+        if not registration.get("registration_id") or not registration.get("synth_profile_id"):
+            errors.append("soundscape_selection.json registration block must expose ids")
+        layer_kinds = [layer.get("layer_kind") for layer in soundscape_payload.get("layers", [])]
+        if layer_kinds != ["main", "drone", "ambient"]:
+            errors.append("soundscape_selection.json layers must be ordered as main, drone, ambient")
+        selected_asset_ids = soundscape_payload.get("selected_asset_ids", {})
+        for kind in ("drone", "ambient"):
+            matching_layers = [layer for layer in soundscape_payload.get("layers", []) if layer.get("layer_kind") == kind]
+            if len(matching_layers) != 1:
+                errors.append(f"soundscape_selection.json must expose exactly one {kind} layer")
+                continue
+            layer = matching_layers[0]
+            if layer.get("asset_id") != selected_asset_ids.get(kind):
+                errors.append(f"soundscape_selection.json selected_asset_ids.{kind} mismatch")
+            if not layer.get("asset_path") or not layer.get("manifest_path") or not layer.get("sha256"):
+                errors.append(f"soundscape_selection.json {kind} layer must expose asset path, manifest path, and sha256")
+
+        mix_bus = soundscape_payload.get("mix_bus", {})
+        if mix_bus.get("stage") != "stage5_soundscape_mix_bus_v1":
+            errors.append("soundscape_selection.json mix_bus.stage must be stage5_soundscape_mix_bus_v1")
+        if mix_bus.get("output_frames") != wav_stats["frames"]:
+            errors.append("soundscape_selection.json mix_bus.output_frames must match offline_audio.wav")
+        if not approx_equal(
+            mix_bus.get("output_duration_seconds"), wav_stats["duration_seconds"], tolerance=0.01
+        ):
+            errors.append("soundscape_selection.json mix_bus.output_duration_seconds must match offline_audio.wav")
+        if not approx_equal(
+            mix_bus.get("peak_amplitude"), wav_stats["peak_amplitude"], tolerance=1e-4
+        ):
+            errors.append("soundscape_selection.json mix_bus.peak_amplitude must match offline_audio.wav")
+        if not approx_equal(
+            mix_bus.get("rms_dbfs"), wav_stats["rms_dbfs"], tolerance=0.1
+        ):
+            errors.append("soundscape_selection.json mix_bus.rms_dbfs must match offline_audio.wav")
+        if not (
+            float(mix_bus.get("target_peak_min_amplitude", 0.0))
+            <= wav_stats["peak_amplitude"]
+            <= float(mix_bus.get("target_peak_max_amplitude", 0.0))
+        ):
+            errors.append("soundscape_selection.json peak guardrail does not contain offline_audio.wav peak")
+        if not (
+            float(mix_bus.get("target_rms_min_dbfs", 0.0))
+            <= wav_stats["rms_dbfs"]
+            <= float(mix_bus.get("target_rms_max_dbfs", 0.0))
+        ):
+            errors.append("soundscape_selection.json RMS guardrail does not contain offline_audio.wav rms_dbfs")
+
+        soundscape_summary = summary_payload.get("soundscape", {})
+        if soundscape_summary.get("profile_id") != soundscape_payload.get("soundscape_profile_id"):
+            errors.append("artifact_summary.json soundscape.profile_id mismatch")
+        if soundscape_summary.get("selection_file") != SOUNDSCAPE_SELECTION_FILE:
+            errors.append("artifact_summary.json soundscape.selection_file must point to soundscape_selection.json")
+        if soundscape_summary.get("layer_count") != len(soundscape_payload.get("layers", [])):
+            errors.append("artifact_summary.json soundscape.layer_count mismatch")
+
+        audio_summary = summary_payload.get("audio", {})
+        if audio_summary.get("mixed_layers") is not True:
+            errors.append("artifact_summary.json audio.mixed_layers must be true when soundscape is present")
+        if audio_summary.get("mix_bus_profile_id") != mix_bus.get("profile_id"):
+            errors.append("artifact_summary.json audio.mix_bus_profile_id mismatch")
+        if audio_summary.get("frames") != wav_stats["frames"]:
+            errors.append("artifact_summary.json audio.frames must match offline_audio.wav")
+        if not approx_equal(audio_summary.get("duration_seconds"), wav_stats["duration_seconds"], tolerance=0.01):
+            errors.append("artifact_summary.json audio.duration_seconds must match offline_audio.wav")
+        if not approx_equal(audio_summary.get("peak_amplitude"), wav_stats["peak_amplitude"], tolerance=1e-4):
+            errors.append("artifact_summary.json audio.peak_amplitude must match offline_audio.wav")
+        if not approx_equal(audio_summary.get("rms_dbfs"), wav_stats["rms_dbfs"], tolerance=0.1):
+            errors.append("artifact_summary.json audio.rms_dbfs must match offline_audio.wav")
+
+        report_summary = report_payload.get("summary", {})
+        if report_summary.get("soundscape_profile_id") != soundscape_payload.get("soundscape_profile_id"):
+            errors.append("m1_validation_report.json summary.soundscape_profile_id mismatch")
+        if report_summary.get("soundscape_layer_count") != len(soundscape_payload.get("layers", [])):
+            errors.append("m1_validation_report.json summary.soundscape_layer_count mismatch")
+        if not approx_equal(report_summary.get("soundscape_rms_dbfs"), wav_stats["rms_dbfs"], tolerance=0.1):
+            errors.append("m1_validation_report.json summary.soundscape_rms_dbfs must match offline_audio.wav")
+        if report_summary.get("registration_profile_id") != registration.get("synth_profile_id"):
+            errors.append("m1_validation_report.json summary.registration_profile_id mismatch")
+
+        for payload_name, payload in (
+            ("render_request.json", request_payload),
+            ("stream_loop_plan.json", stream_plan_payload),
+            ("artifact_summary.json", summary_payload),
+            ("m1_validation_report.json", report_payload),
+        ):
+            if payload.get("soundscape", {}).get("selection_file") != SOUNDSCAPE_SELECTION_FILE:
+                errors.append(f"{payload_name} soundscape.selection_file must match soundscape_selection.json")
+            if payload.get("output_files", {}).get("soundscape_selection") != SOUNDSCAPE_SELECTION_FILE:
+                errors.append(f"{payload_name} output_files.soundscape_selection must be soundscape_selection.json")
+
     if errors:
         return fail(errors)
 
@@ -284,11 +467,17 @@ def main() -> int:
     print(f"event_transition_count: {len(transitions)}")
     print(f"synth_event_count: {len(synth_events)}")
     print(f"analysis_window_count: {len(analysis_windows)}")
-    print(f"audio_frames: {frames}")
+    print(f"audio_frames: {wav_stats['frames']}")
     print(f"audio_file: {wav_path}")
     if selection_payload is not None:
         print(f"combination_id: {selection_payload['combination_id']}")
         print(f"played_unique_count: {selection_payload['played_unique_count']}")
+        print(f"combination_hold_cycles: {selection_payload['combination_hold_cycles']}")
+    if soundscape_payload is not None:
+        print(f"soundscape_profile_id: {soundscape_payload['soundscape_profile_id']}")
+        print(f"registration_label: {soundscape_payload['registration']['label']}")
+        print(f"peak_dbfs: {wav_stats['peak_dbfs']}")
+        print(f"rms_dbfs: {wav_stats['rms_dbfs']}")
     return 0
 
 

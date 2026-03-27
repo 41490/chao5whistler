@@ -1389,6 +1389,11 @@ fn sanitize_target(target_url: &str) -> Result<RuntimeTarget> {
         .ok_or_else(|| anyhow!("stream url is missing host"))?;
     let port = parsed
         .port_or_known_default()
+        .or_else(|| match parsed.scheme() {
+            "rtmp" => Some(1935),
+            "rtmps" => Some(443),
+            _ => None,
+        })
         .ok_or_else(|| anyhow!("stream url is missing port"))?;
     Ok(RuntimeTarget {
         scheme: parsed.scheme().to_string(),
@@ -2090,5 +2095,37 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
         assert!(args.iter().any(|arg| arg == "rawvideo"));
         assert!(args.iter().any(|arg| arg == "<VIDEO_PIPE>"));
         assert!(args.iter().any(|arg| arg == "<AUDIO_PIPE>"));
+    }
+
+    #[test]
+    fn sanitize_target_rtmps_no_port_defaults_to_443() {
+        let target =
+            sanitize_target("rtmps://a.rtmps.youtube.com/live2/xxxx-xxxx").expect("parse");
+        assert_eq!(target.scheme, "rtmps");
+        assert_eq!(target.host, "a.rtmps.youtube.com");
+        assert_eq!(target.port, 443);
+    }
+
+    #[test]
+    fn sanitize_target_rtmp_no_port_defaults_to_1935() {
+        let target =
+            sanitize_target("rtmp://live-push.bilivideo.com/live/xxxx").expect("parse");
+        assert_eq!(target.scheme, "rtmp");
+        assert_eq!(target.host, "live-push.bilivideo.com");
+        assert_eq!(target.port, 1935);
+    }
+
+    #[test]
+    fn sanitize_target_explicit_port_not_overridden() {
+        let target =
+            sanitize_target("rtmps://ingest.example.com:8443/live/key").expect("parse");
+        assert_eq!(target.scheme, "rtmps");
+        assert_eq!(target.port, 8443);
+    }
+
+    #[test]
+    fn sanitize_target_unknown_scheme_missing_port_errors() {
+        let err = sanitize_target("custom://host.example.com/path").unwrap_err();
+        assert!(err.to_string().contains("missing port"));
     }
 }

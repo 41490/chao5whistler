@@ -384,6 +384,9 @@ stage7-preflight-regression-check:
 			break; \
 		fi; \
 	done; \
+	if [[ ! -x "$(ROOT)/target/release/musikalisches-stage7-runtime" && ! -x "$(ROOT)/target/debug/musikalisches-stage7-runtime" ]]; then \
+		cd $(ROOT) && $(CARGO) build --bin musikalisches-stage7-runtime; \
+	fi; \
 	cd $(ROOT) && PATH="$(ROOT)/ops/bin:$$PATH" $(PYTHON) src/musikalisches/tools/validate_stage7_preflight_failures.py \
 		--ffmpeg-bin "$(FFMPEG_BIN)" \
 		--ffprobe-bin "$(FFPROBE_BIN)" \

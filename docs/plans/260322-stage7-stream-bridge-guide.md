@@ -98,6 +98,7 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 - preflight fail 时，控制台首行固定输出 `preflight failed: <check_id>; see ...preflight_report.json and ...preflight.stderr.log`
 - wrapper 非零退出时，会提示先查 `stage7_bridge_preflight_report.json`，再看 `stage7_bridge_runtime_report.json` 与 `stage7_bridge_latest.stderr.log`
 - 人工排障顺序固定为：先 `stage7_bridge_preflight_report.json`，后 `stage7_bridge_preflight.stderr.log`
+- `make -C src/musikalisches stage7-preflight-regression-check` 默认优先使用 `musikalisches-stage7-runtime`；若本地尚未构建，会先编译 Rust runtime，再只在缺失二进制时回退 Python runtime
 
 边界：
 

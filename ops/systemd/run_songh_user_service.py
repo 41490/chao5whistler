@@ -9,6 +9,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
@@ -59,9 +60,16 @@ def emit(message: str, *, stream: object = sys.stdout) -> None:
     print(message, file=stream, flush=True)
 
 
-def summarize_report(label: str, path: Path) -> None:
+def summarize_report(label: str, path: Path, *, min_mtime: float | None = None) -> None:
     if not path.exists():
         emit(f"[songh-systemd] missing {label} report: {path}", stream=sys.stderr)
+        return
+    if min_mtime is not None and path.stat().st_mtime < min_mtime:
+        emit(
+            f"[songh-systemd] {label} report predates this run (stale) — "
+            f"songh exited before writing a new report; check stderr/journald for the real error: {path}",
+            stream=sys.stderr,
+        )
         return
     payload = load_json(path)
     summary = {
@@ -285,12 +293,13 @@ def run_live_mode(
     signal.signal(signal.SIGINT, forward_signal)
     signal.signal(signal.SIGTERM, forward_signal)
 
+    launch_time = time.time()
     child = subprocess.Popen(command, cwd=str(working_directory), env=env)
     exit_code = child.wait()
 
-    summarize_report("preflight", preflight_report_path)
-    summarize_report("runtime", runtime_report_path)
-    summarize_report("exit", exit_report_path)
+    summarize_report("preflight", preflight_report_path, min_mtime=launch_time)
+    summarize_report("runtime", runtime_report_path, min_mtime=launch_time)
+    summarize_report("exit", exit_report_path, min_mtime=launch_time)
     emit(f"[songh-systemd] finished mode={mode} exit_code={exit_code}")
     return exit_code
 

@@ -1,5 +1,11 @@
 # songh systemd --user stage7 service configuration.
-# Copy this file to a private path before writing a real stream key.
+# Copy this file to a private path before writing a real stream key:
+#
+#   mkdir -p ~/.config/songh
+#   cp ops/systemd/songh.toml ~/.config/songh/songh-systemd.toml
+#   chmod 600 ~/.config/songh/songh-systemd.toml
+#
+# Then edit stream_url below with a real ingest URL and stream key.
 
 version = 1
 
@@ -16,6 +22,11 @@ cargo_bin = "cargo"
 cargo_manifest = "src/songh/Cargo.toml"
 journal_identifier_prefix = "songh-live"
 require_validation_passed = true
+# RTMP/RTMPS ingest URL — replace <stream-key> with your real key.
+# Explicit port is optional; songh defaults rtmps→443, rtmp→1935.
+# Examples:
+#   YouTube:  rtmps://a.rtmps.youtube.com/live2/<stream-key>
+#   Bilibili: rtmp://live-push.bilivideo.com/live/<stream-key>
 stream_url = "rtmps://a.rtmps.youtube.com/live2/<stream-key>"
 
 [prepare]

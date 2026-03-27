@@ -230,11 +230,13 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 
 - `MUSIKALISCHES_STAGE7_LOOP_MODE=once|infinite`
 - `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
+- `MUSIKALISCHES_STAGE7_RUNTIME_BIN=/abs/path/to/musikalisches-stage7-runtime`
 - `LIVE_LOOP_COUNT=16` 只影响默认 live-source 重建；formal live 基线建议保持 `16`
 
 语义说明：
 
 - `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS` 表示整体 wrapper runtime budget
+- 默认入口会优先尝试 Rust runtime；若 repo 下没有已构建的 `musikalisches-stage7-runtime`，才会回退到 Python runtime
 - 如果目标是长期无人值守直播，应保留 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`，并且不要设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS`
 - 如果设置了 runtime budget，达到上限后以受控方式退出属于预期行为，不代表隐藏错误
 

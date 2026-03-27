@@ -51,6 +51,8 @@ SOAK_PLAN_FILE = "stage7_soak_plan.json"
 SOAK_VALIDATION_REPORT_FILE = "stage7_soak_validation_report.json"
 CLASSIFIER_TOOL_PATH = Path(__file__).resolve().parent / "classify_stage7_bridge_failure.py"
 RUNTIME_TOOL_PATH = Path(__file__).resolve().parent / "run_stage7_stream_bridge_runtime.py"
+RUST_RUNTIME_BIN_NAME = "musikalisches-stage7-runtime"
+RUNTIME_BIN_ENV = "MUSIKALISCHES_STAGE7_RUNTIME_BIN"
 LOOP_MODE_SPECS = {
     "once": {
         "stream_loop": None,
@@ -813,28 +815,50 @@ def build_runtime_script(
     *,
     env_var: str,
     runtime_tool_path: Path,
+    runtime_bin_name: str,
+    runtime_bin_env: str,
 ) -> str:
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         "",
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"',
         f'LOOP_MODE="${{{LOOP_MODE_ENV}:-infinite}}"',
         f'MAX_RUNTIME_SECONDS="${{{MAX_RUNTIME_ENV}:-}}"',
+        f'RUST_RUNTIME_BIN="${{{runtime_bin_env}:-}}"',
         "",
         f'if [[ -z "${{{env_var}:-}}" ]]; then',
         f'  printf "%s\\n" "missing {env_var}: export {env_var}=..." >&2',
         "  exit 1",
         "fi",
         "",
+        'if [[ -z "${RUST_RUNTIME_BIN}" ]]; then',
+        f'  if [[ -x "${{REPO_ROOT}}/target/release/{runtime_bin_name}" ]]; then',
+        f'    RUST_RUNTIME_BIN="${{REPO_ROOT}}/target/release/{runtime_bin_name}"',
+        f'  elif [[ -x "${{REPO_ROOT}}/target/debug/{runtime_bin_name}" ]]; then',
+        f'    RUST_RUNTIME_BIN="${{REPO_ROOT}}/target/debug/{runtime_bin_name}"',
+        "  fi",
+        "fi",
+        "",
         f'PYTHON_BIN="${{PYTHON:-python3}}"',
         f'RUNNER={shlex.quote(str(runtime_tool_path))}',
-        'CMD=("${PYTHON_BIN}" "${RUNNER}"',
+        'if [[ -n "${RUST_RUNTIME_BIN}" ]]; then',
+        '  CMD=("${RUST_RUNTIME_BIN}"',
+        'else',
+        '  CMD=("${PYTHON_BIN}" "${RUNNER}"',
+        'fi',
         '  --artifact-dir "${SCRIPT_DIR}"',
         f'  --stream-url-env {env_var}',
         '  --loop-mode "${LOOP_MODE}"',
         '  --max-runtime-seconds "${MAX_RUNTIME_SECONDS:-0}"',
         ')',
+        "",
+        'if [[ -n "${RUST_RUNTIME_BIN}" ]]; then',
+        f'  printf "%s\\n" "stage7 wrapper runtime: rust ({runtime_bin_env}=${{RUST_RUNTIME_BIN}})" >&2',
+        'else',
+        '  printf "%s\\n" "stage7 wrapper runtime: python fallback" >&2',
+        'fi',
         "",
         'if [[ -n "${MAX_RUNTIME_SECONDS}" && "${MAX_RUNTIME_SECONDS}" != "0" ]]; then',
         '  printf "%s\\n" "stage7 wrapper note: MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS is an overall runtime budget; omit it for unattended LOOP_MODE=infinite." >&2',
@@ -1103,6 +1127,13 @@ def main() -> int:
         "redact_env_vars": [bridge_profile["ingest"]["stream_url_env"]],
         "classifier_tool_path": str(CLASSIFIER_TOOL_PATH),
         "runtime_tool_path": str(RUNTIME_TOOL_PATH),
+        "preferred_runtime": "rust",
+        "runtime_bin_env": RUNTIME_BIN_ENV,
+        "runtime_bin_name": RUST_RUNTIME_BIN_NAME,
+        "runtime_bin_paths": {
+            "release": str(REPO_ROOT / "target" / "release" / RUST_RUNTIME_BIN_NAME),
+            "debug": str(REPO_ROOT / "target" / "debug" / RUST_RUNTIME_BIN_NAME),
+        },
     }
     preflight = {
         "required_checks": soak_plan["preflight_policy"]["required_checks"],
@@ -1115,6 +1146,9 @@ def main() -> int:
     }
     runtime_executor = {
         "tool_path": str(RUNTIME_TOOL_PATH),
+        "preferred_runtime": "rust",
+        "runtime_bin_env": RUNTIME_BIN_ENV,
+        "runtime_bin_name": RUST_RUNTIME_BIN_NAME,
         "runtime_report_file": RUNTIME_REPORT_FILE,
         "attempt_log_pattern": ATTEMPT_LOG_PATTERN,
         "attempt_report_pattern": ATTEMPT_REPORT_PATTERN,
@@ -1160,6 +1194,8 @@ def main() -> int:
         build_runtime_script(
             env_var=bridge_profile["ingest"]["stream_url_env"],
             runtime_tool_path=RUNTIME_TOOL_PATH,
+            runtime_bin_name=RUST_RUNTIME_BIN_NAME,
+            runtime_bin_env=RUNTIME_BIN_ENV,
         ),
     )
     (output_dir / "run_stage7_stream_bridge.sh").chmod(0o755)

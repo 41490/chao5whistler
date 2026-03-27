@@ -409,6 +409,8 @@ ops/out/stream-bridge
 - 可通过 `make -C src/musikalisches stage7-ffmpeg-build` 与 `stage7-ffmpeg-check` 显式重建并验证 `rtmps` output 能力
 - 默认 stage7 bridge profile 固定为 `RTMPS` 语义；本地 preflight 自动回归只在临时 profile 中改用 `rtmp://127.0.0.1` 来覆盖失败分支
 - `run_stage7_stream_bridge.sh` 默认使用 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`
+- `run_stage7_stream_bridge.sh` 会优先调用 `target/release/musikalisches-stage7-runtime` 或 `target/debug/musikalisches-stage7-runtime`；只有在 Rust runtime 不存在时才回退到 Python wrapper
+- 可用 `MUSIKALISCHES_STAGE7_RUNTIME_BIN=/abs/path/to/musikalisches-stage7-runtime` 显式指定 live-host 上的 Rust runtime 二进制
 - 如需只跑单次有限输入，可设置 `MUSIKALISCHES_STAGE7_LOOP_MODE=once`
 - 如需做受控长时 bridge / soak 预演，可设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
 - `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS` 的语义是整体 wrapper runtime budget，不是长期无人值守模式参数

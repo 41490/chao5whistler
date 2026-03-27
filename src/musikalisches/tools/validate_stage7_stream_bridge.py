@@ -1086,6 +1086,8 @@ def main() -> int:
             and "missing " + profile.get("ingest", {}).get("stream_url_env", "") in run_script
             and args_payload.get("loop_control_env", "") in run_script
             and args_payload.get("max_runtime_env", "") in run_script
+            and runtime_observability.get("runtime_bin_env", "") in run_script
+            and runtime_observability.get("runtime_bin_name", "") in run_script
             and "check ${SCRIPT_DIR}/logs/stage7_bridge_preflight_report.json first" in run_script
             and "stage7_bridge_runtime_report.json" in run_script
             and "stage7_bridge_latest.stderr.log" in run_script,
@@ -1108,6 +1110,10 @@ def main() -> int:
             and runtime_observability.get("runtime_report_file")
             and runtime_observability.get("attempt_log_pattern")
             and runtime_observability.get("attempt_report_pattern")
+            and runtime_observability.get("preferred_runtime") == "rust"
+            and runtime_observability.get("runtime_bin_env")
+            and runtime_observability.get("runtime_bin_name")
+            and isinstance(runtime_observability.get("runtime_bin_paths"), dict)
             and log_dir.exists()
             and Path(runtime_observability.get("runtime_tool_path", "")).name in run_script,
             {
@@ -1139,6 +1145,9 @@ def main() -> int:
             and runtime_executor.get("attempt_log_pattern") == runtime_observability.get("attempt_log_pattern")
             and runtime_executor.get("attempt_report_pattern")
             == runtime_observability.get("attempt_report_pattern")
+            and runtime_executor.get("preferred_runtime") == runtime_observability.get("preferred_runtime")
+            and runtime_executor.get("runtime_bin_env") == runtime_observability.get("runtime_bin_env")
+            and runtime_executor.get("runtime_bin_name") == runtime_observability.get("runtime_bin_name")
             and runtime_executor.get("backoff_seconds")
             == soak_plan.get("reconnect_policy", {}).get("backoff_seconds")
             and runtime_executor.get("max_consecutive_retryable_failures")

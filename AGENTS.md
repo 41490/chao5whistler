@@ -1,6 +1,8 @@
 # Agent Workflow
 
 This repository uses `jj` (Jujutsu) for local version control in colocated mode.
+See [docs/jj-workflow.md](docs/jj-workflow.md) for the repo-specific workspace,
+bookmark, and cleanup lifecycle.
 
 ## Version Control Rules
 

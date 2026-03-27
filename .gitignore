@@ -1,3 +1,4 @@
+ops/cfg/secrets.toml
 # ops/bin/ 编译产物
 ops/bin/*
 ops/bin/**

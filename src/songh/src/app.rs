@@ -503,6 +503,7 @@ fn run_stream_bridge(args: RunStreamBridgeArgs) -> Result<()> {
         } else {
             None
         },
+        args.local_record,
     )?;
 
     println!("songh stage7 stream bridge runtime passed");

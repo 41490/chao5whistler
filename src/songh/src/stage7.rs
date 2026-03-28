@@ -4,7 +4,7 @@ use std::fs;
 use std::io::{ErrorKind, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -348,8 +348,12 @@ pub fn run_runtime(
     artifact_dir: &Path,
     loop_mode: &str,
     max_runtime_seconds: Option<u64>,
+    force_local_record: bool,
 ) -> Result<Stage7RuntimeReport> {
-    let manifest: StreamBridgeManifest = load_json(&artifact_dir.join(MANIFEST_FILE))?;
+    let mut manifest: StreamBridgeManifest = load_json(&artifact_dir.join(MANIFEST_FILE))?;
+    if force_local_record {
+        manifest.live_bridge.local_record_enabled = true;
+    }
     let taxonomy: FailureTaxonomy = load_json(&artifact_dir.join(FAILURE_TAXONOMY_FILE))?;
 
     let output_log_dir = artifact_dir.join(&manifest.runtime_observability.log_dir);
@@ -1237,6 +1241,44 @@ fn resolve_requested_runtime_seconds(
     }
 }
 
+/// RAII guard that kills the ffmpeg child process and removes named pipes on drop.
+/// Prevents orphan ffmpeg processes and stale pipes when early errors occur
+/// after ffmpeg has been spawned but before the normal cleanup path.
+#[cfg(unix)]
+struct LiveProcessGuard {
+    child: Option<Child>,
+    pipe_paths: Vec<PathBuf>,
+}
+
+#[cfg(unix)]
+impl LiveProcessGuard {
+    fn new(child: Child, pipe_paths: Vec<PathBuf>) -> Self {
+        Self {
+            child: Some(child),
+            pipe_paths,
+        }
+    }
+
+    /// Take ownership of the child for normal wait_with_output.
+    /// After this call, Drop will no longer kill the process.
+    fn take_child(&mut self) -> Child {
+        self.child.take().expect("child already taken")
+    }
+}
+
+#[cfg(unix)]
+impl Drop for LiveProcessGuard {
+    fn drop(&mut self) {
+        if let Some(ref mut child) = self.child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        for path in &self.pipe_paths {
+            fs::remove_file(path).ok();
+        }
+    }
+}
+
 fn run_live_generation_attempt(
     manifest: &StreamBridgeManifest,
     loop_mode: &str,
@@ -1284,6 +1326,12 @@ fn run_live_generation_attempt(
             .stderr(Stdio::piped())
             .spawn()
             .with_context(|| format!("spawn ffmpeg {}", manifest.ffmpeg_bin.display()))?;
+
+        // Guard ensures ffmpeg is killed and pipes are cleaned up on any early error.
+        let mut guard = LiveProcessGuard::new(
+            child,
+            vec![video_pipe_path.clone(), audio_pipe_path.clone()],
+        );
 
         let mut video_writer = open_live_pipe_writer(&video_pipe_path)
             .with_context(|| format!("open live video pipe {}", video_pipe_path.display()))?;
@@ -1348,11 +1396,13 @@ fn run_live_generation_attempt(
 
         drop(video_writer);
         drop(audio_writer);
+        // Take child out of guard so we can wait for it normally.
+        // Guard will still clean up pipes on drop.
+        let child = guard.take_child();
         let output = child
             .wait_with_output()
             .with_context(|| format!("wait ffmpeg {}", manifest.ffmpeg_bin.display()))?;
-        fs::remove_file(&video_pipe_path).ok();
-        fs::remove_file(&audio_pipe_path).ok();
+        drop(guard);
 
         let generation_error = generation_result.err().map(|e| format!("{e:#}"));
         let mut stderr_text = String::from_utf8_lossy(&output.stderr).into_owned();

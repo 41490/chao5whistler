@@ -156,6 +156,7 @@ pub struct RunStreamBridgeArgs {
     pub artifact_dir: PathBuf,
     pub loop_mode: String,
     pub max_runtime_secs: u64,
+    pub local_record: bool,
 }
 
 pub fn parse<I>(args: I) -> Result<CliCommand>
@@ -206,7 +207,7 @@ USAGE:
   songh render-video-sample [--config PATH] [--archive-root PATH] --output-dir PATH --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--motion-mode vertical|fixed_angle|random_angle] [--angle-deg N] [--dump-json]
   songh render-av-sample [--config PATH] [--archive-root PATH] --output-dir PATH --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--motion-mode vertical|fixed_angle|random_angle] [--angle-deg N] [--dump-json]
   songh build-stream-bridge [--config PATH] [--archive-root PATH] --output-dir PATH --day YYYY-MM-DD [--start-second N] [--duration-secs N] [--motion-mode vertical|fixed_angle|random_angle] [--angle-deg N] [--dump-json]
-  songh run-stream-bridge --artifact-dir PATH [--loop-mode once|infinite] [--max-runtime-secs N]
+  songh run-stream-bridge --artifact-dir PATH [--loop-mode once|infinite] [--max-runtime-secs N] [--local-record]
   songh help
 
 COMMANDS:
@@ -1092,6 +1093,7 @@ fn parse_run_stream_bridge(args: &[String]) -> Result<CliCommand> {
     let mut artifact_dir = None;
     let mut loop_mode = String::from("infinite");
     let mut max_runtime_secs = 0_u64;
+    let mut local_record = false;
     let mut index = 0;
 
     while index < args.len() {
@@ -1122,6 +1124,10 @@ fn parse_run_stream_bridge(args: &[String]) -> Result<CliCommand> {
                     .map_err(|_| anyhow!("--max-runtime-secs must be an unsigned integer"))?;
                 index += 2;
             }
+            "--local-record" => {
+                local_record = true;
+                index += 1;
+            }
             other => bail!("unknown run-stream-bridge flag: {other}"),
         }
     }
@@ -1130,6 +1136,7 @@ fn parse_run_stream_bridge(args: &[String]) -> Result<CliCommand> {
         artifact_dir: artifact_dir.ok_or_else(|| anyhow!("--artifact-dir is required"))?,
         loop_mode,
         max_runtime_secs,
+        local_record,
     }))
 }
 

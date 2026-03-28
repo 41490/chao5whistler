@@ -67,6 +67,117 @@ print(payload["status"])
 PY
 ```
 
+## 2a. 编码参数变更后：重新 prepare + 300s 推流验证
+
+当 `OutputEncodeConfig`（GOP / 码率 / 采样率等）或 ffmpeg 参数构建逻辑发生变更后，
+已冻结的 stage7 产物（`stream_bridge_ffmpeg_args.json` 等）不会自动更新。
+必须手动重新 prepare 并验证，否则推流仍使用旧参数。
+
+### 步骤 1：重新编译
+
+```bash
+cargo build --manifest-path src/songh/Cargo.toml
+```
+
+确认编译成功，无 error。
+
+### 步骤 2：重新 prepare stage7 工件
+
+```bash
+make -C src/songh stage7-build-fixture
+```
+
+或通过 systemd：
+
+```bash
+systemctl --user start songh-live-prepare.service
+journalctl --user -u songh-live-prepare.service -f
+```
+
+完成后检查冻结产物已刷新：
+
+```bash
+# 确认 validation 通过
+python3 -c "
+import json, pathlib
+r = json.loads(pathlib.Path('ops/out/songh-stage7-stream-bridge/stage7_bridge_validation_report.json').read_text())
+print('validation:', r['status'])
+assert r['status'] == 'passed', 'validation must be passed before streaming'
+"
+
+# 确认 ffmpeg args 包含新参数（如 -g 60）
+grep -o '\-g [0-9]*' ops/out/songh-stage7-stream-bridge/stream_bridge_ffmpeg_args.json
+# 预期输出：-g 60
+```
+
+### 步骤 3：确认 stream_url 配置
+
+检查私有配置中的 `stream_url`：
+
+```bash
+grep stream_url ~/.config/songh/songh-systemd.toml
+```
+
+YouTube RTMPS 正确格式为：
+
+```
+rtmps://a.rtmps.youtube.com/live2/<stream-key>
+```
+
+注意子域名是 `a.rtmps.youtube.com`（带 `s`），不是 `a.rtmp.youtube.com`。
+
+### 步骤 4：300s 推流验证
+
+```bash
+systemctl --user start songh-live-300s.service
+```
+
+同时打开两个窗口：
+
+**窗口 A — 观察 ffmpeg 日志：**
+
+```bash
+journalctl --user -u songh-live-300s.service -f
+```
+
+正常情况下 ffmpeg 无 stderr 输出（`-loglevel error`）。如果看到输出，说明有编码或连接问题。
+
+**窗口 B — 观察 YouTube：**
+
+1. 打开 YouTube Studio → 直播控制室
+2. 确认"直播状态"从"离线"变为"实时"
+3. 确认预览画面正常显示（约 10-30 秒延迟）
+4. 观察码率指示器稳定在 ~4000 kbps
+
+### 步骤 5：检查报告
+
+300 秒结束后（或手动 `systemctl --user stop songh-live-300s.service`），查看报告：
+
+```bash
+# preflight 报告 — 所有 check 应为 passed
+python3 -c "
+import json, pathlib
+r = json.loads(pathlib.Path('ops/out/songh-stage7-stream-bridge/logs/stage7_bridge_preflight_report.json').read_text())
+for c in r.get('checks', []):
+    print(f\"  {c['check_id']}: {c['status']}\")
+"
+
+# runtime 报告 — status 应为 completed 或 budget_exhausted
+python3 -c "
+import json, pathlib
+r = json.loads(pathlib.Path('ops/out/songh-stage7-stream-bridge/logs/stage7_bridge_runtime_report.json').read_text())
+print('status:', r['status'])
+print('attempts:', r.get('attempts_total', 0))
+print('seconds_generated:', r.get('seconds_generated', 0))
+"
+```
+
+验证通过标准：
+
+- preflight 所有 check 为 `passed`
+- runtime status 为 `completed` 或 `budget_exhausted`（300s 到期正常退出）
+- YouTube 侧确认收到并显示了画面
+
 ## 3. 不用手工 export 的 systemd 入口
 
 `songh` 已补 `systemd --user` 封装，operator 不再需要手工 `export SONGH_RTMP_URL`。

@@ -974,7 +974,7 @@ fn build_publish_probe_args(ffmpeg_bin: &Path, target_url: &str) -> Vec<String> 
         "-f".to_string(),
         "lavfi".to_string(),
         "-i".to_string(),
-        "anullsrc=r=48000:cl=stereo".to_string(),
+        "anullsrc=r=44100:cl=stereo".to_string(),
         "-t".to_string(),
         "1".to_string(),
         "-map".to_string(),
@@ -1080,44 +1080,17 @@ fn build_live_ffmpeg_args_with_limit(
         args.push("-t".to_string());
         args.push(seconds.to_string());
     }
-    args.push("-map".to_string());
-    args.push("0:v:0".to_string());
-    args.push("-map".to_string());
-    args.push("1:a:0".to_string());
-    args.push("-c:v".to_string());
-    args.push("libx264".to_string());
-    args.push("-preset".to_string());
-    args.push(
-        manifest
-            .live_runtime
-            .effective_config
-            .outputs
-            .encode
-            .video_preset
-            .clone(),
-    );
-    args.push("-pix_fmt".to_string());
-    args.push("yuv420p".to_string());
-    args.push("-c:a".to_string());
-    args.push("aac".to_string());
-    args.push("-b:a".to_string());
-    args.push(format!(
-        "{}k",
-        manifest
-            .live_runtime
-            .effective_config
-            .outputs
-            .encode
-            .audio_bitrate_kbps
-    ));
-    args.push("-f".to_string());
-    args.push("flv".to_string());
-    args.push(target_url.to_string());
-    if let Some(path) = local_record_path {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("create local record dir {}", parent.display()))?;
-        }
+    let encode = &manifest.live_runtime.effective_config.outputs.encode;
+    let fps = &manifest
+        .live_runtime
+        .effective_config
+        .video
+        .canvas
+        .fps
+        .to_string();
+
+    // Helper: push a complete output block (map + encode + GOP + bitrate + format)
+    let mut push_output_block = |args: &mut Vec<String>, output_target: String| {
         args.push("-map".to_string());
         args.push("0:v:0".to_string());
         args.push("-map".to_string());
@@ -1125,32 +1098,40 @@ fn build_live_ffmpeg_args_with_limit(
         args.push("-c:v".to_string());
         args.push("libx264".to_string());
         args.push("-preset".to_string());
-        args.push(
-            manifest
-                .live_runtime
-                .effective_config
-                .outputs
-                .encode
-                .video_preset
-                .clone(),
-        );
+        args.push(encode.video_preset.clone());
         args.push("-pix_fmt".to_string());
         args.push("yuv420p".to_string());
+        args.push("-r".to_string());
+        args.push(fps.clone());
+        args.push("-g".to_string());
+        args.push(encode.keyframe_interval_frames.to_string());
+        args.push("-keyint_min".to_string());
+        args.push(encode.keyframe_interval_frames.to_string());
+        args.push("-sc_threshold".to_string());
+        args.push("0".to_string());
+        args.push("-b:v".to_string());
+        args.push(format!("{}k", encode.video_bitrate_kbps));
+        args.push("-maxrate".to_string());
+        args.push(format!("{}k", encode.video_maxrate_kbps));
+        args.push("-bufsize".to_string());
+        args.push(format!("{}k", encode.video_bufsize_kbps));
         args.push("-c:a".to_string());
         args.push("aac".to_string());
         args.push("-b:a".to_string());
-        args.push(format!(
-            "{}k",
-            manifest
-                .live_runtime
-                .effective_config
-                .outputs
-                .encode
-                .audio_bitrate_kbps
-        ));
+        args.push(format!("{}k", encode.audio_bitrate_kbps));
         args.push("-f".to_string());
         args.push("flv".to_string());
-        args.push(path.display().to_string());
+        args.push(output_target);
+    };
+
+    push_output_block(&mut args, target_url.to_string());
+
+    if let Some(path) = local_record_path {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("create local record dir {}", parent.display()))?;
+        }
+        push_output_block(&mut args, path.display().to_string());
     }
     Ok(args)
 }
@@ -1605,7 +1586,7 @@ fn persist_preflight_failure(
 
 fn build_redacted_publish_probe_shell(ffmpeg_bin: &Path, stream_env_var: &str) -> String {
     format!(
-        "{} -hide_banner -nostats -loglevel error -f lavfi -i testsrc=size=16x16:rate=1 -f lavfi -i anullsrc=r=48000:cl=stereo -t 1 -map 0:v:0 -map 1:a:0 -c:v libx264 -preset ultrafast -g 1 -pix_fmt yuv420p -c:a aac -b:a 64k -f flv ${{{stream_env_var}}}",
+        "{} -hide_banner -nostats -loglevel error -f lavfi -i testsrc=size=16x16:rate=1 -f lavfi -i anullsrc=r=44100:cl=stereo -t 1 -map 0:v:0 -map 1:a:0 -c:v libx264 -preset ultrafast -g 1 -pix_fmt yuv420p -c:a aac -b:a 64k -f flv ${{{stream_env_var}}}",
         ffmpeg_bin.display()
     )
 }
@@ -1649,17 +1630,18 @@ fn build_redacted_live_shell(
         "# generator_mode={} loop_mode={loop_mode}",
         manifest.live_runtime.generator_mode
     ));
-    parts.push(format!(
-        "-map 0:v:0 -map 1:a:0 -c:v libx264 -preset {} -pix_fmt yuv420p -c:a aac -b:a {}k -f flv ${{SONGH_RTMP_URL}}",
-        manifest.live_runtime.effective_config.outputs.encode.video_preset,
-        manifest.live_runtime.effective_config.outputs.encode.audio_bitrate_kbps,
-    ));
+    let enc = &manifest.live_runtime.effective_config.outputs.encode;
+    let output_fps = manifest.live_runtime.effective_config.video.canvas.fps;
+    let output_block_template = format!(
+        "-map 0:v:0 -map 1:a:0 -c:v libx264 -preset {} -pix_fmt yuv420p -r {} -g {} -keyint_min {} -sc_threshold 0 -b:v {}k -maxrate {}k -bufsize {}k -c:a aac -b:a {}k -f flv",
+        enc.video_preset, output_fps,
+        enc.keyframe_interval_frames, enc.keyframe_interval_frames,
+        enc.video_bitrate_kbps, enc.video_maxrate_kbps, enc.video_bufsize_kbps,
+        enc.audio_bitrate_kbps,
+    );
+    parts.push(format!("{output_block_template} ${{SONGH_RTMP_URL}}"));
     if manifest.live_bridge.local_record_enabled {
-        parts.push(format!(
-            "-map 0:v:0 -map 1:a:0 -c:v libx264 -preset {} -pix_fmt yuv420p -c:a aac -b:a {}k -f flv <LOCAL_RECORD_PATH>",
-            manifest.live_runtime.effective_config.outputs.encode.video_preset,
-            manifest.live_runtime.effective_config.outputs.encode.audio_bitrate_kbps,
-        ));
+        parts.push(format!("{output_block_template} <LOCAL_RECORD_PATH>"));
     }
     parts.join(" ")
 }
@@ -1974,7 +1956,7 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
       "index": 1,
       "codec_type": "audio",
       "codec_name": "aac",
-      "sample_rate": "48000",
+      "sample_rate": "44100",
       "channels": 2,
       "duration": "8.000000"
     }

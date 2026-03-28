@@ -1034,9 +1034,9 @@ mod tests {
         let report =
             sample_day_pack(&config, day, Some(&archive_root), 750, 8).expect("sample audio");
 
-        assert_eq!(report.sample_rate, 48_000);
+        assert_eq!(report.sample_rate, 44_100);
         assert_eq!(report.channels, 2);
-        assert_eq!(report.total_frames, 384_000);
+        assert_eq!(report.total_frames, 352_800);
         assert_eq!(report.emitted_cue_count, 1);
         assert_eq!(report.cues[0].event_type, "CreateEvent");
         assert_eq!(report.cues[0].voice_gain_db, -2.0);
@@ -1094,7 +1094,7 @@ mod tests {
         let report = render_day_pack(&config, day, Some(&archive_root), &output_dir, 750, 8)
             .expect("render audio");
 
-        assert_eq!(report.rendered_frame_count, 384_000);
+        assert_eq!(report.rendered_frame_count, 352_800);
         assert_eq!(report.rendered_cue_count, 1);
         assert!(report.background.is_none());
         assert!(report.wav_path.exists());
@@ -1104,7 +1104,7 @@ mod tests {
         assert_eq!(report.limited_sample_count, 0);
         assert_eq!(
             report.wav_sha256,
-            "d05d4d67ef70b3e37c9f09110ee464991b9610fdaeb880f74fb01c09a41bee82"
+            "b042c88917dfdf6daaa1a26f0ea5f692e40000bd83e1b471ab2ae70ecffee261"
         );
     }
 
@@ -1169,14 +1169,14 @@ mod tests {
 
         let background = report.background.as_ref().expect("background summary");
         assert_eq!(background.source_wav_path, background_path);
-        assert_eq!(background.source_sample_rate, 48_000);
+        assert_eq!(background.source_sample_rate, 44_100);
         assert_eq!(background.source_channels, 2);
-        assert_eq!(background.source_frame_count, 48_000);
+        assert_eq!(background.source_frame_count, 44_100);
         assert_eq!(background.gain_db, -12.0);
         assert!(background.loop_enabled);
         assert_eq!(
             report.wav_sha256,
-            "8738909d91d8cf7d4798e5b421e3e465cdffc9b4387a9031705f56ab8945c496"
+            "148a21062d380d12d7f8cd9e185040d3d2dd21d8dbc97524f4cb7d078759e9c7"
         );
     }
 

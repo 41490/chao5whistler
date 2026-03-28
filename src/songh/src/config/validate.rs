@@ -103,8 +103,8 @@ pub fn validate(config: &Config) -> Result<Vec<String>> {
     }
     validate_template(&config.text.template, &mut errors);
 
-    if config.audio.sample_rate != 48_000 {
-        errors.push("audio.sample_rate is frozen to 48000".to_string());
+    if config.audio.sample_rate != 44_100 {
+        errors.push("audio.sample_rate is frozen to 44100".to_string());
     }
     if config.audio.channels != 2 {
         errors.push("audio.channels is frozen to 2".to_string());
@@ -213,6 +213,18 @@ pub fn validate(config: &Config) -> Result<Vec<String>> {
     }
     if config.outputs.encode.audio_bitrate_kbps != 128 {
         errors.push("outputs.encode.audio_bitrate_kbps must remain 128".to_string());
+    }
+    if config.outputs.encode.video_bitrate_kbps == 0 {
+        errors.push("outputs.encode.video_bitrate_kbps must be > 0".to_string());
+    }
+    if config.outputs.encode.video_maxrate_kbps == 0 {
+        errors.push("outputs.encode.video_maxrate_kbps must be > 0".to_string());
+    }
+    if config.outputs.encode.video_bufsize_kbps == 0 {
+        errors.push("outputs.encode.video_bufsize_kbps must be > 0".to_string());
+    }
+    if config.outputs.encode.keyframe_interval_frames == 0 {
+        errors.push("outputs.encode.keyframe_interval_frames must be > 0".to_string());
     }
 
     if !config.outputs.enable_rtmp && !config.outputs.enable_local_record {

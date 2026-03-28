@@ -438,6 +438,40 @@ pub fn run_runtime(
 
     let mut preflight_checks = Vec::new();
 
+    if let Err(error) = validate_target_host_policy(&target) {
+        preflight_checks.push(json!({
+            "check_id": "target_host_policy",
+            "status": "failed",
+            "details": {
+                "host": target.host,
+                "scheme": target.scheme,
+                "error": error.to_string(),
+            }
+        }));
+        persist_preflight_failure(
+            &preflight_report_path,
+            &preflight_log_path,
+            &runtime_report_path,
+            &latest_exit_report_path,
+            &latest_log_path,
+            loop_mode,
+            max_runtime_seconds,
+            "target_host_policy",
+            &error.to_string(),
+            &target,
+            &preflight_checks,
+        )?;
+        return Err(error);
+    }
+    preflight_checks.push(json!({
+        "check_id": "target_host_policy",
+        "status": "passed",
+        "details": {
+            "host": target.host,
+            "scheme": target.scheme,
+        }
+    }));
+
     let protocols_output =
         command_output_strings(&manifest.ffmpeg_bin, &[String::from("-protocols")])?;
     let protocols_combined = format!("{}\n{}", protocols_output.stdout, protocols_output.stderr);
@@ -642,25 +676,59 @@ pub fn run_runtime(
         let attempt_report_path = output_log_dir.join(format!(
             "stage7_bridge_attempt_{attempt_index:03}.exit_report.json"
         ));
-        let live_result = run_live_generation_attempt(
+        let live_result = match run_live_generation_attempt(
             &manifest,
             loop_mode,
             requested_runtime_seconds,
             &target_url,
             resolve_local_record_path(&manifest.live_bridge)?,
             artifact_dir,
-        )?;
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                let error_msg = format!("{error:#}");
+                let stderr = redact_text(&error_msg, &target_url);
+                fs::write(&attempt_log_path, stderr.as_bytes()).ok();
+                fs::copy(&attempt_log_path, &latest_log_path).ok();
+                let fail_payload = json!({
+                    "stage": "stage7_stream_bridge_runtime",
+                    "status": "attempt_spawn_failure",
+                    "exit_code": 1,
+                    "exit_class_id": "attempt_spawn_failure",
+                    "retryable": false,
+                    "matched_tokens": [],
+                    "log_file": attempt_log_path,
+                    "error": error_msg,
+                    "command_shell": build_redacted_live_shell(&manifest, loop_mode, requested_runtime_seconds),
+                });
+                write_json(&attempt_report_path, &fail_payload).ok();
+                write_json(&latest_exit_report_path, &fail_payload).ok();
+                return Err(error).with_context(|| format!(
+                    "attempt {attempt_index} failed (log written to {})",
+                    attempt_log_path.display()
+                ));
+            }
+        };
         let live_output = live_result.output;
         let stderr = redact_text(&live_output.stderr, &target_url);
         fs::write(&attempt_log_path, stderr.as_bytes())
             .with_context(|| format!("write attempt log {}", attempt_log_path.display()))?;
 
-        let mut classified = classify_failure(&stderr, live_output.exit_code, &taxonomy);
-        if live_output.exit_code == 0 && live_result.stopped_by_requested_limit {
+        let effective_exit_code = if live_result.generation_error.is_some() && live_output.exit_code == 0 {
+            1
+        } else {
+            live_output.exit_code
+        };
+        let mut classified = classify_failure(&stderr, effective_exit_code, &taxonomy);
+        if live_result.generation_error.is_some() && classified.class_id == "unknown_success" {
+            classified.class_id = "generation_error".to_string();
+            classified.retryable = false;
+        }
+        if effective_exit_code == 0 && live_result.stopped_by_requested_limit {
             classified.class_id = "runtime_limit_reached".to_string();
             classified.retryable = false;
         }
-        let attempt_status = if live_output.exit_code == 0 {
+        let attempt_status = if effective_exit_code == 0 {
             classified.class_id.clone()
         } else if classified.retryable {
             "retryable_failure".to_string()
@@ -670,19 +738,20 @@ pub fn run_runtime(
         let attempt_payload = json!({
             "stage": "stage7_stream_bridge_runtime",
             "status": attempt_status,
-            "exit_code": live_output.exit_code,
+            "exit_code": effective_exit_code,
             "exit_class_id": classified.class_id,
             "retryable": classified.retryable,
             "matched_tokens": classified.matched_tokens,
             "log_file": attempt_log_path,
             "seconds_generated": live_result.seconds_generated,
+            "generation_error": live_result.generation_error,
             "command_shell": build_redacted_live_shell(&manifest, loop_mode, requested_runtime_seconds),
         });
         write_json(&attempt_report_path, &attempt_payload)?;
         fs::copy(&attempt_log_path, &latest_log_path).ok();
         write_json(&latest_exit_report_path, &attempt_payload)?;
 
-        final_exit_code = live_output.exit_code;
+        final_exit_code = effective_exit_code;
         final_exit_class = attempt_payload["exit_class_id"]
             .as_str()
             .unwrap_or("unknown_failure")
@@ -703,7 +772,7 @@ pub fn run_runtime(
             exit_report_file: attempt_report_path.display().to_string(),
         });
 
-        if live_output.exit_code == 0 {
+        if effective_exit_code == 0 {
             break;
         }
         if !classified.retryable || attempt_index == manifest.runtime_executor.max_attempts {
@@ -824,6 +893,7 @@ fn build_manifest(
         preflight: PreflightContract {
             checks: vec![
                 "target_scheme".to_string(),
+                "target_host_policy".to_string(),
                 "protocol_support".to_string(),
                 "dns_resolution".to_string(),
                 "tcp_connectivity".to_string(),
@@ -1090,15 +1160,19 @@ fn build_live_ffmpeg_args_with_limit(
         .to_string();
 
     // Helper: push a complete output block (map + encode + GOP + bitrate + format)
-    let mut push_output_block = |args: &mut Vec<String>, output_target: String| {
+    let push_output_block = |args: &mut Vec<String>, output_target: String| {
         args.push("-map".to_string());
         args.push("0:v:0".to_string());
         args.push("-map".to_string());
         args.push("1:a:0".to_string());
+        args.push("-vf".to_string());
+        args.push("setsar=1".to_string());
         args.push("-c:v".to_string());
         args.push("libx264".to_string());
         args.push("-preset".to_string());
         args.push(encode.video_preset.clone());
+        args.push("-tune".to_string());
+        args.push("zerolatency".to_string());
         args.push("-pix_fmt".to_string());
         args.push("yuv420p".to_string());
         args.push("-r".to_string());
@@ -1141,6 +1215,7 @@ struct LiveAttemptResult {
     output: CommandOutput,
     seconds_generated: u64,
     stopped_by_requested_limit: bool,
+    generation_error: Option<String>,
 }
 
 fn resolve_requested_runtime_seconds(
@@ -1210,13 +1285,9 @@ fn run_live_generation_attempt(
             .spawn()
             .with_context(|| format!("spawn ffmpeg {}", manifest.ffmpeg_bin.display()))?;
 
-        let mut video_writer = fs::OpenOptions::new()
-            .write(true)
-            .open(&video_pipe_path)
+        let mut video_writer = open_live_pipe_writer(&video_pipe_path)
             .with_context(|| format!("open live video pipe {}", video_pipe_path.display()))?;
-        let mut audio_writer = fs::OpenOptions::new()
-            .write(true)
-            .open(&audio_pipe_path)
+        let mut audio_writer = open_live_pipe_writer(&audio_pipe_path)
             .with_context(|| format!("open live audio pipe {}", audio_pipe_path.display()))?;
 
         let mut engine = ReplayEngine::open(
@@ -1283,21 +1354,25 @@ fn run_live_generation_attempt(
         fs::remove_file(&video_pipe_path).ok();
         fs::remove_file(&audio_pipe_path).ok();
 
+        let generation_error = generation_result.err().map(|e| format!("{e:#}"));
+        let mut stderr_text = String::from_utf8_lossy(&output.stderr).into_owned();
+        if let Some(ref gen_err) = generation_error {
+            if !stderr_text.is_empty() {
+                stderr_text.push('\n');
+            }
+            stderr_text.push_str(&format!("[generation_error] {gen_err}"));
+        }
         let command_output = CommandOutput {
             exit_code: output.status.code().unwrap_or(1),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            stderr: stderr_text,
         };
-        if let Err(error) = generation_result {
-            if command_output.exit_code == 0 {
-                return Err(error);
-            }
-        }
 
         Ok(LiveAttemptResult {
             output: command_output,
             seconds_generated,
             stopped_by_requested_limit,
+            generation_error,
         })
     }
 }
@@ -1320,6 +1395,17 @@ fn recreate_named_pipe(path: &Path) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn open_live_pipe_writer(path: &Path) -> Result<fs::File> {
+    // Open the FIFO read-write so the producer does not deadlock waiting for
+    // ffmpeg to reach the matching input in its sequential startup path.
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .with_context(|| format!("open fifo read-write {}", path.display()))
 }
 
 fn align_to_next_second() {
@@ -1382,6 +1468,16 @@ fn sanitize_target(target_url: &str) -> Result<RuntimeTarget> {
         port,
         path_redacted: true,
     })
+}
+
+fn validate_target_host_policy(target: &RuntimeTarget) -> Result<()> {
+    if target.scheme == "rtmps" && target.host.eq_ignore_ascii_case("a.rtmp.youtube.com") {
+        bail!(
+            "invalid YouTube RTMPS host {}; use a.rtmps.youtube.com or the rtmpsIngestionAddress returned by YouTube",
+            target.host
+        );
+    }
+    Ok(())
 }
 
 fn resolve_dns(host: &str, port: u16) -> Result<Vec<String>> {
@@ -1633,7 +1729,7 @@ fn build_redacted_live_shell(
     let enc = &manifest.live_runtime.effective_config.outputs.encode;
     let output_fps = manifest.live_runtime.effective_config.video.canvas.fps;
     let output_block_template = format!(
-        "-map 0:v:0 -map 1:a:0 -c:v libx264 -preset {} -pix_fmt yuv420p -r {} -g {} -keyint_min {} -sc_threshold 0 -b:v {}k -maxrate {}k -bufsize {}k -c:a aac -b:a {}k -f flv",
+        "-map 0:v:0 -map 1:a:0 -vf setsar=1 -c:v libx264 -preset {} -tune zerolatency -pix_fmt yuv420p -r {} -g {} -keyint_min {} -sc_threshold 0 -b:v {}k -maxrate {}k -bufsize {}k -c:a aac -b:a {}k -f flv",
         enc.video_preset, output_fps,
         enc.keyframe_interval_frames, enc.keyframe_interval_frames,
         enc.video_bitrate_kbps, enc.video_maxrate_kbps, enc.video_bufsize_kbps,
@@ -1866,6 +1962,10 @@ mod tests {
     use super::*;
     use crate::archive;
     use crate::test_support;
+    #[cfg(unix)]
+    use std::io::Read;
+    #[cfg(unix)]
+    use std::sync::mpsc;
     use tempfile::tempdir;
 
     #[cfg(unix)]
@@ -2079,10 +2179,46 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
         assert!(args.iter().any(|arg| arg == "<AUDIO_PIPE>"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn live_pipe_writer_open_does_not_wait_for_reader() {
+        let temp = tempdir().expect("tempdir");
+        let pipe_path = temp.path().join("video.rgba.pipe");
+        recreate_named_pipe(&pipe_path).expect("mkfifo");
+
+        let (tx, rx) = mpsc::channel();
+        let open_path = pipe_path.clone();
+        std::thread::spawn(move || {
+            let result = open_live_pipe_writer(&open_path).map(|mut writer| {
+                writer.write_all(b"ping").expect("write fifo");
+                writer
+            });
+            tx.send(result).expect("send writer");
+        });
+
+        let mut writer = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("open should not block without reader")
+            .expect("open writer");
+
+        let read_path = pipe_path.clone();
+        let reader = std::thread::spawn(move || {
+            let mut reader = fs::OpenOptions::new()
+                .read(true)
+                .open(&read_path)
+                .expect("open reader");
+            let mut buf = [0_u8; 4];
+            reader.read_exact(&mut buf).expect("read fifo");
+            buf
+        });
+
+        writer.write_all(b"pong").expect("write second chunk");
+        assert_eq!(reader.join().expect("join reader"), *b"ping");
+    }
+
     #[test]
     fn sanitize_target_rtmps_no_port_defaults_to_443() {
-        let target =
-            sanitize_target("rtmps://a.rtmps.youtube.com/live2/xxxx-xxxx").expect("parse");
+        let target = sanitize_target("rtmps://a.rtmps.youtube.com/live2/xxxx-xxxx").expect("parse");
         assert_eq!(target.scheme, "rtmps");
         assert_eq!(target.host, "a.rtmps.youtube.com");
         assert_eq!(target.port, 443);
@@ -2090,8 +2226,7 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
 
     #[test]
     fn sanitize_target_rtmp_no_port_defaults_to_1935() {
-        let target =
-            sanitize_target("rtmp://live-push.bilivideo.com/live/xxxx").expect("parse");
+        let target = sanitize_target("rtmp://live-push.bilivideo.com/live/xxxx").expect("parse");
         assert_eq!(target.scheme, "rtmp");
         assert_eq!(target.host, "live-push.bilivideo.com");
         assert_eq!(target.port, 1935);
@@ -2099,8 +2234,7 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
 
     #[test]
     fn sanitize_target_explicit_port_not_overridden() {
-        let target =
-            sanitize_target("rtmps://ingest.example.com:8443/live/key").expect("parse");
+        let target = sanitize_target("rtmps://ingest.example.com:8443/live/key").expect("parse");
         assert_eq!(target.scheme, "rtmps");
         assert_eq!(target.port, 8443);
     }
@@ -2109,5 +2243,18 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
     fn sanitize_target_unknown_scheme_missing_port_errors() {
         let err = sanitize_target("custom://host.example.com/path").unwrap_err();
         assert!(err.to_string().contains("missing port"));
+    }
+
+    #[test]
+    fn validate_target_host_policy_rejects_youtube_rtmps_typo_host() {
+        let target = sanitize_target("rtmps://a.rtmp.youtube.com/live2/xxxx-xxxx").expect("parse");
+        let err = validate_target_host_policy(&target).unwrap_err();
+        assert!(err.to_string().contains("a.rtmps.youtube.com"));
+    }
+
+    #[test]
+    fn validate_target_host_policy_allows_correct_youtube_rtmps_host() {
+        let target = sanitize_target("rtmps://a.rtmps.youtube.com/live2/xxxx-xxxx").expect("parse");
+        validate_target_host_policy(&target).expect("allowed");
     }
 }

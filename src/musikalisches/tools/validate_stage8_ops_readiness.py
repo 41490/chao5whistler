@@ -404,7 +404,6 @@ def main() -> int:
             run_script_path.exists()
             and run_script_path.stat().st_mode & 0o111 != 0
             and Path(runtime_observability.get("runtime_tool_path", "")).exists()
-            and Path(runtime_observability.get("classifier_tool_path", "")).exists()
             and runtime_observability.get("preferred_runtime") == "rust"
             and runtime_observability.get("runtime_bin_env")
             and runtime_observability.get("runtime_bin_name")
@@ -415,7 +414,6 @@ def main() -> int:
             {
                 "run_script_path": str(run_script_path),
                 "runtime_tool_path": runtime_observability.get("runtime_tool_path"),
-                "classifier_tool_path": runtime_observability.get("classifier_tool_path"),
                 "sample_retention_tool_path": sample_retention.get("tool_path"),
                 "log_dir": str(log_dir),
                 "required_env_vars": stage8_ops.get("required_env_vars"),

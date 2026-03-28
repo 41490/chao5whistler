@@ -210,7 +210,13 @@ Python builder 负责把 stage5/stage6 产物冻结成直播桥接 contract：
 - 对 ffmpeg stderr 做 redaction
 - 归类 `handshake_failure / auth_failure / network_jitter / ...`
 
-它虽然不是独立 CLI 必经点，但被 runtime import，因此属于 live runtime 一部分。
+它曾经不是独立 CLI 必经点，但会被 Python fallback runtime import。
+
+现状更新：
+
+- Rust `musikalisches-stage7-runtime` 已内建对应 redaction / classification / report 逻辑
+- Python fallback runtime 也已内联同一套 helper，不再依赖这个脚本
+- 因此它现在更适合作为历史兼容 / 离线排障工具，而不是 live-host 必需依赖
 
 ### 3. `build_stage7_stream_bridge.py`
 

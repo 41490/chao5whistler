@@ -49,7 +49,6 @@ ATTEMPT_REPORT_PATTERN = "stage7_bridge_attempt_{attempt:03d}.exit_report.json"
 FAILURE_TAXONOMY_FILE = "stage7_failure_taxonomy.json"
 SOAK_PLAN_FILE = "stage7_soak_plan.json"
 SOAK_VALIDATION_REPORT_FILE = "stage7_soak_validation_report.json"
-CLASSIFIER_TOOL_PATH = Path(__file__).resolve().parent / "classify_stage7_bridge_failure.py"
 RUNTIME_TOOL_PATH = Path(__file__).resolve().parent / "run_stage7_stream_bridge_runtime.py"
 RUST_RUNTIME_BIN_NAME = "musikalisches-stage7-runtime"
 RUNTIME_BIN_ENV = "MUSIKALISCHES_STAGE7_RUNTIME_BIN"
@@ -1125,7 +1124,6 @@ def main() -> int:
         "attempt_log_pattern": ATTEMPT_LOG_PATTERN,
         "attempt_report_pattern": ATTEMPT_REPORT_PATTERN,
         "redact_env_vars": [bridge_profile["ingest"]["stream_url_env"]],
-        "classifier_tool_path": str(CLASSIFIER_TOOL_PATH),
         "runtime_tool_path": str(RUNTIME_TOOL_PATH),
         "preferred_runtime": "rust",
         "runtime_bin_env": RUNTIME_BIN_ENV,

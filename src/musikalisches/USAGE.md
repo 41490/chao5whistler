@@ -237,6 +237,7 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 
 - `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS` 表示整体 wrapper runtime budget
 - 默认入口会优先尝试 Rust runtime；若 repo 下没有已构建的 `musikalisches-stage7-runtime`，才会回退到 Python runtime
+- redaction / failure classification 已内建在 runtime 内；live-host 不再需要额外部署 `classify_stage7_bridge_failure.py`
 - 如果目标是长期无人值守直播，应保留 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`，并且不要设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS`
 - 如果设置了 runtime budget，达到上限后以受控方式退出属于预期行为，不代表隐藏错误
 

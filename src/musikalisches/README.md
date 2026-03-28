@@ -411,6 +411,7 @@ ops/out/stream-bridge
 - `run_stage7_stream_bridge.sh` 默认使用 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`
 - `run_stage7_stream_bridge.sh` 会优先调用 `target/release/musikalisches-stage7-runtime` 或 `target/debug/musikalisches-stage7-runtime`；只有在 Rust runtime 不存在时才回退到 Python wrapper
 - 可用 `MUSIKALISCHES_STAGE7_RUNTIME_BIN=/abs/path/to/musikalisches-stage7-runtime` 显式指定 live-host 上的 Rust runtime 二进制
+- 无论走 Rust runtime 还是 Python fallback，stage7 的 redaction / failure classification 都已内建在 runtime 内，不再要求 live-host 额外依赖 `classify_stage7_bridge_failure.py`
 - `make -C src/musikalisches stage7-preflight-regression-check` 现在也会优先复用同一套 Rust runtime 解析逻辑；若仓库里还没有已编译二进制，会先构建 `musikalisches-stage7-runtime`
 - 如需只跑单次有限输入，可设置 `MUSIKALISCHES_STAGE7_LOOP_MODE=once`
 - 如需做受控长时 bridge / soak 预演，可设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`

@@ -1,0 +1,100 @@
+[meta]
+profile = "default"
+
+[archive]
+source_dir = "../../ops/assets"
+daypack_dir = "var/ghsingo/daypack"
+target_date = "2026-03-28"
+
+[archive.download]
+enabled = false
+base_url = "https://data.gharchive.org"
+timeout_secs = 60
+max_parallel = 4
+user_agent = "ghsingo/0.1"
+
+[events]
+types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent", "ReleaseEvent"]
+max_per_second = 4
+dedupe_window_secs = 600
+
+[events.weights]
+PushEvent = 30
+CreateEvent = 40
+IssuesEvent = 50
+PullRequestEvent = 70
+ForkEvent = 80
+ReleaseEvent = 100
+
+[audio]
+sample_rate = 44100
+channels = 2
+master_gain_db = 0.0
+
+[audio.bgm]
+wav_path = "../../ops/assets/cosmos-leveloop-339.wav"
+gain_db = -9.0
+loop = true
+
+[audio.voices.PushEvent]
+wav_path = "../../ops/assets/sounds/dolphin_click.wav"
+gain_db = 0.0
+duration_ms = 500
+
+[audio.voices.CreateEvent]
+wav_path = "../../ops/assets/sounds/seal_bark.wav"
+gain_db = -2.0
+duration_ms = 700
+
+[audio.voices.IssuesEvent]
+wav_path = "../../ops/assets/sounds/humpback_moan.wav"
+gain_db = 1.0
+duration_ms = 900
+
+[audio.voices.PullRequestEvent]
+wav_path = "../../ops/assets/sounds/orca_call.wav"
+gain_db = 3.0
+duration_ms = 1000
+
+[audio.voices.ForkEvent]
+wav_path = "../../ops/assets/sounds/clownfish_pop.wav"
+gain_db = 2.0
+duration_ms = 800
+
+[audio.voices.ReleaseEvent]
+wav_path = "../../ops/assets/sounds/blue_whale_boom.wav"
+gain_db = 4.0
+duration_ms = 1400
+
+[video]
+width = 1280
+height = 720
+fps = 30
+font_path = "../../ops/assets/3270NerdFontMono-Condensed.ttf"
+font_size_min = 14
+font_size_max = 42
+
+[video.palette]
+background = "#002b36"
+text = "#fdf6e3"
+accent = "#b58900"
+
+[video.motion]
+speed_px_per_sec = 180.0
+spawn_y_min = 0.50
+spawn_y_max = 0.95
+
+[output]
+mode = "local"
+video_preset = "ultrafast"
+audio_bitrate_kbps = 128
+
+[output.local]
+path = "var/ghsingo/records/{date}.flv"
+
+[output.rtmps]
+url = ""
+
+[observe]
+log_level = "info"
+emit_stats_every_secs = 30

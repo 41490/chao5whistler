@@ -1,0 +1,11 @@
+[Unit]
+Description=ghsingo prepare - download and process GH Archive daypack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/src/ghsingo
+ExecStart=%h/src/ghsingo/bin/prepare --config %h/src/ghsingo/ghsingo.toml
+StandardOutput=journal
+StandardError=journal

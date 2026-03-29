@@ -1,0 +1,143 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+const validTOML = `
+[meta]
+profile = "test"
+
+[archive]
+source_dir = "/tmp/assets"
+daypack_dir = "/tmp/daypack"
+target_date = "2026-03-28"
+
+[archive.download]
+enabled = false
+base_url = "https://data.gharchive.org"
+timeout_secs = 60
+max_parallel = 4
+user_agent = "ghsingo/0.1"
+
+[events]
+types = ["PushEvent", "CreateEvent"]
+max_per_second = 4
+dedupe_window_secs = 600
+
+[events.weights]
+PushEvent = 30
+CreateEvent = 40
+
+[audio]
+sample_rate = 44100
+channels = 2
+master_gain_db = 0.0
+
+[audio.bgm]
+wav_path = "/tmp/bgm.wav"
+gain_db = -9.0
+loop = true
+
+[audio.voices.PushEvent]
+wav_path = "/tmp/push.wav"
+gain_db = 0.0
+duration_ms = 500
+
+[video]
+width = 1280
+height = 720
+fps = 30
+font_path = "/tmp/font.ttf"
+font_size_min = 14
+font_size_max = 42
+
+[video.palette]
+background = "#002b36"
+text = "#fdf6e3"
+accent = "#b58900"
+
+[video.motion]
+speed_px_per_sec = 180.0
+spawn_y_min = 0.50
+spawn_y_max = 0.95
+
+[output]
+mode = "local"
+video_preset = "ultrafast"
+audio_bitrate_kbps = 128
+
+[output.local]
+path = "/tmp/out.flv"
+
+[output.rtmps]
+url = ""
+
+[observe]
+log_level = "info"
+emit_stats_every_secs = 30
+`
+
+func TestLoadValidConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ghsingo.toml")
+	if err := os.WriteFile(path, []byte(validTOML), 0644); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if cfg.Meta.Profile != "test" {
+		t.Errorf("Meta.Profile = %q, want %q", cfg.Meta.Profile, "test")
+	}
+	if cfg.Archive.TargetDate != "2026-03-28" {
+		t.Errorf("Archive.TargetDate = %q, want %q", cfg.Archive.TargetDate, "2026-03-28")
+	}
+	if cfg.Audio.SampleRate != 44100 {
+		t.Errorf("Audio.SampleRate = %d, want 44100", cfg.Audio.SampleRate)
+	}
+	if cfg.Video.Width != 1280 {
+		t.Errorf("Video.Width = %d, want 1280", cfg.Video.Width)
+	}
+	if cfg.Video.FPS != 30 {
+		t.Errorf("Video.FPS = %d, want 30", cfg.Video.FPS)
+	}
+	if cfg.Output.Mode != "local" {
+		t.Errorf("Output.Mode = %q, want %q", cfg.Output.Mode, "local")
+	}
+	if len(cfg.Events.Types) != 2 {
+		t.Errorf("Events.Types length = %d, want 2", len(cfg.Events.Types))
+	}
+	if w, ok := cfg.Events.Weights["PushEvent"]; !ok || w != 30 {
+		t.Errorf("Events.Weights[PushEvent] = %d, want 30", w)
+	}
+	if v, ok := cfg.Audio.Voices["PushEvent"]; !ok || v.DurationMs != 500 {
+		t.Errorf("Audio.Voices[PushEvent].DurationMs = %d, want 500", v.DurationMs)
+	}
+	if cfg.Audio.BGM.Loop != true {
+		t.Error("Audio.BGM.Loop = false, want true")
+	}
+}
+
+func TestLoadInvalidMode(t *testing.T) {
+	invalid := strings.Replace(validTOML, `mode = "local"`, `mode = "INVALID"`, 1)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.toml")
+	if err := os.WriteFile(path, []byte(invalid), 0644); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid mode, got nil")
+	}
+	if !strings.Contains(err.Error(), "INVALID") {
+		t.Errorf("error %q should mention INVALID mode", err.Error())
+	}
+}

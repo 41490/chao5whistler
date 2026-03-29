@@ -179,6 +179,8 @@ print('seconds_generated:', r.get('seconds_generated', 0))
 - YouTube 侧确认收到并显示了画面
 
 ## 3. 不用手工 export 的 systemd 入口
+export SONGH_RTMP_URL="rtmps://a.rtmps.youtube.com/live2/6abc-9fh0-cctj-6t5e-14fc"
+
 
 `songh` 已补 `systemd --user` 封装，operator 不再需要手工 `export SONGH_RTMP_URL`。
 

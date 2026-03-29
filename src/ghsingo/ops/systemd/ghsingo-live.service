@@ -1,0 +1,16 @@
+[Unit]
+Description=ghsingo live - GH Archive sonification livestream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/src/ghsingo
+ExecStart=%h/src/ghsingo/bin/live --config %h/src/ghsingo/ghsingo.toml
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

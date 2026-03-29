@@ -1,4 +1,6 @@
 ops/cfg/secrets.toml
+ops/assets/*
+ops/assets/**
 # ops/bin/ 编译产物
 ops/bin/*
 ops/bin/**
@@ -104,3 +106,4 @@ coverage.out
 # Common Rust engineering directories
 target/
 **/target/
+var/

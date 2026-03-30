@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -89,6 +91,7 @@ type VideoMotion struct {
 type Output struct {
 	Mode             string      `toml:"mode"`
 	VideoPreset      string      `toml:"video_preset"`
+	VideoBitrateKbps int         `toml:"video_bitrate_kbps"`
 	AudioBitrateKbps int         `toml:"audio_bitrate_kbps"`
 	Local            OutputLocal `toml:"local"`
 	RTMPS            OutputRTMPS `toml:"rtmps"`
@@ -125,10 +128,40 @@ func Load(path string) (*Config, error) {
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+
+	// Apply .local.toml overlay if it exists alongside the base config.
+	localPath := localOverlayPath(path)
+	if localData, err := os.ReadFile(localPath); err == nil {
+		if err := toml.Unmarshal(localData, &cfg); err != nil {
+			return nil, fmt.Errorf("parse local overlay %s: %w", localPath, err)
+		}
+	}
+
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// localOverlayPath derives the .local.toml path from a base config path.
+// e.g. "ghsingo.toml" -> "ghsingo.local.toml"
+func localOverlayPath(basePath string) string {
+	ext := filepath.Ext(basePath)
+	return basePath[:len(basePath)-len(ext)] + ".local" + ext
+}
+
+// ResolveTargetDate converts symbolic date names ("yesterday", "today") to
+// concrete YYYY-MM-DD strings. Literal dates pass through unchanged.
+func ResolveTargetDate(s string) string {
+	now := time.Now()
+	switch s {
+	case "yesterday":
+		return now.AddDate(0, 0, -1).Format("2006-01-02")
+	case "today":
+		return now.Format("2006-01-02")
+	default:
+		return s
+	}
 }
 
 func (c *Config) validate() error {

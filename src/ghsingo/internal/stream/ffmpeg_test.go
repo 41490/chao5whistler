@@ -61,6 +61,44 @@ func TestBuildRTMPSArgs(t *testing.T) {
 	assertContains(t, args, "-f", "flv")
 }
 
+func TestBuildArgsVideoBitrate(t *testing.T) {
+	opts := Options{
+		Width:            1280,
+		Height:           720,
+		FPS:              30,
+		VideoPreset:      "ultrafast",
+		VideoBitrateKbps: 2500,
+		AudioBitrateKbps: 128,
+		SampleRate:       44100,
+		Mode:             "local",
+		OutputPath:       "/tmp/test.flv",
+	}
+
+	args := BuildArgs(opts)
+	assertContains(t, args, "-b:v", "2500k")
+}
+
+func TestBuildArgsNoVideoBitrateWhenZero(t *testing.T) {
+	opts := Options{
+		Width:            1280,
+		Height:           720,
+		FPS:              30,
+		VideoPreset:      "ultrafast",
+		VideoBitrateKbps: 0,
+		AudioBitrateKbps: 128,
+		SampleRate:       44100,
+		Mode:             "local",
+		OutputPath:       "/tmp/test.flv",
+	}
+
+	args := BuildArgs(opts)
+	for _, a := range args {
+		if a == "-b:v" {
+			t.Error("args should not contain -b:v when VideoBitrateKbps is 0")
+		}
+	}
+}
+
 func TestFFmpegExists(t *testing.T) {
 	path, err := exec.LookPath("ffmpeg")
 	if err != nil {

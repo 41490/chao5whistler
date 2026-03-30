@@ -25,11 +25,7 @@ func main() {
 
 	slog.Info("prepare starting", "profile", cfg.Meta.Profile, "target_date", cfg.Archive.TargetDate)
 
-	targetDate := cfg.Archive.TargetDate
-	if targetDate == "yesterday" {
-		slog.Error("target_date=yesterday not yet implemented, use explicit date like 2026-03-28")
-		os.Exit(1)
-	}
+	targetDate := config.ResolveTargetDate(cfg.Archive.TargetDate)
 
 	allowedTypes := make(map[string]bool)
 	for _, t := range cfg.Events.Types {

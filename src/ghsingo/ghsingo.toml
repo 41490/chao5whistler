@@ -87,6 +87,7 @@ spawn_y_max = 0.95
 [output]
 mode = "local"
 video_preset = "ultrafast"
+video_bitrate_kbps = 2500
 audio_bitrate_kbps = 128
 
 [output.local]

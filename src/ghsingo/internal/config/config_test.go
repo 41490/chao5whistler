@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const validTOML = `
@@ -122,6 +123,85 @@ func TestLoadValidConfig(t *testing.T) {
 	}
 	if cfg.Audio.BGM.Loop != true {
 		t.Error("Audio.BGM.Loop = false, want true")
+	}
+}
+
+func TestLoadLocalOverlay(t *testing.T) {
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "ghsingo.toml")
+	if err := os.WriteFile(basePath, []byte(validTOML), 0644); err != nil {
+		t.Fatalf("write base config: %v", err)
+	}
+
+	// Create .local.toml that overrides output mode to rtmps
+	localTOML := `
+[output]
+mode = "rtmps"
+
+[output.rtmps]
+url = "rtmps://a.rtmps.youtube.com/live2/test-key"
+`
+	localPath := filepath.Join(dir, "ghsingo.local.toml")
+	if err := os.WriteFile(localPath, []byte(localTOML), 0644); err != nil {
+		t.Fatalf("write local config: %v", err)
+	}
+
+	cfg, err := Load(basePath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	// Overlay should override mode
+	if cfg.Output.Mode != "rtmps" {
+		t.Errorf("Output.Mode = %q, want %q (overlay should override)", cfg.Output.Mode, "rtmps")
+	}
+	if cfg.Output.RTMPS.URL != "rtmps://a.rtmps.youtube.com/live2/test-key" {
+		t.Errorf("Output.RTMPS.URL = %q, want rtmps URL from overlay", cfg.Output.RTMPS.URL)
+	}
+
+	// Base values should be preserved
+	if cfg.Meta.Profile != "test" {
+		t.Errorf("Meta.Profile = %q, want %q (base should be preserved)", cfg.Meta.Profile, "test")
+	}
+	if cfg.Audio.SampleRate != 44100 {
+		t.Errorf("Audio.SampleRate = %d, want 44100 (base should be preserved)", cfg.Audio.SampleRate)
+	}
+}
+
+func TestLoadNoLocalOverlay(t *testing.T) {
+	// When no .local.toml exists, Load should work as before
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "ghsingo.toml")
+	if err := os.WriteFile(basePath, []byte(validTOML), 0644); err != nil {
+		t.Fatalf("write base config: %v", err)
+	}
+
+	cfg, err := Load(basePath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Output.Mode != "local" {
+		t.Errorf("Output.Mode = %q, want %q", cfg.Output.Mode, "local")
+	}
+}
+
+func TestResolveTargetDate(t *testing.T) {
+	today := time.Now().Format("2006-01-02")
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"yesterday", yesterday},
+		{"today", today},
+		{"2026-03-28", "2026-03-28"},
+	}
+	for _, tt := range tests {
+		got := ResolveTargetDate(tt.input)
+		if got != tt.want {
+			t.Errorf("ResolveTargetDate(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
 

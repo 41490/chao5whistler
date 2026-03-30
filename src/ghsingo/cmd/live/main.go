@@ -106,6 +106,7 @@ func main() {
 		Height:           cfg.Video.Height,
 		FPS:              cfg.Video.FPS,
 		VideoPreset:      cfg.Output.VideoPreset,
+		VideoBitrateKbps: cfg.Output.VideoBitrateKbps,
 		AudioBitrateKbps: cfg.Output.AudioBitrateKbps,
 		SampleRate:       cfg.Audio.SampleRate,
 		Mode:             cfg.Output.Mode,

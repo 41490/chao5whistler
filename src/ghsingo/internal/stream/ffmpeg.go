@@ -14,6 +14,7 @@ type Options struct {
 	Height           int
 	FPS              int
 	VideoPreset      string
+	VideoBitrateKbps int // 0 = CRF mode (FFmpeg default)
 	AudioBitrateKbps int
 	SampleRate       int
 	Mode             string // "local" or "rtmps"
@@ -48,13 +49,18 @@ func BuildArgs(opts Options) []string {
 		"-tune", "zerolatency",
 		"-pix_fmt", "yuv420p",
 		"-g", fmt.Sprintf("%d", opts.FPS*2),
+	}
+	if opts.VideoBitrateKbps > 0 {
+		args = append(args, "-b:v", fmt.Sprintf("%dk", opts.VideoBitrateKbps))
+	}
+	args = append(args,
 		// Audio encode
 		"-c:a", "aac",
 		"-b:a", fmt.Sprintf("%dk", opts.AudioBitrateKbps),
 		// General
 		"-shortest",
 		"-y",
-	}
+	)
 
 	switch opts.Mode {
 	case "rtmps":

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
+	"sort"
 )
 
 // Mixer mixes a looping BGM track with one-shot voice events into stereo
@@ -19,6 +21,10 @@ type Mixer struct {
 	bgmPos          int
 	voices          map[uint8]voiceBank // type_id -> WAV samples + gain
 	active          []activeVoice       // currently playing instances
+
+	// per-second scheduling: events queued with a sample-offset within the second
+	secondPos  int             // sample counter within current second (0 .. sampleRate-1)
+	pendingEvs []pendingVoice  // sorted by triggerAt
 }
 
 type voiceBank struct {
@@ -26,10 +32,21 @@ type voiceBank struct {
 	gain float32
 }
 
+// activeVoice is a playing instance of a voice sample.
+// age counts completed seconds since the event was scheduled (0 = current second).
 type activeVoice struct {
 	typeID uint8
 	weight uint8
 	offset int
+	age    int // doppler factor: gain *= 1/(1+age)
+}
+
+// pendingVoice is a scheduled-but-not-yet-triggered event.
+type pendingVoice struct {
+	typeID    uint8
+	weight    uint8
+	triggerAt int // sample offset within the current second at which to fire
+	age       int
 }
 
 // NewMixer creates a Mixer for the given sample rate and frame rate.
@@ -54,7 +71,7 @@ func (m *Mixer) RegisterVoice(typeID uint8, pcm []float32, gain float32) {
 	m.voices[typeID] = voiceBank{pcm: pcm, gain: gain}
 }
 
-// TriggerEvent starts playback of a registered voice.
+// TriggerEvent starts playback of a registered voice immediately.
 func (m *Mixer) TriggerEvent(typeID uint8, weight uint8) {
 	if _, ok := m.voices[typeID]; !ok {
 		return
@@ -63,14 +80,53 @@ func (m *Mixer) TriggerEvent(typeID uint8, weight uint8) {
 		typeID: typeID,
 		weight: weight,
 		offset: 0,
+		age:    0,
+	})
+}
+
+// ScheduleSecond queues this second's events for staggered playback.
+// Events fire within the first 500 ms of the second at random offsets,
+// weighted so heavier events trigger slightly earlier.
+// Call this once per second (before rendering frames for that second).
+func (m *Mixer) ScheduleSecond(events []struct{ TypeID, Weight uint8 }) {
+	// Age all still-active voices from previous seconds.
+	for i := range m.active {
+		m.active[i].age++
+	}
+	// Reset per-second position.
+	m.secondPos = 0
+	m.pendingEvs = m.pendingEvs[:0]
+
+	halfSec := m.sampleRate / 2 // 22050 samples = 500 ms
+
+	for _, ev := range events {
+		if _, ok := m.voices[ev.TypeID]; !ok {
+			continue
+		}
+		// Higher weight → earlier in the window (more "important" = closer).
+		// weight 255 → offset near 0; weight 0 → offset near 500 ms.
+		maxOff := halfSec - halfSec*int(ev.Weight)/255
+		var off int
+		if maxOff > 0 {
+			off = rand.Intn(maxOff + 1)
+		}
+		m.pendingEvs = append(m.pendingEvs, pendingVoice{
+			typeID:    ev.TypeID,
+			weight:    ev.Weight,
+			triggerAt: off,
+			age:       0,
+		})
+	}
+	sort.Slice(m.pendingEvs, func(i, j int) bool {
+		return m.pendingEvs[i].triggerAt < m.pendingEvs[j].triggerAt
 	})
 }
 
 // RenderFrame renders one frame of stereo interleaved PCM float32.
 // Returns a slice of length samplesPerFrame*2 (L, R, L, R, ...).
-// events can be nil.
+// events can be nil (legacy immediate-trigger path, still supported).
 func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
-	// Process incoming events.
+	// Legacy: immediate trigger path.
 	for _, ev := range events {
 		m.TriggerEvent(ev.TypeID, ev.Weight)
 	}
@@ -80,15 +136,42 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 
 	// 1. BGM (mono → stereo duplicate).
 	if len(m.bgmPCM) > 0 {
+		// Sidechain ducking: more active voices → quieter BGM (up to -50%).
+		activeCount := float32(len(m.active))
+		duckFactor := float32(1.0) - clamp01(activeCount/4.0)*0.5
+		effectiveBGMGain := m.bgmGain * duckFactor
+
 		for i := 0; i < n; i++ {
-			s := m.bgmPCM[m.bgmPos%len(m.bgmPCM)] * m.bgmGain
+			s := m.bgmPCM[m.bgmPos%len(m.bgmPCM)] * effectiveBGMGain
 			out[i*2] += s   // L
 			out[i*2+1] += s // R
 			m.bgmPos++
 		}
 	}
 
-	// 2. Active voices.
+	// 2. Fire pending scheduled events whose triggerAt falls within this frame.
+	frameEnd := m.secondPos + n
+	remaining := m.pendingEvs[:0]
+	for _, pv := range m.pendingEvs {
+		if pv.triggerAt < frameEnd {
+			// Compute offset within this frame.
+			frameOff := pv.triggerAt - m.secondPos
+			if frameOff < 0 {
+				frameOff = 0
+			}
+			m.active = append(m.active, activeVoice{
+				typeID: pv.typeID,
+				weight: pv.weight,
+				offset: -frameOff, // negative offset = start mid-frame
+				age:    pv.age,
+			})
+		} else {
+			remaining = append(remaining, pv)
+		}
+	}
+	m.pendingEvs = remaining
+
+	// 3. Active voices — stereo panning + doppler gain decay.
 	for idx := range m.active {
 		v := &m.active[idx]
 		bank, ok := m.voices[v.typeID]
@@ -96,18 +179,34 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 			continue
 		}
 		wf := float32(v.weight) / 255.0
+		// Doppler distance: each aged second halves the volume.
+		ageFactor := float32(1.0) / float32(1+v.age)
+		finalGain := bank.gain * wf * ageFactor
+
+		// Stereo pan per event type.
+		pan := voicePan(v.typeID) // 0.0=left, 0.5=center, 1.0=right
+		gainL := finalGain * (1.0 - pan)
+		gainR := finalGain * pan
+
 		for i := 0; i < n; i++ {
-			if v.offset >= len(bank.pcm) {
+			pcmIdx := v.offset + i
+			if pcmIdx < 0 {
+				continue
+			}
+			if pcmIdx >= len(bank.pcm) {
 				break
 			}
-			s := bank.pcm[v.offset] * bank.gain * wf
-			out[i*2] += s
-			out[i*2+1] += s
-			v.offset++
+			s := bank.pcm[pcmIdx]
+			out[i*2] += s * gainL
+			out[i*2+1] += s * gainR
 		}
+		v.offset += n
 	}
 
-	// 3. Remove finished voices.
+	// 4. Advance per-second position.
+	m.secondPos += n
+
+	// 5. Remove finished voices.
 	alive := m.active[:0]
 	for _, v := range m.active {
 		bank, ok := m.voices[v.typeID]
@@ -117,16 +216,46 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 	}
 	m.active = alive
 
-	// 4. Clamp to [-1.0, 1.0].
+	// 6. Soft clipping (tanh) instead of hard clip to avoid harsh distortion.
 	for i := range out {
-		if out[i] > 1.0 {
-			out[i] = 1.0
-		} else if out[i] < -1.0 {
-			out[i] = -1.0
-		}
+		out[i] = softClip(out[i])
 	}
 
 	return out
+}
+
+// voicePan returns the stereo pan position for an event type.
+// 0.0 = full left, 0.5 = center, 1.0 = full right.
+func voicePan(typeID uint8) float32 {
+	// PushEvent=0, CreateEvent=1, IssuesEvent=2,
+	// PullRequestEvent=3, ForkEvent=4, ReleaseEvent=5
+	pans := [6]float32{0.30, 0.70, 0.40, 0.60, 0.20, 0.80}
+	if int(typeID) < len(pans) {
+		return pans[typeID]
+	}
+	return 0.5
+}
+
+// softClip applies a tanh-based soft limiter: keeps the signal below ±1.0
+// with a gentler transition than hard clipping.
+func softClip(x float32) float32 {
+	if x > 1.5 {
+		return 1.0
+	}
+	if x < -1.5 {
+		return -1.0
+	}
+	return float32(math.Tanh(float64(x)))
+}
+
+func clamp01(x float32) float32 {
+	if x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
 }
 
 // ---------------------------------------------------------------------------

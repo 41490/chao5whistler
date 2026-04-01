@@ -165,11 +165,16 @@ func main() {
 			}
 
 		case <-frameTicker.C:
-			// If this is the first frame of a new second, trigger audio events.
+			// If this is the first frame of a new second, schedule audio events
+			// spread across the first 500 ms (ScheduleSecond handles staggering
+			// and ages any voices still playing from the previous second).
 			if currentTick.Second != lastSecond {
-				for _, ev := range currentTick.Events {
-					mixer.TriggerEvent(ev.TypeID, ev.Weight)
+				evs := make([]struct{ TypeID, Weight uint8 }, len(currentTick.Events))
+				for i, ev := range currentTick.Events {
+					evs[i].TypeID = ev.TypeID
+					evs[i].Weight = ev.Weight
 				}
+				mixer.ScheduleSecond(evs)
 				lastSecond = currentTick.Second
 			}
 

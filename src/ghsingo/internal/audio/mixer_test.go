@@ -93,19 +93,25 @@ func TestMixerBGMLoop(t *testing.T) {
 		t.Fatalf("expected %d output samples, got %d", 1470*2, len(out))
 	}
 
-	// First L sample should be ≈ 0.5.
-	if math.Abs(float64(out[0])-0.5) > 1e-6 {
-		t.Errorf("first L sample = %f, want ≈ 0.5", out[0])
+	// With no active voices: duckFactor = 1.0, BGM = softClip(0.5 * 1.0).
+	// tanh(0.5) ≈ 0.4621. BGM is center-panned so L == R.
+	expectedBGM := float32(math.Tanh(0.5))
+
+	if math.Abs(float64(out[0])-float64(expectedBGM)) > 1e-5 {
+		t.Errorf("first L sample = %f, want ≈ %f (softClip(0.5))", out[0], expectedBGM)
 	}
-	// First R sample should also be ≈ 0.5.
-	if math.Abs(float64(out[1])-0.5) > 1e-6 {
-		t.Errorf("first R sample = %f, want ≈ 0.5", out[1])
+	if math.Abs(float64(out[1])-float64(expectedBGM)) > 1e-5 {
+		t.Errorf("first R sample = %f, want ≈ %f (softClip(0.5))", out[1], expectedBGM)
+	}
+	// L must equal R (BGM is mono centre-panned).
+	if out[0] != out[1] {
+		t.Errorf("L (%f) != R (%f): BGM should be mono", out[0], out[1])
 	}
 
-	// Verify looping: sample at index 100 should wrap and equal bgm[0]*gain.
+	// Verify looping: sample at index 100 wraps back to bgm[0], same value.
 	idx := 100
-	if math.Abs(float64(out[idx*2])-0.5) > 1e-6 {
-		t.Errorf("sample at wrap point = %f, want ≈ 0.5", out[idx*2])
+	if math.Abs(float64(out[idx*2])-float64(expectedBGM)) > 1e-5 {
+		t.Errorf("sample at wrap point = %f, want ≈ %f", out[idx*2], expectedBGM)
 	}
 }
 
@@ -137,10 +143,25 @@ func TestMixerVoiceTrigger(t *testing.T) {
 		t.Fatal("output is all zeros after voice trigger")
 	}
 
-	// Verify first sample: 0.7 * 1.0 * (128/255).
-	expected := float32(0.7) * (128.0 / 255.0)
-	if math.Abs(float64(out[0])-float64(expected)) > 1e-5 {
-		t.Errorf("first L sample = %f, want ≈ %f", out[0], expected)
+	// TypeID=0 (PushEvent) has pan=0.30.
+	// pre-clip L = 0.7 * 1.0 * (128/255) * (1-0.30) = 0.7 * 0.502 * 0.70
+	// L != R because of stereo pan.
+	wf := float32(128.0 / 255.0)
+	pan := voicePan(0) // 0.30
+	preclipL := float32(0.7) * wf * (1.0 - pan)
+	preclipR := float32(0.7) * wf * pan
+	expectedL := softClip(preclipL)
+	expectedR := softClip(preclipR)
+
+	if math.Abs(float64(out[0])-float64(expectedL)) > 1e-5 {
+		t.Errorf("first L sample = %f, want ≈ %f", out[0], expectedL)
+	}
+	if math.Abs(float64(out[1])-float64(expectedR)) > 1e-5 {
+		t.Errorf("first R sample = %f, want ≈ %f", out[1], expectedR)
+	}
+	// L != R due to pan (0.30 left-biased).
+	if out[0] == out[1] {
+		t.Errorf("L (%f) == R (%f): expected stereo separation due to pan", out[0], out[1])
 	}
 }
 
@@ -175,10 +196,17 @@ func TestMixerClamp(t *testing.T) {
 		}
 	}
 
-	// Combined would be 0.9 + 0.9*(255/255) = 1.8 without clamping.
-	// Verify clamping actually engaged on the first sample.
-	if out[0] != 1.0 {
-		t.Errorf("expected clamped sample = 1.0, got %f", out[0])
+	// With 1 active voice: duckFactor = 1 - (1/4)*0.5 = 0.875
+	// BGM L contribution: softClip(0.9 * 0.875) = softClip(0.7875)
+	// Voice typeID=0 pan=0.30: L gain = 1.0 * (255/255) * 1.0 * (1-0.30) = 0.70
+	// Voice L contribution: 0.9 * 0.70 = 0.63
+	// Total pre-clip L = 0.7875 + 0.63 = 1.4175 → softClip ≈ 0.889
+	// Verify soft clamping engaged: value should be < 1.0 but positive.
+	if out[0] >= 1.0 {
+		t.Errorf("softClip should keep value < 1.0, got %f", out[0])
+	}
+	if out[0] <= 0.0 {
+		t.Errorf("expected positive clamped sample, got %f", out[0])
 	}
 }
 

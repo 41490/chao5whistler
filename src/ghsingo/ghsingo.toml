@@ -33,38 +33,40 @@ master_gain_db = 0.0
 
 [audio.bgm]
 wav_path = "../../ops/assets/cosmos-leveloop-339.wav"
-gain_db = -9.0
+gain_db = -6.0
 loop = true
 
+# Voices: normalized to 44100 Hz mono 16-bit PCM, EBU R128 -23 LUFS.
+# Gain offsets are relative to the unified loudness baseline.
 [audio.voices.PushEvent]
-wav_path = "../../ops/assets/sounds/dolphin_click.wav"
+wav_path = "../../ops/assets/sounds/normalized/PushEvent.wav"
 gain_db = 0.0
-duration_ms = 500
+duration_ms = 830
 
 [audio.voices.CreateEvent]
-wav_path = "../../ops/assets/sounds/seal_bark.wav"
-gain_db = -2.0
-duration_ms = 700
+wav_path = "../../ops/assets/sounds/normalized/CreateEvent.wav"
+gain_db = 0.0
+duration_ms = 1290
 
 [audio.voices.IssuesEvent]
-wav_path = "../../ops/assets/sounds/humpback_moan.wav"
+wav_path = "../../ops/assets/sounds/normalized/IssuesEvent.wav"
 gain_db = 1.0
-duration_ms = 900
+duration_ms = 1490
 
 [audio.voices.PullRequestEvent]
-wav_path = "../../ops/assets/sounds/orca_call.wav"
-gain_db = 3.0
-duration_ms = 1000
+wav_path = "../../ops/assets/sounds/normalized/PullRequestEvent.wav"
+gain_db = 1.0
+duration_ms = 1500
 
 [audio.voices.ForkEvent]
-wav_path = "../../ops/assets/sounds/clownfish_pop.wav"
-gain_db = 2.0
-duration_ms = 800
+wav_path = "../../ops/assets/sounds/normalized/ForkEvent.wav"
+gain_db = 0.0
+duration_ms = 670
 
 [audio.voices.ReleaseEvent]
-wav_path = "../../ops/assets/sounds/blue_whale_boom.wav"
-gain_db = 4.0
-duration_ms = 1400
+wav_path = "../../ops/assets/sounds/normalized/ReleaseEvent.wav"
+gain_db = 2.0
+duration_ms = 2490
 
 [video]
 width = 1280

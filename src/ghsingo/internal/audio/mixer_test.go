@@ -211,6 +211,37 @@ func TestMixerClamp(t *testing.T) {
 	}
 }
 
+func TestBGMCrossfadeNoJump(t *testing.T) {
+	const sampleRate = 44100
+	m := NewMixer(sampleRate, 30)
+
+	// BGM: first half = +0.5, second half = -0.5.
+	// Without crossfade the loop boundary step is |(-0.5) - (+0.5)| = 1.0.
+	// With crossfade the last sample is blended to ≈ bgm[0]=+0.5, so step → ~0.
+	crossfade := sampleRate / 20 // 2205 samples (50 ms)
+	loopLen := crossfade * 4     // 8820 samples — satisfies crossfade < loopLen/2
+	bgm := make([]float32, loopLen)
+	for i := range bgm {
+		if i < loopLen/2 {
+			bgm[i] = 0.5
+		} else {
+			bgm[i] = -0.5
+		}
+	}
+	m.SetBGM(bgm, 1.0)
+
+	// Jump directly to the last sample before the loop boundary.
+	m.bgmPos = loopLen - 1
+	last := m.bgmSample()  // pos=loopLen-1, in crossfade zone → blended toward head
+	first := m.bgmSample() // pos=0, pure head sample
+
+	step := math.Abs(float64(last) - float64(first))
+	const maxAllowedStep = 0.05
+	if step > maxAllowedStep {
+		t.Errorf("BGM loop boundary step = %.4f, want < %.4f; crossfade not working", step, maxAllowedStep)
+	}
+}
+
 func TestGainToLinear(t *testing.T) {
 	// 0 dB → 1.0
 	g := GainToLinear(0)

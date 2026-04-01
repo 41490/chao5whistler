@@ -30,10 +30,19 @@ normalize-voices:
 		name=$$(basename "$$f"); \
 		etype=$$(echo "$$name" | cut -d'-' -f1); \
 		out="../../ops/assets/sounds/normalized/$${etype}.wav"; \
+		filter="highpass=f=80,lowpass=f=8000,loudnorm=I=-23:LRA=7:TP=-2"; \
+		case "$$etype" in \
+			CreateEvent) \
+				filter="$$filter,asetrate=44100*0.982,atempo=1.0183,aresample=44100" ;; \
+			IssuesEvent) \
+				filter="$$filter,asetrate=44100*1.029302,atempo=0.971532,aresample=44100" ;; \
+			PullRequestEvent) \
+				filter="$$filter,asetrate=44100*1.0,atempo=1.0,aresample=44100" ;; \
+		esac; \
 		echo "normalizing $$name -> $${etype}.wav"; \
 		ffmpeg -i "$$f" \
 			-ar 44100 -ac 1 -sample_fmt s16 \
-			-af "highpass=f=80,lowpass=f=8000,loudnorm=I=-23:LRA=7:TP=-2" \
+			-af "$$filter" \
 			-y "$$out"; \
 	done
 

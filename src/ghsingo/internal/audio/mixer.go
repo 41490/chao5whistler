@@ -134,6 +134,30 @@ func (m *Mixer) ScheduleSecond(events []struct{ TypeID, Weight uint8 }) {
 	})
 }
 
+// bgmSample returns the next BGM sample and advances bgmPos.
+// In the last 50 ms of the loop, it crossfades the tail with the corresponding
+// head samples so the loop restart is seamless and pop-free.
+// Crossfade is skipped when the BGM is shorter than 2× the crossfade window.
+func (m *Mixer) bgmSample() float32 {
+	loopLen := len(m.bgmPCM)
+	pos := m.bgmPos % loopLen
+	sample := m.bgmPCM[pos]
+
+	crossfade := m.sampleRate / 20 // 50 ms
+	if crossfade > 0 && crossfade < loopLen/2 {
+		tail := loopLen - crossfade
+		if pos >= tail {
+			fadeOut := float32(loopLen-pos) / float32(crossfade)
+			fadeIn := 1.0 - fadeOut
+			headPos := pos - tail // 0 .. crossfade-1
+			sample = sample*fadeOut + m.bgmPCM[headPos]*fadeIn
+		}
+	}
+
+	m.bgmPos++
+	return sample
+}
+
 // RenderFrame renders one frame of stereo interleaved PCM float32.
 // Returns a slice of length samplesPerFrame*2 (L, R, L, R, ...).
 // events can be nil (legacy immediate-trigger path, still supported).
@@ -154,10 +178,9 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 		effectiveBGMGain := m.bgmGain * duckFactor
 
 		for i := 0; i < n; i++ {
-			s := m.bgmPCM[m.bgmPos%len(m.bgmPCM)] * effectiveBGMGain
+			s := m.bgmSample() * effectiveBGMGain
 			out[i*2] += s   // L
 			out[i*2+1] += s // R
-			m.bgmPos++
 		}
 	}
 

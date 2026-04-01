@@ -22,12 +22,9 @@ type Mixer struct {
 	voices          map[uint8]voiceBank // type_id -> WAV samples + gain
 	active          []activeVoice       // currently playing instances
 
-	// Drum layer: single-shot sample triggered at fixed BPM intervals.
-	drumPCM          []float32
-	drumGain         float32
-	drumIntervalSamp int // samples between beats
-	drumPhase        int // counts up to drumIntervalSamp, then resets and fires
-	drumOffset       int // playback position within current drum hit (-1 = idle)
+	// Beat layer: synthesized bass drum whose BPM follows recent event density.
+	beat        *BeatGenerator
+	eventWindow []int
 
 	// Reverb applied to voice events (not BGM/drum).
 	reverb *Reverb
@@ -63,6 +60,7 @@ func NewMixer(sampleRate, fps int) *Mixer {
 		fps:             fps,
 		samplesPerFrame: sampleRate / fps,
 		voices:          make(map[uint8]voiceBank),
+		eventWindow:     make([]int, 0, 60),
 		reverb:          NewReverb(sampleRate),
 	}
 }
@@ -79,14 +77,9 @@ func (m *Mixer) RegisterVoice(typeID uint8, pcm []float32, gain float32) {
 	m.voices[typeID] = voiceBank{pcm: pcm, gain: gain}
 }
 
-// SetDrum configures a repeating drum hit at the given BPM.
-// The PCM sample plays from the start on every beat; the gain is linear.
-func (m *Mixer) SetDrum(pcm []float32, gain float32, bpm float64) {
-	m.drumPCM = pcm
-	m.drumGain = gain
-	m.drumIntervalSamp = int(float64(m.sampleRate) * 60.0 / bpm)
-	m.drumPhase = 0
-	m.drumOffset = 0 // start with a hit on the first beat
+// SetBeat enables the synthesized beat layer with the given linear gain.
+func (m *Mixer) SetBeat(gain float32) {
+	m.beat = NewBeatGenerator(m.sampleRate, gain)
 }
 
 // TriggerEvent starts playback of a registered voice immediately.
@@ -109,6 +102,7 @@ func (m *Mixer) ScheduleSecond(events []struct{ TypeID, Weight uint8 }) {
 	// Reset per-second position.
 	m.secondPos = 0
 	m.pendingEvs = m.pendingEvs[:0]
+	m.updateBeatDensity(len(events))
 
 	halfSec := m.sampleRate / 2 // 22050 samples = 500 ms
 
@@ -185,21 +179,11 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 	}
 
 	// 2. Drum layer: center-panned, fires at BPM intervals.
-	if len(m.drumPCM) > 0 {
+	if m.beat != nil {
 		for i := 0; i < n; i++ {
-			// Advance phase; when it crosses the interval, start a new hit.
-			m.drumPhase++
-			if m.drumPhase >= m.drumIntervalSamp {
-				m.drumPhase = 0
-				m.drumOffset = 0
-			}
-			// Play the drum sample if active.
-			if m.drumOffset >= 0 && m.drumOffset < len(m.drumPCM) {
-				s := m.drumPCM[m.drumOffset] * m.drumGain
-				out[i*2] += s   // L centre
-				out[i*2+1] += s // R centre
-				m.drumOffset++
-			}
+			s := m.beat.NextSample()
+			out[i*2] += s   // L centre
+			out[i*2+1] += s // R centre
 		}
 	}
 
@@ -273,6 +257,23 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 	}
 
 	return out
+}
+
+func (m *Mixer) updateBeatDensity(eventsThisSecond int) {
+	if m.beat == nil {
+		return
+	}
+	if len(m.eventWindow) == cap(m.eventWindow) {
+		copy(m.eventWindow, m.eventWindow[1:])
+		m.eventWindow = m.eventWindow[:len(m.eventWindow)-1]
+	}
+	m.eventWindow = append(m.eventWindow, eventsThisSecond)
+
+	total := 0
+	for _, count := range m.eventWindow {
+		total += count
+	}
+	m.beat.SetDensity(total)
 }
 
 // voicePan returns the stereo pan position for an event type.

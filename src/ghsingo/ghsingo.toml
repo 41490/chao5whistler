@@ -36,12 +36,9 @@ wav_path = "../../ops/assets/cosmos-leveloop-339.wav"
 gain_db = -4.8
 loop = true
 
-# Heartbeat drum: synthetic bass drum at 72 BPM, very quiet (-20 dB).
-# Run `make generate-heartbeat` to (re)generate the WAV.
-[audio.drum]
-wav_path = "../../ops/assets/sounds/normalized/heartbeat_drum.wav"
+# Runtime-synthesized beat: BPM follows the last 60 seconds of event density.
+[audio.beat]
 gain_db = -18.4
-bpm = 72.0
 
 # Voices: normalized to 44100 Hz mono 16-bit PCM, EBU R128 -23 LUFS.
 # Gain offsets are relative to the unified loudness baseline.

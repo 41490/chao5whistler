@@ -48,7 +48,7 @@ func main() {
 	}
 	slog.Info("daypack loaded", "ticks", pack.Header.TotalTicks, "date", pack.Header.Date)
 
-	// --- 3. Create audio mixer, load BGM + voices ---
+	// --- 3. Create audio mixer, load BGM + synthesized beat + voices ---
 	mixer := audio.NewMixer(cfg.Audio.SampleRate, cfg.Video.FPS)
 
 	if cfg.Audio.BGM.WavPath != "" {
@@ -61,15 +61,8 @@ func main() {
 		slog.Info("bgm loaded", "path", cfg.Audio.BGM.WavPath, "samples", len(bgmPCM))
 	}
 
-	if cfg.Audio.Drum.WavPath != "" && cfg.Audio.Drum.BPM > 0 {
-		drumPCM, err := audio.LoadWavFile(cfg.Audio.Drum.WavPath)
-		if err != nil {
-			slog.Warn("load drum (skipping)", "err", err)
-		} else {
-			mixer.SetDrum(drumPCM, audio.GainToLinear(cfg.Audio.Drum.GainDB), cfg.Audio.Drum.BPM)
-			slog.Info("drum loaded", "path", cfg.Audio.Drum.WavPath, "bpm", cfg.Audio.Drum.BPM)
-		}
-	}
+	mixer.SetBeat(audio.GainToLinear(cfg.Audio.Beat.GainDB))
+	slog.Info("beat enabled", "gain_db", cfg.Audio.Beat.GainDB)
 
 	for name, voice := range cfg.Audio.Voices {
 		typeID, ok := config.EventTypeID[name]
@@ -155,10 +148,10 @@ func main() {
 	defer statsTicker.Stop()
 
 	var (
-		currentTick  replay.Tick
-		lastSecond   = -1
-		frameCount   uint64
-		startTime    = time.Now()
+		currentTick replay.Tick
+		lastSecond  = -1
+		frameCount  uint64
+		startTime   = time.Now()
 	)
 
 	for {

@@ -1,7 +1,7 @@
 # ghsingo Makefile
 
 .PHONY: build build-prepare build-live build-render-audio prepare-assets \
-        normalize-voices generate-heartbeat \
+        normalize-voices \
         run-prepare run-live run-live-5m render-audio-5m \
         install-units enable start stop status logs \
         fmt vet test clean
@@ -45,18 +45,6 @@ normalize-voices:
 			-af "$$filter" \
 			-y "$$out"; \
 	done
-
-# generate-heartbeat: Synthesize a bass drum sample using ffmpeg aevalsrc.
-# No external dependencies required (uses ffmpeg only).
-# For a GM soundfont version (higher quality), see:
-#   apt install fluidsynth  +  use GM note 36 on channel 10
-generate-heartbeat:
-	@mkdir -p ../../ops/assets/sounds/normalized
-	ffmpeg -f lavfi \
-		-i "aevalsrc=sin(2*PI*80*t)*exp(-t*25)*0.8+sin(2*PI*40*t)*exp(-t*40)*0.3:s=44100:d=0.35" \
-		-ar 44100 -ac 1 -sample_fmt s16 \
-		-af "loudnorm=I=-18:TP=-3" \
-		-y ../../ops/assets/sounds/normalized/heartbeat_drum.wav
 
 prepare-assets: normalize-voices
 	ffmpeg -i ../../ops/assets/cosmos-leveloop-339.mp3 \

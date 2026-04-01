@@ -1,5 +1,5 @@
 // render-audio: Generate a standalone MP3 audio file from a ghsingo daypack.
-// Runs the full audio pipeline (BGM + drum + event voices) without any video
+// Runs the full audio pipeline (BGM + synthesized beat + event voices) without any video
 // rendering or streaming. Use this to quickly verify musicality changes.
 //
 // Usage:
@@ -77,16 +77,8 @@ func main() {
 		slog.Info("bgm loaded", "samples", len(bgmPCM))
 	}
 
-	if cfg.Audio.Drum.WavPath != "" && cfg.Audio.Drum.BPM > 0 {
-		drumPCM, err := audio.LoadWavFile(cfg.Audio.Drum.WavPath)
-		if err != nil {
-			slog.Warn("load drum (skipping)", "err", err)
-		} else {
-			drumPCM = audio.ApplyFadeOut(drumPCM, 0.15)
-			mixer.SetDrum(drumPCM, audio.GainToLinear(cfg.Audio.Drum.GainDB), cfg.Audio.Drum.BPM)
-			slog.Info("drum loaded", "bpm", cfg.Audio.Drum.BPM)
-		}
-	}
+	mixer.SetBeat(audio.GainToLinear(cfg.Audio.Beat.GainDB))
+	slog.Info("beat enabled", "gain_db", cfg.Audio.Beat.GainDB)
 
 	for name, voice := range cfg.Audio.Voices {
 		typeID, ok := config.EventTypeID[name]

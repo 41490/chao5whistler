@@ -33,14 +33,14 @@ master_gain_db = 0.0
 
 [audio.bgm]
 wav_path = "../../ops/assets/cosmos-leveloop-339.wav"
-gain_db = -6.0
+gain_db = -4.8
 loop = true
 
 # Heartbeat drum: synthetic bass drum at 72 BPM, very quiet (-20 dB).
 # Run `make generate-heartbeat` to (re)generate the WAV.
 [audio.drum]
 wav_path = "../../ops/assets/sounds/normalized/heartbeat_drum.wav"
-gain_db = -20.0
+gain_db = -18.4
 bpm = 72.0
 
 # Voices: normalized to 44100 Hz mono 16-bit PCM, EBU R128 -23 LUFS.
@@ -67,12 +67,12 @@ duration_ms = 1500
 
 [audio.voices.ForkEvent]
 wav_path = "../../ops/assets/sounds/normalized/ForkEvent.wav"
-gain_db = 0.0
+gain_db = -2.0
 duration_ms = 670
 
 [audio.voices.ReleaseEvent]
 wav_path = "../../ops/assets/sounds/normalized/ReleaseEvent.wav"
-gain_db = 2.0
+gain_db = 3.1
 duration_ms = 2490
 
 [video]

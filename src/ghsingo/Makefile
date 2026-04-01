@@ -66,8 +66,8 @@ run-live-5m: build-live
 
 # render-audio-5m: Render 5 minutes of audio to MP3 for quick verification.
 render-audio-5m: build-render-audio
-	./bin/render-audio --config ghsingo.toml --duration 5m -o /tmp/ghsingo-audio-5m.mp3
-	@echo "Output: /tmp/ghsingo-audio-5m.mp3  →  ffplay /tmp/ghsingo-audio-5m.mp3"
+	./bin/render-audio --config ghsingo.toml --duration 5m -o /tmp/ghsingo-audio-5m.m4a
+	@echo "Output: /tmp/ghsingo-audio-5m.m4a  →  ffplay /tmp/ghsingo-audio-5m.m4a"
 
 # === Systemd ===
 
@@ -105,4 +105,4 @@ test:
 	go test ./... -v
 
 clean:
-	rm -rf bin/ var/ghsingo/records/ /tmp/ghsingo-audio*.mp3
+	rm -rf bin/ var/ghsingo/records/ /tmp/ghsingo-audio*.m4a

@@ -28,7 +28,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "ghsingo.toml", "path to config file")
-	outputPath := flag.String("o", "/tmp/ghsingo-audio.mp3", "output MP3 path")
+	outputPath := flag.String("o", "/tmp/ghsingo-audio.m4a", "output M4A path")
 	durationStr := flag.String("duration", "5m", "render duration (e.g. 30s, 5m, 1h)")
 	flag.Parse()
 
@@ -82,6 +82,7 @@ func main() {
 		if err != nil {
 			slog.Warn("load drum (skipping)", "err", err)
 		} else {
+			drumPCM = audio.ApplyFadeOut(drumPCM, 0.15)
 			mixer.SetDrum(drumPCM, audio.GainToLinear(cfg.Audio.Drum.GainDB), cfg.Audio.Drum.BPM)
 			slog.Info("drum loaded", "bpm", cfg.Audio.Drum.BPM)
 		}
@@ -97,6 +98,7 @@ func main() {
 			slog.Error("load voice", "name", name, "err", err)
 			os.Exit(1)
 		}
+		pcm = audio.ApplyFadeOut(pcm, 0.15)
 		mixer.RegisterVoice(typeID, pcm, audio.GainToLinear(voice.GainDB))
 	}
 
@@ -111,7 +113,7 @@ func main() {
 		"-ar", fmt.Sprintf("%d", cfg.Audio.SampleRate),
 		"-ac", "2",
 		"-i", "pipe:0",
-		"-c:a", "libmp3lame",
+		"-c:a", "aac",
 		"-b:a", "192k",
 		"-y", *outputPath,
 	}

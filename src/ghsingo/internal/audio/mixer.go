@@ -43,12 +43,10 @@ type voiceBank struct {
 }
 
 // activeVoice is a playing instance of a voice sample.
-// age counts completed seconds since the event was scheduled (0 = current second).
 type activeVoice struct {
 	typeID uint8
 	weight uint8
 	offset int
-	age    int // doppler factor: gain *= 1/(1+age)
 }
 
 // pendingVoice is a scheduled-but-not-yet-triggered event.
@@ -56,7 +54,6 @@ type pendingVoice struct {
 	typeID    uint8
 	weight    uint8
 	triggerAt int // sample offset within the current second at which to fire
-	age       int
 }
 
 // NewMixer creates a Mixer for the given sample rate and frame rate.
@@ -101,7 +98,6 @@ func (m *Mixer) TriggerEvent(typeID uint8, weight uint8) {
 		typeID: typeID,
 		weight: weight,
 		offset: 0,
-		age:    0,
 	})
 }
 
@@ -110,10 +106,6 @@ func (m *Mixer) TriggerEvent(typeID uint8, weight uint8) {
 // weighted so heavier events trigger slightly earlier.
 // Call this once per second (before rendering frames for that second).
 func (m *Mixer) ScheduleSecond(events []struct{ TypeID, Weight uint8 }) {
-	// Age all still-active voices from previous seconds.
-	for i := range m.active {
-		m.active[i].age++
-	}
 	// Reset per-second position.
 	m.secondPos = 0
 	m.pendingEvs = m.pendingEvs[:0]
@@ -135,7 +127,6 @@ func (m *Mixer) ScheduleSecond(events []struct{ TypeID, Weight uint8 }) {
 			typeID:    ev.TypeID,
 			weight:    ev.Weight,
 			triggerAt: off,
-			age:       0,
 		})
 	}
 	sort.Slice(m.pendingEvs, func(i, j int) bool {
@@ -203,7 +194,6 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 				typeID: pv.typeID,
 				weight: pv.weight,
 				offset: -frameOff, // negative offset = start mid-frame
-				age:    pv.age,
 			})
 		} else {
 			remaining = append(remaining, pv)
@@ -211,7 +201,7 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 	}
 	m.pendingEvs = remaining
 
-	// 5. Active voices — stereo panning + doppler gain decay.
+	// 5. Active voices — stereo panning.
 	for idx := range m.active {
 		v := &m.active[idx]
 		bank, ok := m.voices[v.typeID]
@@ -219,9 +209,7 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 			continue
 		}
 		wf := float32(v.weight) / 255.0
-		// Doppler distance: each aged second halves the volume.
-		ageFactor := float32(1.0) / float32(1+v.age)
-		finalGain := bank.gain * wf * ageFactor
+		finalGain := bank.gain * wf
 
 		// Stereo pan per event type.
 		pan := voicePan(v.typeID) // 0.0=left, 0.5=center, 1.0=right
@@ -386,4 +374,26 @@ func LoadWavFile(path string) ([]float32, error) {
 // GainToLinear converts dB to linear: 10^(db/20).
 func GainToLinear(db float64) float32 {
 	return float32(math.Pow(10, db/20.0))
+}
+
+// ApplyFadeOut returns a copy of pcm with a linear fade-out applied to the
+// last tailRatio fraction of the samples (e.g. tailRatio=0.15 → last 15%).
+// The fade goes from full amplitude at the fade start point down to 0 at the end.
+func ApplyFadeOut(pcm []float32, tailRatio float32) []float32 {
+	n := len(pcm)
+	if n == 0 || tailRatio <= 0 {
+		return pcm
+	}
+	fadeStart := int(float32(n) * (1.0 - tailRatio))
+	fadeLen := n - fadeStart
+	if fadeLen <= 0 {
+		return pcm
+	}
+	out := make([]float32, n)
+	copy(out, pcm)
+	for i := fadeStart; i < n; i++ {
+		t := float32(i-fadeStart) / float32(fadeLen)
+		out[i] *= (1.0 - t)
+	}
+	return out
 }

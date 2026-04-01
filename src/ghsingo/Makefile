@@ -1,19 +1,23 @@
 # ghsingo Makefile
 
-.PHONY: build build-prepare build-live prepare-assets \
-        run-prepare run-live run-live-5m \
+.PHONY: build build-prepare build-live build-render-audio prepare-assets \
+        normalize-voices generate-heartbeat \
+        run-prepare run-live run-live-5m render-audio-5m \
         install-units enable start stop status logs \
         fmt vet test clean
 
 # === Build ===
 
-build: build-prepare build-live
+build: build-prepare build-live build-render-audio
 
 build-prepare:
 	go build -o bin/prepare ./cmd/prepare
 
 build-live:
 	go build -o bin/live ./cmd/live
+
+build-render-audio:
+	go build -o bin/render-audio ./cmd/render-audio
 
 # === Asset preparation ===
 
@@ -60,6 +64,11 @@ run-live: build-live
 run-live-5m: build-live
 	timeout 300 ./bin/live --config ghsingo.toml
 
+# render-audio-5m: Render 5 minutes of audio to MP3 for quick verification.
+render-audio-5m: build-render-audio
+	./bin/render-audio --config ghsingo.toml --duration 5m -o /tmp/ghsingo-audio-5m.mp3
+	@echo "Output: /tmp/ghsingo-audio-5m.mp3  →  ffplay /tmp/ghsingo-audio-5m.mp3"
+
 # === Systemd ===
 
 install-units:
@@ -96,4 +105,4 @@ test:
 	go test ./... -v
 
 clean:
-	rm -rf bin/ var/ghsingo/records/
+	rm -rf bin/ var/ghsingo/records/ /tmp/ghsingo-audio*.mp3

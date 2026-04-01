@@ -61,6 +61,16 @@ func main() {
 		slog.Info("bgm loaded", "path", cfg.Audio.BGM.WavPath, "samples", len(bgmPCM))
 	}
 
+	if cfg.Audio.Drum.WavPath != "" && cfg.Audio.Drum.BPM > 0 {
+		drumPCM, err := audio.LoadWavFile(cfg.Audio.Drum.WavPath)
+		if err != nil {
+			slog.Warn("load drum (skipping)", "err", err)
+		} else {
+			mixer.SetDrum(drumPCM, audio.GainToLinear(cfg.Audio.Drum.GainDB), cfg.Audio.Drum.BPM)
+			slog.Info("drum loaded", "path", cfg.Audio.Drum.WavPath, "bpm", cfg.Audio.Drum.BPM)
+		}
+	}
+
 	for name, voice := range cfg.Audio.Voices {
 		typeID, ok := config.EventTypeID[name]
 		if !ok {

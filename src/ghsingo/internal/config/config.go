@@ -50,7 +50,14 @@ type Audio struct {
 	Channels     int              `toml:"channels"`
 	MasterGainDB float64          `toml:"master_gain_db"`
 	BGM          AudioBGM         `toml:"bgm"`
+	Drum         AudioDrum        `toml:"drum"`
 	Voices       map[string]Voice `toml:"voices"`
+}
+
+type AudioDrum struct {
+	WavPath string  `toml:"wav_path"`
+	GainDB  float64 `toml:"gain_db"`
+	BPM     float64 `toml:"bpm"`
 }
 
 type AudioBGM struct {

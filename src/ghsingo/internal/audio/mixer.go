@@ -22,9 +22,16 @@ type Mixer struct {
 	voices          map[uint8]voiceBank // type_id -> WAV samples + gain
 	active          []activeVoice       // currently playing instances
 
+	// Drum layer: single-shot sample triggered at fixed BPM intervals.
+	drumPCM          []float32
+	drumGain         float32
+	drumIntervalSamp int // samples between beats
+	drumPhase        int // counts up to drumIntervalSamp, then resets and fires
+	drumOffset       int // playback position within current drum hit (-1 = idle)
+
 	// per-second scheduling: events queued with a sample-offset within the second
-	secondPos  int             // sample counter within current second (0 .. sampleRate-1)
-	pendingEvs []pendingVoice  // sorted by triggerAt
+	secondPos  int            // sample counter within current second (0 .. sampleRate-1)
+	pendingEvs []pendingVoice // sorted by triggerAt
 }
 
 type voiceBank struct {
@@ -69,6 +76,16 @@ func (m *Mixer) SetBGM(pcm []float32, gain float32) {
 // RegisterVoice registers a one-shot voice sample for the given type ID.
 func (m *Mixer) RegisterVoice(typeID uint8, pcm []float32, gain float32) {
 	m.voices[typeID] = voiceBank{pcm: pcm, gain: gain}
+}
+
+// SetDrum configures a repeating drum hit at the given BPM.
+// The PCM sample plays from the start on every beat; the gain is linear.
+func (m *Mixer) SetDrum(pcm []float32, gain float32, bpm float64) {
+	m.drumPCM = pcm
+	m.drumGain = gain
+	m.drumIntervalSamp = int(float64(m.sampleRate) * 60.0 / bpm)
+	m.drumPhase = 0
+	m.drumOffset = 0 // start with a hit on the first beat
 }
 
 // TriggerEvent starts playback of a registered voice immediately.
@@ -149,7 +166,26 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 		}
 	}
 
-	// 2. Fire pending scheduled events whose triggerAt falls within this frame.
+	// 2. Drum layer: center-panned, fires at BPM intervals.
+	if len(m.drumPCM) > 0 {
+		for i := 0; i < n; i++ {
+			// Advance phase; when it crosses the interval, start a new hit.
+			m.drumPhase++
+			if m.drumPhase >= m.drumIntervalSamp {
+				m.drumPhase = 0
+				m.drumOffset = 0
+			}
+			// Play the drum sample if active.
+			if m.drumOffset >= 0 && m.drumOffset < len(m.drumPCM) {
+				s := m.drumPCM[m.drumOffset] * m.drumGain
+				out[i*2] += s   // L centre
+				out[i*2+1] += s // R centre
+				m.drumOffset++
+			}
+		}
+	}
+
+	// 4. Fire pending scheduled events whose triggerAt falls within this frame.
 	frameEnd := m.secondPos + n
 	remaining := m.pendingEvs[:0]
 	for _, pv := range m.pendingEvs {
@@ -171,7 +207,7 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 	}
 	m.pendingEvs = remaining
 
-	// 3. Active voices — stereo panning + doppler gain decay.
+	// 5. Active voices — stereo panning + doppler gain decay.
 	for idx := range m.active {
 		v := &m.active[idx]
 		bank, ok := m.voices[v.typeID]
@@ -203,10 +239,10 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 		v.offset += n
 	}
 
-	// 4. Advance per-second position.
+	// 6. Advance per-second position.
 	m.secondPos += n
 
-	// 5. Remove finished voices.
+	// 7. Remove finished voices.
 	alive := m.active[:0]
 	for _, v := range m.active {
 		bank, ok := m.voices[v.typeID]
@@ -216,7 +252,7 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 	}
 	m.active = alive
 
-	// 6. Soft clipping (tanh) instead of hard clip to avoid harsh distortion.
+	// 8. Soft clipping (tanh) instead of hard clip to avoid harsh distortion.
 	for i := range out {
 		out[i] = softClip(out[i])
 	}

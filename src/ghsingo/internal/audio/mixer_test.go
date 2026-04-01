@@ -143,25 +143,26 @@ func TestMixerVoiceTrigger(t *testing.T) {
 		t.Fatal("output is all zeros after voice trigger")
 	}
 
-	// TypeID=0 (PushEvent) has pan=0.30.
-	// pre-clip L = 0.7 * 1.0 * (128/255) * (1-0.30) = 0.7 * 0.502 * 0.70
-	// L != R because of stereo pan.
-	wf := float32(128.0 / 255.0)
-	pan := voicePan(0) // 0.30
-	preclipL := float32(0.7) * wf * (1.0 - pan)
-	preclipR := float32(0.7) * wf * pan
-	expectedL := softClip(preclipL)
-	expectedR := softClip(preclipR)
+	// TypeID=0 (PushEvent) has pan=0.30 (left-biased).
+	// Reverb is applied to the voice sample before panning, so exact values
+	// depend on the reverb state. Verify structural properties instead.
 
-	if math.Abs(float64(out[0])-float64(expectedL)) > 1e-5 {
-		t.Errorf("first L sample = %f, want ≈ %f", out[0], expectedL)
+	// L and R must be non-zero.
+	if out[0] == 0 {
+		t.Errorf("L channel is zero, expected voice output")
 	}
-	if math.Abs(float64(out[1])-float64(expectedR)) > 1e-5 {
-		t.Errorf("first R sample = %f, want ≈ %f", out[1], expectedR)
+	if out[1] == 0 {
+		t.Errorf("R channel is zero, expected voice output")
 	}
-	// L != R due to pan (0.30 left-biased).
-	if out[0] == out[1] {
-		t.Errorf("L (%f) == R (%f): expected stereo separation due to pan", out[0], out[1])
+	// L != R because pan=0.30 (left-biased): L > R.
+	if out[0] <= out[1] {
+		t.Errorf("L (%f) <= R (%f): expected L > R for left-biased pan 0.30", out[0], out[1])
+	}
+	// All samples must be within [-1, 1] after softClip.
+	for i, s := range out {
+		if s > 1.0 || s < -1.0 {
+			t.Errorf("sample[%d] = %f outside [-1,1]", i, s)
+		}
 	}
 }
 

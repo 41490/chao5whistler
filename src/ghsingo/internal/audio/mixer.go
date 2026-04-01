@@ -29,6 +29,9 @@ type Mixer struct {
 	drumPhase        int // counts up to drumIntervalSamp, then resets and fires
 	drumOffset       int // playback position within current drum hit (-1 = idle)
 
+	// Reverb applied to voice events (not BGM/drum).
+	reverb *Reverb
+
 	// per-second scheduling: events queued with a sample-offset within the second
 	secondPos  int            // sample counter within current second (0 .. sampleRate-1)
 	pendingEvs []pendingVoice // sorted by triggerAt
@@ -63,6 +66,7 @@ func NewMixer(sampleRate, fps int) *Mixer {
 		fps:             fps,
 		samplesPerFrame: sampleRate / fps,
 		voices:          make(map[uint8]voiceBank),
+		reverb:          NewReverb(sampleRate),
 	}
 }
 
@@ -232,7 +236,7 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 			if pcmIdx >= len(bank.pcm) {
 				break
 			}
-			s := bank.pcm[pcmIdx]
+			s := m.reverb.Process(bank.pcm[pcmIdx])
 			out[i*2] += s * gainL
 			out[i*2+1] += s * gainR
 		}

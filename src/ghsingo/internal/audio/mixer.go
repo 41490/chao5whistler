@@ -32,6 +32,7 @@ type Mixer struct {
 	// per-second scheduling: events queued with a sample-offset within the second
 	secondPos  int            // sample counter within current second (0 .. sampleRate-1)
 	pendingEvs []pendingVoice // sorted by triggerAt
+	frameBuf   []float32
 }
 
 type voiceBank struct {
@@ -162,7 +163,11 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 	}
 
 	n := m.samplesPerFrame
-	out := make([]float32, n*2)
+	if cap(m.frameBuf) < n*2 {
+		m.frameBuf = make([]float32, n*2)
+	}
+	out := m.frameBuf[:n*2]
+	clear(out)
 
 	// 1. BGM (mono → stereo duplicate).
 	if len(m.bgmPCM) > 0 {

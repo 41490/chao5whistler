@@ -51,7 +51,11 @@ func BuildArgs(opts Options) []string {
 		"-g", fmt.Sprintf("%d", opts.FPS*2),
 	}
 	if opts.VideoBitrateKbps > 0 {
-		args = append(args, "-b:v", fmt.Sprintf("%dk", opts.VideoBitrateKbps))
+		args = append(args,
+			"-b:v", fmt.Sprintf("%dk", opts.VideoBitrateKbps),
+			"-maxrate", fmt.Sprintf("%dk", opts.VideoBitrateKbps),
+			"-bufsize", fmt.Sprintf("%dk", opts.VideoBitrateKbps*2),
+		)
 	}
 	args = append(args,
 		// Audio encode

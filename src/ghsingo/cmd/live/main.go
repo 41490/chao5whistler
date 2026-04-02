@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"image/color"
 	"log/slog"
 	"math"
 	"os"
@@ -88,8 +89,32 @@ func main() {
 	)
 	renderer.SetPalette(cfg.Video.Palette.Background, cfg.Video.Palette.Text, cfg.Video.Palette.Accent)
 	renderer.SetFontSizeRange(cfg.Video.FontSizeMin, cfg.Video.FontSizeMax)
+	renderer.SetTextMotion(
+		cfg.Video.Text.BottomMarginPx,
+		cfg.Video.Text.DespawnYMin,
+		cfg.Video.Text.DespawnYMax,
+		cfg.Video.Text.ScaleGrowPerSec,
+		cfg.Video.Text.RotationDeg,
+	)
+	renderer.SetEventColors(resolveEventColors(cfg.Video.EventColors))
 	if cfg.Video.FontPath != "" {
 		renderer.SetFontPath(cfg.Video.FontPath)
+	}
+	if cfg.Video.Background.Mode == "mosaic_sequence" {
+		switchFrames := int(cfg.Video.Background.SwitchEverySecs * float64(cfg.Video.FPS))
+		fadeFrames := int(cfg.Video.Background.FadeSecs * float64(cfg.Video.FPS))
+		bg, err := video.LoadBackgroundSequence(
+			cfg.Video.Background.SequenceDir,
+			cfg.Video.Width,
+			cfg.Video.Height,
+			switchFrames,
+			fadeFrames,
+		)
+		if err != nil {
+			slog.Error("load background sequence", "err", err)
+			os.Exit(1)
+		}
+		renderer.SetBackgroundSequence(bg)
 	}
 
 	// --- 5. Create stream manager ---
@@ -152,6 +177,7 @@ func main() {
 		lastSecond  = -1
 		frameCount  uint64
 		startTime   = time.Now()
+		audioBuf    []byte
 	)
 
 	for {
@@ -164,7 +190,7 @@ func main() {
 			currentTick = t
 			// Spawn text floaters for new events immediately.
 			for _, ev := range currentTick.Events {
-				renderer.SpawnText(ev.Text, ev.Weight)
+				renderer.SpawnText(ev.Text, ev.TypeID, ev.Weight)
 			}
 
 		case <-frameTicker.C:
@@ -190,8 +216,8 @@ func main() {
 
 			// Render audio frame.
 			audioSamples := mixer.RenderFrame(nil)
-			audioBytes := pcmToBytes(audioSamples)
-			if err := mgr.WriteAudio(audioBytes); err != nil {
+			audioBuf = pcmToBytes(audioSamples, audioBuf)
+			if err := mgr.WriteAudio(audioBuf); err != nil {
 				slog.Error("write audio", "err", err)
 				return
 			}
@@ -212,8 +238,11 @@ func main() {
 
 // pcmToBytes converts interleaved float32 PCM samples to little-endian f32le
 // bytes suitable for FFmpeg's f32le audio input format.
-func pcmToBytes(samples []float32) []byte {
-	buf := make([]byte, len(samples)*4)
+func pcmToBytes(samples []float32, reuse []byte) []byte {
+	if cap(reuse) < len(samples)*4 {
+		reuse = make([]byte, len(samples)*4)
+	}
+	buf := reuse[:len(samples)*4]
 	for i, s := range samples {
 		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(s))
 	}
@@ -248,4 +277,16 @@ func findLatestDaypack(daypackDir string) (binPath, dateStr string, err error) {
 	sort.Strings(dirs)
 	latest := dirs[len(dirs)-1]
 	return filepath.Join(daypackDir, latest, "day.bin"), latest, nil
+}
+
+func resolveEventColors(raw map[string]string) map[uint8]color.RGBA {
+	out := make(map[uint8]color.RGBA, len(raw))
+	for name, hex := range raw {
+		typeID, ok := config.EventTypeID[name]
+		if !ok {
+			continue
+		}
+		out[typeID] = video.ParseHex(hex)
+	}
+	return out
 }

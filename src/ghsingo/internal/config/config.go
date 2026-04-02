@@ -71,14 +71,17 @@ type Voice struct {
 }
 
 type Video struct {
-	Width       int         `toml:"width"`
-	Height      int         `toml:"height"`
-	FPS         int         `toml:"fps"`
-	FontPath    string      `toml:"font_path"`
-	FontSizeMin int         `toml:"font_size_min"`
-	FontSizeMax int         `toml:"font_size_max"`
-	Palette     Palette     `toml:"palette"`
-	Motion      VideoMotion `toml:"motion"`
+	Width       int               `toml:"width"`
+	Height      int               `toml:"height"`
+	FPS         int               `toml:"fps"`
+	FontPath    string            `toml:"font_path"`
+	FontSizeMin int               `toml:"font_size_min"`
+	FontSizeMax int               `toml:"font_size_max"`
+	Palette     Palette           `toml:"palette"`
+	Motion      VideoMotion       `toml:"motion"`
+	Text        VideoText         `toml:"text"`
+	Background  VideoBackground   `toml:"background"`
+	EventColors map[string]string `toml:"event_colors"`
 }
 
 type Palette struct {
@@ -91,6 +94,21 @@ type VideoMotion struct {
 	SpeedPxPerSec float64 `toml:"speed_px_per_sec"`
 	SpawnYMin     float64 `toml:"spawn_y_min"`
 	SpawnYMax     float64 `toml:"spawn_y_max"`
+}
+
+type VideoText struct {
+	BottomMarginPx  int     `toml:"bottom_margin_px"`
+	DespawnYMin     float64 `toml:"despawn_y_min"`
+	DespawnYMax     float64 `toml:"despawn_y_max"`
+	ScaleGrowPerSec float64 `toml:"scale_grow_per_sec"`
+	RotationDeg     float64 `toml:"rotation_deg"`
+}
+
+type VideoBackground struct {
+	Mode            string  `toml:"mode"`
+	SequenceDir     string  `toml:"sequence_dir"`
+	SwitchEverySecs float64 `toml:"switch_every_secs"`
+	FadeSecs        float64 `toml:"fade_secs"`
 }
 
 type Output struct {
@@ -183,6 +201,14 @@ func (c *Config) validate() error {
 	}
 	if c.Video.FPS <= 0 {
 		return fmt.Errorf("video.fps must be positive")
+	}
+	switch c.Video.Background.Mode {
+	case "", "solid", "mosaic_sequence":
+	default:
+		return fmt.Errorf("video.background.mode must be \"solid\" or \"mosaic_sequence\", got %q", c.Video.Background.Mode)
+	}
+	if c.Video.Background.Mode == "mosaic_sequence" && c.Video.Background.SequenceDir == "" {
+		return fmt.Errorf("video.background.sequence_dir required when mode is \"mosaic_sequence\"")
 	}
 	if c.Events.MaxPerSecond <= 0 {
 		return fmt.Errorf("events.max_per_second must be positive")

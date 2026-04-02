@@ -66,6 +66,23 @@ speed_px_per_sec = 180.0
 spawn_y_min = 0.50
 spawn_y_max = 0.95
 
+[video.text]
+bottom_margin_px = 16
+despawn_y_min = 0.18
+despawn_y_max = 0.45
+scale_grow_per_sec = 0.22
+rotation_deg = 90.0
+
+[video.background]
+mode = "solid"
+sequence_dir = ""
+switch_every_secs = 2.0
+fade_secs = 0.2
+
+[video.event_colors]
+PushEvent = "#268bd2"
+CreateEvent = "#2aa198"
+
 [output]
 mode = "local"
 video_preset = "ultrafast"
@@ -111,6 +128,12 @@ func TestLoadValidConfig(t *testing.T) {
 	}
 	if cfg.Output.Mode != "local" {
 		t.Errorf("Output.Mode = %q, want %q", cfg.Output.Mode, "local")
+	}
+	if cfg.Video.Text.RotationDeg != 90 {
+		t.Errorf("Video.Text.RotationDeg = %v, want 90", cfg.Video.Text.RotationDeg)
+	}
+	if cfg.Video.Background.Mode != "solid" {
+		t.Errorf("Video.Background.Mode = %q, want solid", cfg.Video.Background.Mode)
 	}
 	if len(cfg.Events.Types) != 2 {
 		t.Errorf("Events.Types length = %d, want 2", len(cfg.Events.Types))
@@ -219,5 +242,22 @@ func TestLoadInvalidMode(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "INVALID") {
 		t.Errorf("error %q should mention INVALID mode", err.Error())
+	}
+}
+
+func TestLoadInvalidBackgroundMode(t *testing.T) {
+	invalid := strings.Replace(validTOML, `mode = "solid"`, `mode = "badmode"`, 1)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.toml")
+	if err := os.WriteFile(path, []byte(invalid), 0644); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid background mode, got nil")
+	}
+	if !strings.Contains(err.Error(), "badmode") {
+		t.Errorf("error %q should mention badmode", err.Error())
 	}
 }

@@ -1,0 +1,21 @@
+[input]
+video_path = "../../ops/assets/vid/Headspace.Guide.to.Meditation.S01E07.How.to.Deal.with.Anger.1080p.mp4"
+
+[output]
+dir = "../../ops/assets/backgrounds/movpixer/Headspace.Guide.to.Meditation.S01E07.How.to.Deal.with.Anger.1080p"
+png_prefix = "frame"
+
+[sampling]
+window_secs = 2.0
+max_frames = 150
+
+[effect]
+grid_width_px = 144
+grid_height_px = 144
+glow_strength = 0.20
+glow_width_px = 12
+blur_radius_px = 4
+brightness_scale = 0.68
+
+[observe]
+log_level = "info"

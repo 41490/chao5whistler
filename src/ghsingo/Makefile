@@ -1,14 +1,15 @@
 # ghsingo Makefile
 
-.PHONY: build build-prepare build-live build-render-audio prepare-assets \
+.PHONY: build build-prepare build-live build-render-audio build-movpixer \
+        build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         normalize-voices \
-        run-prepare run-live run-live-5m render-audio-5m \
+        run-prepare run-live run-live-5m render-audio-5m run-movpixer \
         install-units enable start stop status logs \
         fmt vet test clean
 
 # === Build ===
 
-build: build-prepare build-live build-render-audio
+build: build-prepare build-live build-render-audio build-movpixer
 
 build-prepare:
 	go build -o bin/prepare ./cmd/prepare
@@ -18,6 +19,15 @@ build-live:
 
 build-render-audio:
 	go build -o bin/render-audio ./cmd/render-audio
+
+build-movpixer:
+	go build -o bin/movpixer ./cmd/movpixer
+
+build-movpixer-linux-amd64:
+	GOOS=linux GOARCH=amd64 go build -o bin/movpixer-linux-amd64 ./cmd/movpixer
+
+build-movpixer-darwin-arm64:
+	GOOS=darwin GOARCH=arm64 go build -o bin/movpixer-darwin-arm64 ./cmd/movpixer
 
 # === Asset preparation ===
 
@@ -65,6 +75,9 @@ run-live-5m: build-live
 render-audio-5m: build-render-audio
 	./bin/render-audio --config ghsingo.toml --duration 5m -o /tmp/ghsingo-audio-5m.m4a
 	@echo "Output: /tmp/ghsingo-audio-5m.m4a  →  ffplay /tmp/ghsingo-audio-5m.m4a"
+
+run-movpixer: build-movpixer
+	./bin/movpixer --config movpixer.toml
 
 # === Systemd ===
 

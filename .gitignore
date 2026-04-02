@@ -1,3 +1,8 @@
+# ghsingo/var 中间产物
+src/ghsingo/var/*
+src/ghsingo/var/**
+
+# ops/assets/ 资源依赖
 ops/cfg/secrets.toml
 ops/assets/*
 ops/assets/**
@@ -36,6 +41,8 @@ target
 # songh local overrides
 songh.local.toml
 **/songh.local.toml
+movpixer.local.toml
+**/movpixer.local.toml
 
 # Common Node.js / frontend engineering directories
 node_modules/

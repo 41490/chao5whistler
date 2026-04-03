@@ -3,7 +3,7 @@ profile = "default"
 
 [archive]
 source_dir = "../../ops/assets"
-daypack_dir = "var/ghsingo/daypack"
+daypack_dir = "../../var/ghsingo/daypack"
 target_date = "2026-03-28"
 
 [archive.download]
@@ -118,7 +118,7 @@ video_bitrate_kbps = 1200
 audio_bitrate_kbps = 96
 
 [output.local]
-path = "var/ghsingo/records/{date}.flv"
+path = "../../var/ghsingo/records/{date}.flv"
 
 [output.rtmps]
 url = ""

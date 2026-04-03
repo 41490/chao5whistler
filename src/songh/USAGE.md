@@ -77,9 +77,10 @@ PY
 
 ```bash
 cargo build --manifest-path src/songh/Cargo.toml
+cp target/debug/songh ops/bin/songh
 ```
 
-确认编译成功，无 error。
+确认编译成功，无 error；如果后续通过 `systemd --user` 固定使用仓库内二进制，需同步刷新 `ops/bin/songh`。
 
 ### 步骤 2：重新 prepare stage7 工件
 

@@ -12,7 +12,7 @@
 
 - 主配置: `src/ghsingo/ghsingo.toml`
 - 背景抽帧配置: `src/ghsingo/movpixer.toml`
-- 本地输出目录: `src/ghsingo/var/ghsingo/records/`
+- 本地输出目录: `var/ghsingo/records/`
 - 背景序列目录: `ops/assets/backgrounds/movpixer/`
 
 ## 编译
@@ -39,8 +39,8 @@ make build-movpixer-darwin-arm64
 
 输出文件分别位于：
 
-- `src/ghsingo/bin/movpixer-linux-amd64`
-- `src/ghsingo/bin/movpixer-darwin-arm64`
+- `ops/bin/movpixer-linux-amd64`
+- `ops/bin/movpixer-darwin-arm64`
 
 ## 素材准备
 
@@ -75,7 +75,7 @@ make run-movpixer
 等价命令：
 
 ```bash
-./bin/movpixer --config movpixer.toml
+../../ops/bin/movpixer --config movpixer.toml
 ```
 
 ### 指定不同视频和输出目录
@@ -144,7 +144,7 @@ make run-live
 生成本地视频：
 
 - 输出路径由 `[output.local].path` 控制
-- 默认写到 `src/ghsingo/var/ghsingo/records/`
+- 默认写到 `var/ghsingo/records/`
 
 快速生成 5 分钟本地预览：
 
@@ -163,7 +163,7 @@ make run-live-5m
 mode = "local"
 
 [output.local]
-path = "var/ghsingo/records/{date}.flv"
+path = "../../var/ghsingo/records/{date}.flv"
 ```
 
 执行：

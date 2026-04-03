@@ -28,3 +28,12 @@ bookmark, and cleanup lifecycle.
 
 - This repo has both `.git/` and `.jj/` directories.
 - Treat `.jj/` as the source of truth for local history manipulation.
+
+## Build And Runtime Layout
+
+- Keep `src/` limited to source, checked-in config, and checked-in docs.
+- Do not place compiled binaries, build caches, prepared daypacks, recordings, or other generated artifacts under `src/<project>/`.
+- Store shared compiled tools under `ops/bin/`.
+- Store generated runtime data under `var/`.
+- Store reproducible sample/render outputs under `ops/out/`.
+- When adding a new build or runtime path, update `.gitignore` in the same change so generated directories remain untracked.

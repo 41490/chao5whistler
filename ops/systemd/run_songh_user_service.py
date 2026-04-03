@@ -104,7 +104,7 @@ def resolve_songh_command(
 ) -> list[str]:
     songh_bin = resolve_path(
         repo_root,
-        str(service.get("songh_bin", "src/songh/target/debug/songh")),
+        str(service.get("songh_bin", "ops/bin/songh")),
     )
     if songh_bin.exists():
         return [str(songh_bin)]

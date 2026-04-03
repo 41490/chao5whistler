@@ -1,5 +1,9 @@
 # ghsingo Makefile
 
+ROOT := $(abspath $(CURDIR)/../..)
+BIN_DIR := $(ROOT)/ops/bin
+VAR_DIR := $(ROOT)/var/ghsingo
+
 .PHONY: build build-prepare build-live build-render-audio build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         normalize-voices \
@@ -12,22 +16,22 @@
 build: build-prepare build-live build-render-audio build-movpixer
 
 build-prepare:
-	go build -o bin/prepare ./cmd/prepare
+	go build -o $(BIN_DIR)/prepare ./cmd/prepare
 
 build-live:
-	go build -o bin/live ./cmd/live
+	go build -o $(BIN_DIR)/live ./cmd/live
 
 build-render-audio:
-	go build -o bin/render-audio ./cmd/render-audio
+	go build -o $(BIN_DIR)/render-audio ./cmd/render-audio
 
 build-movpixer:
-	go build -o bin/movpixer ./cmd/movpixer
+	go build -o $(BIN_DIR)/movpixer ./cmd/movpixer
 
 build-movpixer-linux-amd64:
-	GOOS=linux GOARCH=amd64 go build -o bin/movpixer-linux-amd64 ./cmd/movpixer
+	GOOS=linux GOARCH=amd64 go build -o $(BIN_DIR)/movpixer-linux-amd64 ./cmd/movpixer
 
 build-movpixer-darwin-arm64:
-	GOOS=darwin GOARCH=arm64 go build -o bin/movpixer-darwin-arm64 ./cmd/movpixer
+	GOOS=darwin GOARCH=arm64 go build -o $(BIN_DIR)/movpixer-darwin-arm64 ./cmd/movpixer
 
 # === Asset preparation ===
 
@@ -63,21 +67,21 @@ prepare-assets: normalize-voices
 # === Run ===
 
 run-prepare: build-prepare
-	./bin/prepare --config ghsingo.toml
+	$(BIN_DIR)/prepare --config ghsingo.toml
 
 run-live: build-live
-	./bin/live --config ghsingo.toml
+	$(BIN_DIR)/live --config ghsingo.toml
 
 run-live-5m: build-live
-	timeout 300 ./bin/live --config ghsingo.toml
+	timeout 300 $(BIN_DIR)/live --config ghsingo.toml
 
 # render-audio-5m: Render 5 minutes of audio to MP3 for quick verification.
 render-audio-5m: build-render-audio
-	./bin/render-audio --config ghsingo.toml --duration 5m -o /tmp/ghsingo-audio-5m.m4a
+	$(BIN_DIR)/render-audio --config ghsingo.toml --duration 5m -o /tmp/ghsingo-audio-5m.m4a
 	@echo "Output: /tmp/ghsingo-audio-5m.m4a  →  ffplay /tmp/ghsingo-audio-5m.m4a"
 
 run-movpixer: build-movpixer
-	./bin/movpixer --config movpixer.toml
+	$(BIN_DIR)/movpixer --config movpixer.toml
 
 # === Systemd ===
 
@@ -115,4 +119,11 @@ test:
 	go test ./... -v
 
 clean:
-	rm -rf bin/ var/ghsingo/records/ /tmp/ghsingo-audio*.m4a
+	rm -rf $(VAR_DIR)/records/ \
+		$(BIN_DIR)/live \
+		$(BIN_DIR)/movpixer \
+		$(BIN_DIR)/movpixer-darwin-arm64 \
+		$(BIN_DIR)/movpixer-linux-amd64 \
+		$(BIN_DIR)/prepare \
+		$(BIN_DIR)/render-audio \
+		/tmp/ghsingo-audio*.m4a

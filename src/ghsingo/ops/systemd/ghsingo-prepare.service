@@ -6,6 +6,6 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=%h/src/ghsingo
-ExecStart=%h/src/ghsingo/bin/prepare --config %h/src/ghsingo/ghsingo.toml
+ExecStart=%h/ops/bin/prepare --config %h/src/ghsingo/ghsingo.toml
 StandardOutput=journal
 StandardError=journal

@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/src/ghsingo
-ExecStart=%h/src/ghsingo/bin/live --config %h/src/ghsingo/ghsingo.toml
+ExecStart=%h/ops/bin/live --config %h/src/ghsingo/ghsingo.toml
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

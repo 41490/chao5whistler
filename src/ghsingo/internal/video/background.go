@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/fogleman/gg"
 	xdraw "golang.org/x/image/draw"
@@ -33,13 +34,13 @@ type BackgroundSequence struct {
 	frameCounter int
 }
 
-func LoadBackgroundSequence(dir string, width, height, switchFrames, fadeFrames int) (*BackgroundSequence, error) {
-	paths, err := loadSequencePaths(dir)
+func LoadBackgroundSequence(configDir string, patterns []string, width, height, switchFrames, fadeFrames int) (*BackgroundSequence, error) {
+	paths, err := loadSequencePaths(configDir, patterns)
 	if err != nil {
 		return nil, err
 	}
 	if len(paths) == 0 {
-		return nil, fmt.Errorf("no background frames found in %q", dir)
+		return nil, fmt.Errorf("no background frames found after resolving %d background patterns", len(patterns))
 	}
 	if switchFrames <= 0 {
 		switchFrames = 60
@@ -141,7 +142,71 @@ func (b *BackgroundSequence) DrawTo(dst draw.Image) {
 	}
 }
 
-func loadSequencePaths(dir string) ([]string, error) {
+func loadSequencePaths(configDir string, patterns []string) ([]string, error) {
+	dirs, err := resolveSequenceDirs(configDir, patterns)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0)
+	for _, dir := range dirs {
+		seqPaths, err := loadSequenceDirPaths(dir)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, seqPaths...)
+	}
+	return paths, nil
+}
+
+func resolveSequenceDirs(configDir string, patterns []string) ([]string, error) {
+	seen := map[string]struct{}{}
+	var dirs []string
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		resolvedPattern := pattern
+		if !filepath.IsAbs(resolvedPattern) {
+			resolvedPattern = filepath.Join(configDir, resolvedPattern)
+		}
+
+		matches := []string{resolvedPattern}
+		if hasGlobMeta(resolvedPattern) {
+			var err error
+			matches, err = filepath.Glob(resolvedPattern)
+			if err != nil {
+				return nil, fmt.Errorf("glob background sequence dirs %q: %w", pattern, err)
+			}
+			if len(matches) == 0 {
+				return nil, fmt.Errorf("background sequence pattern %q matched no directories", pattern)
+			}
+			sort.Strings(matches)
+		}
+
+		for _, match := range matches {
+			info, err := os.Stat(match)
+			if err != nil {
+				return nil, fmt.Errorf("stat background sequence dir %q: %w", match, err)
+			}
+			if !info.IsDir() {
+				return nil, fmt.Errorf("background sequence path %q is not a directory", match)
+			}
+			cleaned := filepath.Clean(match)
+			if _, ok := seen[cleaned]; ok {
+				continue
+			}
+			seen[cleaned] = struct{}{}
+			dirs = append(dirs, cleaned)
+		}
+	}
+	if len(dirs) == 0 {
+		return nil, fmt.Errorf("no background sequence directories configured")
+	}
+	return dirs, nil
+}
+
+func loadSequenceDirPaths(dir string) ([]string, error) {
 	manifestPath := filepath.Join(dir, "manifest.json")
 	if data, err := os.ReadFile(manifestPath); err == nil {
 		var manifest backgroundManifest
@@ -150,7 +215,14 @@ func loadSequencePaths(dir string) ([]string, error) {
 		}
 		paths := make([]string, 0, len(manifest.Frames))
 		for _, name := range manifest.Frames {
-			paths = append(paths, filepath.Join(dir, name))
+			path := filepath.Join(dir, name)
+			if _, err := os.Stat(path); err != nil {
+				return nil, fmt.Errorf("background manifest frame %q: %w", path, err)
+			}
+			paths = append(paths, path)
+		}
+		if len(paths) == 0 {
+			return nil, fmt.Errorf("no background frames found in %q", dir)
 		}
 		return paths, nil
 	}
@@ -160,7 +232,14 @@ func loadSequencePaths(dir string) ([]string, error) {
 		return nil, fmt.Errorf("glob png sequence: %w", err)
 	}
 	sort.Strings(matches)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no background frames found in %q", dir)
+	}
 	return matches, nil
+}
+
+func hasGlobMeta(path string) bool {
+	return strings.ContainsAny(path, "*?[")
 }
 
 func decodeAndScaleImage(path string, width, height int) (image.Image, error) {

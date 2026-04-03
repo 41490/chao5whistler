@@ -76,6 +76,7 @@ rotation_deg = 90.0
 [video.background]
 mode = "solid"
 sequence_dir = ""
+sequence_dirs = []
 switch_every_secs = 2.0
 fade_secs = 0.2
 
@@ -259,5 +260,64 @@ func TestLoadInvalidBackgroundMode(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "badmode") {
 		t.Errorf("error %q should mention badmode", err.Error())
+	}
+}
+
+func TestVideoBackgroundPatternsPrefersSequenceDirs(t *testing.T) {
+	bg := VideoBackground{
+		SequenceDir:  "single",
+		SequenceDirs: []string{" first ", "", "second"},
+	}
+	got := bg.Patterns()
+	want := []string{"first", "second"}
+	if len(got) != len(want) {
+		t.Fatalf("len(Patterns()) = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Patterns()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestVideoBackgroundPatternsFallsBackToSequenceDir(t *testing.T) {
+	bg := VideoBackground{SequenceDir: " single "}
+	got := bg.Patterns()
+	if len(got) != 1 || got[0] != "single" {
+		t.Fatalf("Patterns() = %v, want [single]", got)
+	}
+}
+
+func TestLoadInvalidBackgroundSwitchEverySecs(t *testing.T) {
+	invalid := strings.Replace(validTOML, `switch_every_secs = 2.0`, `switch_every_secs = 0`, 1)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.toml")
+	if err := os.WriteFile(path, []byte(invalid), 0644); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid switch_every_secs, got nil")
+	}
+	if !strings.Contains(err.Error(), "switch_every_secs") {
+		t.Fatalf("error %q should mention switch_every_secs", err.Error())
+	}
+}
+
+func TestLoadInvalidBackgroundFadeSecs(t *testing.T) {
+	invalid := strings.Replace(validTOML, `fade_secs = 0.2`, `fade_secs = -1`, 1)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.toml")
+	if err := os.WriteFile(path, []byte(invalid), 0644); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid fade_secs, got nil")
+	}
+	if !strings.Contains(err.Error(), "fade_secs") {
+		t.Fatalf("error %q should mention fade_secs", err.Error())
 	}
 }

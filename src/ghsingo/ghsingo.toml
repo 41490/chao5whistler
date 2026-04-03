@@ -99,7 +99,9 @@ rotation_deg = 90.0
 
 [video.background]
 mode = "solid"
-sequence_dir = "../../ops/assets/backgrounds/movpixer/Headspace.Guide.to.Meditation.S01E07.How.to.Deal.with.Anger.1080p"
+# sequence_dir is kept for backward compatibility; prefer sequence_dirs.
+sequence_dir = ""
+sequence_dirs = ["../../ops/assets/backgrounds/movpixer/Headspace.Guide.to.Meditation.S01E07.How.to.Deal.with.Anger.1080p"]
 switch_every_secs = 2.0
 fade_secs = 0.2
 

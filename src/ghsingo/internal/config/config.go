@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -105,10 +106,11 @@ type VideoText struct {
 }
 
 type VideoBackground struct {
-	Mode            string  `toml:"mode"`
-	SequenceDir     string  `toml:"sequence_dir"`
-	SwitchEverySecs float64 `toml:"switch_every_secs"`
-	FadeSecs        float64 `toml:"fade_secs"`
+	Mode            string   `toml:"mode"`
+	SequenceDir     string   `toml:"sequence_dir"`
+	SequenceDirs    []string `toml:"sequence_dirs"`
+	SwitchEverySecs float64  `toml:"switch_every_secs"`
+	FadeSecs        float64  `toml:"fade_secs"`
 }
 
 type Output struct {
@@ -207,11 +209,39 @@ func (c *Config) validate() error {
 	default:
 		return fmt.Errorf("video.background.mode must be \"solid\" or \"mosaic_sequence\", got %q", c.Video.Background.Mode)
 	}
-	if c.Video.Background.Mode == "mosaic_sequence" && c.Video.Background.SequenceDir == "" {
-		return fmt.Errorf("video.background.sequence_dir required when mode is \"mosaic_sequence\"")
+	if c.Video.Background.Mode == "mosaic_sequence" && len(c.Video.Background.Patterns()) == 0 {
+		return fmt.Errorf("video.background.sequence_dir or video.background.sequence_dirs required when mode is \"mosaic_sequence\"")
+	}
+	if c.Video.Background.SwitchEverySecs <= 0 {
+		return fmt.Errorf("video.background.switch_every_secs must be positive")
+	}
+	if c.Video.Background.FadeSecs < 0 {
+		return fmt.Errorf("video.background.fade_secs must be >= 0")
 	}
 	if c.Events.MaxPerSecond <= 0 {
 		return fmt.Errorf("events.max_per_second must be positive")
 	}
 	return nil
+}
+
+func (b VideoBackground) Patterns() []string {
+	if len(b.SequenceDirs) > 0 {
+		return nonEmptyStrings(b.SequenceDirs)
+	}
+	if strings.TrimSpace(b.SequenceDir) == "" {
+		return nil
+	}
+	return []string{strings.TrimSpace(b.SequenceDir)}
+}
+
+func nonEmptyStrings(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }

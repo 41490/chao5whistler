@@ -102,9 +102,14 @@ func main() {
 	}
 	if cfg.Video.Background.Mode == "mosaic_sequence" {
 		switchFrames := int(cfg.Video.Background.SwitchEverySecs * float64(cfg.Video.FPS))
-		fadeFrames := int(cfg.Video.Background.FadeSecs * float64(cfg.Video.FPS))
+		fadeSecs := cfg.Video.Background.FadeSecs
+		if fadeSecs > cfg.Video.Background.SwitchEverySecs {
+			fadeSecs = cfg.Video.Background.SwitchEverySecs
+		}
+		fadeFrames := int(fadeSecs * float64(cfg.Video.FPS))
 		bg, err := video.LoadBackgroundSequence(
-			cfg.Video.Background.SequenceDir,
+			filepath.Dir(*configPath),
+			cfg.Video.Background.Patterns(),
 			cfg.Video.Width,
 			cfg.Video.Height,
 			switchFrames,

@@ -3,6 +3,7 @@ package video
 import (
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -107,13 +108,96 @@ func TestBackgroundSequenceLoadsManifest(t *testing.T) {
 		t.Fatalf("write manifest: %v", err)
 	}
 
-	bg, err := LoadBackgroundSequence(dir, 64, 64, 60, 6)
+	bg, err := LoadBackgroundSequence("", []string{dir}, 64, 64, 60, 6)
 	if err != nil {
 		t.Fatalf("LoadBackgroundSequence() error: %v", err)
 	}
 	if len(bg.paths) != 2 {
 		t.Fatalf("expected 2 background paths, got %d", len(bg.paths))
 	}
+}
+
+func TestLoadBackgroundSequenceExpandsGlobAndDedupesDirs(t *testing.T) {
+	root := t.TempDir()
+	dir1 := filepath.Join(root, "ScavengersReign01")
+	dir2 := filepath.Join(root, "ScavengersReign02")
+	if err := os.MkdirAll(dir1, 0755); err != nil {
+		t.Fatalf("mkdir dir1: %v", err)
+	}
+	if err := os.MkdirAll(dir2, 0755); err != nil {
+		t.Fatalf("mkdir dir2: %v", err)
+	}
+	writeSolidPNG(t, filepath.Join(dir1, "0002.png"), color.RGBA{R: 20, A: 255})
+	writeSolidPNG(t, filepath.Join(dir1, "0001.png"), color.RGBA{R: 10, A: 255})
+	writeSolidPNG(t, filepath.Join(dir2, "0001.png"), color.RGBA{R: 30, A: 255})
+
+	bg, err := LoadBackgroundSequence("", []string{
+		filepath.Join(root, "ScavengersReign0*"),
+		dir1,
+	}, 64, 64, 1, 0)
+	if err != nil {
+		t.Fatalf("LoadBackgroundSequence() error: %v", err)
+	}
+	if len(bg.paths) != 3 {
+		t.Fatalf("expected 3 background paths, got %d", len(bg.paths))
+	}
+	if got := filepath.Base(filepath.Dir(bg.paths[0])); got != "ScavengersReign01" {
+		t.Fatalf("first path dir = %q, want ScavengersReign01", got)
+	}
+	if got := filepath.Base(bg.paths[0]); got != "0001.png" {
+		t.Fatalf("first path base = %q, want 0001.png", got)
+	}
+	if got := filepath.Base(filepath.Dir(bg.paths[2])); got != "ScavengersReign02" {
+		t.Fatalf("last path dir = %q, want ScavengersReign02", got)
+	}
+}
+
+func TestLoadBackgroundSequenceFailsOnZeroMatch(t *testing.T) {
+	_, err := LoadBackgroundSequence("", []string{"/no/such/dir/*"}, 64, 64, 60, 0)
+	if err == nil {
+		t.Fatal("expected zero-match error, got nil")
+	}
+}
+
+func TestBackgroundSequenceWrapsAcrossDirectories(t *testing.T) {
+	root := t.TempDir()
+	dir1 := filepath.Join(root, "A")
+	dir2 := filepath.Join(root, "B")
+	if err := os.MkdirAll(dir1, 0755); err != nil {
+		t.Fatalf("mkdir dir1: %v", err)
+	}
+	if err := os.MkdirAll(dir2, 0755); err != nil {
+		t.Fatalf("mkdir dir2: %v", err)
+	}
+	writeSolidPNG(t, filepath.Join(dir1, "0001.png"), color.RGBA{R: 10, A: 255})
+	writeSolidPNG(t, filepath.Join(dir2, "0001.png"), color.RGBA{R: 20, A: 255})
+
+	bg, err := LoadBackgroundSequence("", []string{dir1, dir2}, 8, 8, 1, 0)
+	if err != nil {
+		t.Fatalf("LoadBackgroundSequence() error: %v", err)
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	bg.DrawTo(dst)
+	if got := rgbaAt(dst, 0, 0).R; got != 10 {
+		t.Fatalf("frame 1 R = %d, want 10", got)
+	}
+
+	draw.Draw(dst, dst.Bounds(), image.Transparent, image.Point{}, draw.Src)
+	bg.DrawTo(dst)
+	if got := rgbaAt(dst, 0, 0).R; got != 20 {
+		t.Fatalf("frame 2 R = %d, want 20", got)
+	}
+
+	draw.Draw(dst, dst.Bounds(), image.Transparent, image.Point{}, draw.Src)
+	bg.DrawTo(dst)
+	if got := rgbaAt(dst, 0, 0).R; got != 10 {
+		t.Fatalf("frame 3 R = %d, want wrap to 10", got)
+	}
+}
+
+func rgbaAt(img *image.RGBA, x, y int) color.RGBA {
+	return img.RGBAAt(x, y)
 }
 
 func writeSolidPNG(t *testing.T, path string, c color.RGBA) {

@@ -110,6 +110,7 @@ ops/assets/backgrounds/movpixer/
 ```
 
 这样后续切换背景时，只需要改 `ghsingo.toml` 里的 `sequence_dir`。
+现在推荐改 `sequence_dirs`；`sequence_dir` 仅保留兼容。
 
 ### 背景效果参数
 
@@ -130,10 +131,31 @@ ops/assets/backgrounds/movpixer/
 ```toml
 [video.background]
 mode = "mosaic_sequence"
-sequence_dir = "../../ops/assets/backgrounds/movpixer/Headspace.S01E07"
+sequence_dirs = ["../../ops/assets/backgrounds/movpixer/Headspace.S01E07"]
 switch_every_secs = 2.0
 fade_secs = 0.2
 ```
+
+也支持 glob：
+
+```toml
+[video.background]
+mode = "mosaic_sequence"
+sequence_dirs = ["../../ops/assets/backgrounds/movpixer/ScavengersReign0*"]
+switch_every_secs = 2.0
+fade_secs = 0.2
+```
+
+规则固定如下：
+
+- 若 `sequence_dirs` 非空，只使用 `sequence_dirs`
+- 否则回退使用 `sequence_dir`
+- 每个 pattern 按声明顺序展开
+- glob 结果按目录名字典序排序
+- 同一目录若被多个 pattern 命中，只使用一次
+- 每个目录优先按 `manifest.json` 顺序取帧，否则按 `*.png` 名字典序
+- 所有目录帧会被串成一个总序列，播完后从头循环
+- 若某个 pattern 没匹配到目录，或目录里没有可用 PNG，会直接报错退出
 
 然后执行：
 
@@ -199,7 +221,8 @@ make run-live
    - 改 `output.dir`
 
 2. `src/ghsingo/ghsingo.toml`
-   - 改 `video.background.sequence_dir`
+   - 优先改 `video.background.sequence_dirs`
+   - 兼容场景下也可改 `video.background.sequence_dir`
    - 如有需要改 `switch_every_secs` 和 `fade_secs`
 
 完成后执行：

@@ -89,6 +89,7 @@ video_path = "../../ops/assets/vid/your-video.mp4"
 [output]
 dir = "../../ops/assets/backgrounds/movpixer/your-video-name"
 png_prefix = "frame"
+resolution = "1280x720"
 ```
 
 生成后，目标目录里会包含：
@@ -97,6 +98,9 @@ png_prefix = "frame"
 - `manifest.json`
 
 `manifest.json` 会记录当前序列帧清单，直播渲染时按它顺序轮换。
+
+`resolution` 可选；不写时保持源视频分辨率，写了则按 `宽x高` 输出，例如 `1280x720`。
+缩放语义与直播阶段一致：先覆盖目标画布，再居中裁切到最终尺寸。
 
 ### 多集视频的推荐目录组织
 
@@ -123,6 +127,7 @@ ops/assets/backgrounds/movpixer/
 - `brightness_scale`: 整体亮度缩放，`0.68` 表示降低 32%
 - `window_secs`: 每隔多少秒抽一个代表帧
 - `max_frames`: 限制最多生成多少帧，`0` 表示不限制
+- `resolution`: 输出 PNG 的目标分辨率，格式为 `宽x高`；为空时沿用源视频尺寸
 
 ## 使用背景序列进行本地渲染
 

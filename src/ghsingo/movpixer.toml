@@ -4,6 +4,7 @@ video_path = "../../ops/assets/vid/Headspace.Guide.to.Meditation.S01E07.How.to.D
 [output]
 dir = "../../ops/assets/backgrounds/movpixer/Headspace.Guide.to.Meditation.S01E07.How.to.Deal.with.Anger.1080p"
 png_prefix = "frame"
+resolution = "1280x720"
 
 [sampling]
 window_secs = 2.0

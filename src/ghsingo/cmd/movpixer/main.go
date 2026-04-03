@@ -14,8 +14,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/41490/chao5whistler/src/ghsingo/internal/video"
 	"github.com/BurntSushi/toml"
 )
 
@@ -24,8 +27,9 @@ type Config struct {
 		VideoPath string `toml:"video_path"`
 	} `toml:"input"`
 	Output struct {
-		Dir       string `toml:"dir"`
-		PNGPrefix string `toml:"png_prefix"`
+		Dir        string `toml:"dir"`
+		PNGPrefix  string `toml:"png_prefix"`
+		Resolution string `toml:"resolution"`
 	} `toml:"output"`
 	Sampling struct {
 		WindowSecs float64 `toml:"window_secs"`
@@ -61,6 +65,10 @@ type ffprobeOutput struct {
 type manifest struct {
 	VideoPath       string   `json:"video_path"`
 	GeneratedAt     string   `json:"generated_at"`
+	SourceWidth     int      `json:"source_width"`
+	SourceHeight    int      `json:"source_height"`
+	OutputWidth     int      `json:"output_width"`
+	OutputHeight    int      `json:"output_height"`
 	WindowSecs      float64  `json:"window_secs"`
 	GridWidthPx     int      `json:"grid_width_px"`
 	GridHeightPx    int      `json:"grid_height_px"`
@@ -89,6 +97,11 @@ func main() {
 		slog.Error("probe video", "err", err)
 		os.Exit(1)
 	}
+	outputWidth, outputHeight, err := resolveOutputSize(cfg.Output.Resolution, width, height)
+	if err != nil {
+		slog.Error("resolve output size", "err", err)
+		os.Exit(1)
+	}
 	window := cfg.Sampling.WindowSecs
 	if window <= 0 {
 		window = 2.0
@@ -102,12 +115,17 @@ func main() {
 		"video", cfg.Input.VideoPath,
 		"duration_secs", fmt.Sprintf("%.2f", duration),
 		"frames", frameCount,
-		"size", fmt.Sprintf("%dx%d", width, height),
+		"source_size", fmt.Sprintf("%dx%d", width, height),
+		"output_size", fmt.Sprintf("%dx%d", outputWidth, outputHeight),
 	)
 
 	m := manifest{
 		VideoPath:       cfg.Input.VideoPath,
 		GeneratedAt:     time.Now().Format(time.RFC3339),
+		SourceWidth:     width,
+		SourceHeight:    height,
+		OutputWidth:     outputWidth,
+		OutputHeight:    outputHeight,
 		WindowSecs:      window,
 		GridWidthPx:     cfg.Effect.GridWidthPx,
 		GridHeightPx:    cfg.Effect.GridHeightPx,
@@ -138,6 +156,7 @@ func main() {
 			cfg.Effect.BlurRadiusPx,
 			cfg.Effect.BrightnessScale,
 		)
+		out = resizeOutput(out, outputWidth, outputHeight)
 		name := fmt.Sprintf("%s-%04d.png", cfg.Output.PNGPrefix, i+1)
 		outPath := filepath.Join(cfg.Output.Dir, name)
 		if err := writePNG(outPath, out); err != nil {
@@ -162,6 +181,9 @@ func loadConfig(path string) (*Config, error) {
 	}
 	if cfg.Output.PNGPrefix == "" {
 		cfg.Output.PNGPrefix = "frame"
+	}
+	if _, _, err := parseResolution(cfg.Output.Resolution); err != nil {
+		return nil, err
 	}
 	if cfg.Effect.GridWidthPx <= 0 {
 		cfg.Effect.GridWidthPx = 72
@@ -190,6 +212,43 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+func parseResolution(value string) (width, height int, err error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, 0, nil
+	}
+	widthText, heightText, ok := strings.Cut(strings.ToLower(value), "x")
+	if !ok {
+		return 0, 0, fmt.Errorf("output.resolution must be in WIDTHxHEIGHT format, got %q", value)
+	}
+	widthText = strings.TrimSpace(widthText)
+	heightText = strings.TrimSpace(heightText)
+	if widthText == "" || heightText == "" {
+		return 0, 0, fmt.Errorf("output.resolution must be in WIDTHxHEIGHT format, got %q", value)
+	}
+	if width, err = strconv.Atoi(widthText); err != nil {
+		return 0, 0, fmt.Errorf("parse output.resolution width from %q: %w", value, err)
+	}
+	if height, err = strconv.Atoi(heightText); err != nil {
+		return 0, 0, fmt.Errorf("parse output.resolution height from %q: %w", value, err)
+	}
+	if width <= 0 || height <= 0 {
+		return 0, 0, fmt.Errorf("output.resolution must use positive width and height, got %q", value)
+	}
+	return width, height, nil
+}
+
+func resolveOutputSize(resolution string, sourceWidth, sourceHeight int) (int, int, error) {
+	width, height, err := parseResolution(resolution)
+	if err != nil {
+		return 0, 0, err
+	}
+	if width == 0 || height == 0 {
+		return sourceWidth, sourceHeight, nil
+	}
+	return width, height, nil
+}
+
 func probeVideo(path string) (duration float64, width int, height int, err error) {
 	out, err := exec.Command("ffprobe",
 		"-v", "error",
@@ -212,6 +271,10 @@ func probeVideo(path string) (duration float64, width int, height int, err error
 		return 0, 0, 0, fmt.Errorf("parse duration %q: %w", parsed.Format.Duration, err)
 	}
 	return duration, parsed.Streams[0].Width, parsed.Streams[0].Height, nil
+}
+
+func resizeOutput(src image.Image, width, height int) image.Image {
+	return video.ScaleToFill(src, width, height)
 }
 
 func extractFrame(videoPath string, ts float64) (image.Image, error) {

@@ -49,7 +49,7 @@ func main() {
 	}
 	slog.Info("daypack loaded", "ticks", pack.Header.TotalTicks, "date", pack.Header.Date)
 
-	// --- 3. Create audio mixer, load BGM + synthesized beat + voices ---
+	// --- 3. Create audio mixer: BGM + beat + bell bank + Release ocean ---
 	mixer := audio.NewMixer(cfg.Audio.SampleRate, cfg.Video.FPS)
 
 	if cfg.Audio.BGM.WavPath != "" {
@@ -65,20 +65,35 @@ func main() {
 	mixer.SetBeat(audio.GainToLinear(cfg.Audio.Beat.GainDB))
 	slog.Info("beat enabled", "gain_db", cfg.Audio.Beat.GainDB)
 
-	for name, voice := range cfg.Audio.Voices {
-		typeID, ok := config.EventTypeID[name]
-		if !ok {
-			slog.Warn("unknown voice event type, skipping", "name", name)
-			continue
-		}
-		pcm, err := audio.LoadWavFile(voice.WavPath)
+	bank := audio.NewBellBank(cfg.Audio.SampleRate)
+	if cfg.Audio.Bells.SynthDecay > 0 {
+		bank.SetSynthDecay(cfg.Audio.Bells.SynthDecay)
+	}
+	if cfg.Audio.Bells.BankDir != "" {
+		loaded, err := bank.LoadFromDir(cfg.Audio.Bells.BankDir)
 		if err != nil {
-			slog.Error("load voice", "name", name, "err", err)
+			slog.Error("load bell bank", "err", err)
 			os.Exit(1)
 		}
-		mixer.RegisterVoice(typeID, pcm, audio.GainToLinear(voice.GainDB))
-		slog.Info("voice loaded", "name", name, "type_id", typeID, "samples", len(pcm))
+		slog.Info("bell bank loaded", "dir", cfg.Audio.Bells.BankDir, "samples", loaded)
 	}
+	mixer.SetBellBank(bank,
+		audio.GainToLinear(cfg.Audio.Bells.SampleGainDB),
+		audio.GainToLinear(cfg.Audio.Bells.SynthGainDB),
+	)
+
+	// Optional: load ReleaseEvent ocean sample for big-moment layering.
+	if rel, ok := cfg.Audio.Voices["ReleaseEvent"]; ok && rel.WavPath != "" {
+		pcm, err := audio.LoadWavFile(rel.WavPath)
+		if err != nil {
+			slog.Warn("load release ocean", "err", err)
+		} else {
+			mixer.SetReleaseOcean(pcm, audio.GainToLinear(rel.GainDB))
+			slog.Info("release ocean loaded", "samples", len(pcm))
+		}
+	}
+
+	clusterCfg := buildClusterConfig(cfg.Audio.Cluster)
 
 	// --- 4. Create video renderer ---
 	renderer := video.New(
@@ -199,16 +214,16 @@ func main() {
 			}
 
 		case <-frameTicker.C:
-			// If this is the first frame of a new second, schedule audio events
-			// spread across the first 500 ms (ScheduleSecond handles staggering
-			// and ages any voices still playing from the previous second).
+			// If this is the first frame of a new second, run the cluster
+			// assigner over the second's events and schedule the resulting
+			// note triggers (BellBank handles staggering / decay overlap).
 			if currentTick.Second != lastSecond {
-				evs := make([]struct{ TypeID, Weight uint8 }, len(currentTick.Events))
+				entries := make([]audio.EventEntry, len(currentTick.Events))
 				for i, ev := range currentTick.Events {
-					evs[i].TypeID = ev.TypeID
-					evs[i].Weight = ev.Weight
+					entries[i] = audio.EventEntry{TypeID: ev.TypeID, Weight: ev.Weight}
 				}
-				mixer.ScheduleSecond(evs)
+				triggers := audio.Assign(entries, clusterCfg)
+				mixer.ScheduleNotes(triggers)
 				lastSecond = currentTick.Second
 			}
 
@@ -294,4 +309,49 @@ func resolveEventColors(raw map[string]string) map[uint8]color.RGBA {
 		out[typeID] = video.ParseHex(hex)
 	}
 	return out
+}
+
+// buildClusterConfig converts config.AudioCluster into audio.ClusterConfig,
+// resolving event-type names to uint8 IDs via config.EventTypeID.
+func buildClusterConfig(c config.AudioCluster) audio.ClusterConfig {
+	resolve := func(names []string) []uint8 {
+		out := make([]uint8, 0, len(names))
+		for _, n := range names {
+			if id, ok := config.EventTypeID[n]; ok {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	toOctave := func(n int) audio.Octave {
+		switch n {
+		case 3:
+			return audio.OctaveLow
+		case 4:
+			return audio.OctaveMid
+		case 5:
+			return audio.OctaveHigh
+		}
+		return audio.OctaveMid
+	}
+	octaveList := func(ns []int) []audio.Octave {
+		out := make([]audio.Octave, len(ns))
+		for i, n := range ns {
+			out[i] = toOctave(n)
+		}
+		return out
+	}
+	return audio.ClusterConfig{
+		KeepTopN:        c.KeepTopN,
+		EventTypeIDs:    resolve(c.EventTypes),
+		AlwaysFireIDs:   resolve(c.AlwaysFire),
+		Velocities:      c.Velocities,
+		ReleaseVelocity: c.ReleaseVelocity,
+		OctaveRank1:     toOctave(c.OctaveRank1),
+		OctaveRank2:     octaveList(c.OctaveRank2),
+		OctaveRank3:     toOctave(c.OctaveRank3),
+		OctaveRank4:     toOctave(c.OctaveRank4),
+		OctaveRelease:   toOctave(c.OctaveRelease),
+		SpreadMs:        c.SpreadMs,
+	}
 }

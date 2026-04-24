@@ -6,7 +6,7 @@ VAR_DIR := $(ROOT)/var/ghsingo
 
 .PHONY: build build-prepare build-live build-render-audio build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
-        normalize-voices \
+        prepare-bells normalize-voices \
         run-prepare run-live run-live-5m render-audio-5m run-movpixer \
         install-units enable start stop status logs \
         fmt vet test clean
@@ -63,6 +63,11 @@ normalize-voices:
 prepare-assets: normalize-voices
 	ffmpeg -i ../../ops/assets/cosmos-leveloop-339.mp3 \
 		-ar 44100 -ac 2 -y ../../ops/assets/cosmos-leveloop-339.wav
+
+# prepare-bells: render the 15-pitch pentatonic bell sample bank via fluidsynth.
+# Requires fluidsynth + ffmpeg + FluidR3_GM.sf2 at /usr/share/sounds/sf2/.
+prepare-bells:
+	bash scripts/render-bells.sh
 
 # === Run ===
 

@@ -5,53 +5,53 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand"
 	"os"
-	"sort"
 )
 
-// Mixer mixes a looping BGM track with one-shot voice events into stereo
-// interleaved float32 PCM, one video-frame at a time.
+// Mixer mixes a looping BGM track, a synthesized beat, and bell note triggers
+// (plus an optional ocean layer for Release events) into stereo interleaved
+// float32 PCM, one video-frame at a time.
 type Mixer struct {
 	sampleRate      int
 	fps             int
-	samplesPerFrame int // sampleRate / fps
-	bgmPCM          []float32
-	bgmGain         float32
-	bgmPos          int
-	voices          map[uint8]voiceBank // type_id -> WAV samples + gain
-	active          []activeVoice       // currently playing instances
+	samplesPerFrame int
 
-	// Beat layer: synthesized bass drum whose BPM follows recent event density.
+	bgmPCM  []float32
+	bgmGain float32
+	bgmPos  int
+
 	beat        *BeatGenerator
 	eventWindow []int
 
-	// Reverb applied to voice events (not BGM/drum).
 	reverb *Reverb
 
-	// per-second scheduling: events queued with a sample-offset within the second
-	secondPos  int            // sample counter within current second (0 .. sampleRate-1)
-	pendingEvs []pendingVoice // sorted by triggerAt
-	frameBuf   []float32
+	bells          *BellBank
+	bellSampleGain float32
+	bellSynthGain  float32
+
+	oceanPCM  []float32
+	oceanGain float32
+
+	active []activeBell
+
+	oceanActive []int
+
+	secondPos    int
+	pendingNotes []pendingNote
+	frameBuf     []float32
 }
 
-type voiceBank struct {
-	pcm  []float32
-	gain float32
-}
-
-// activeVoice is a playing instance of a voice sample.
-type activeVoice struct {
-	typeID uint8
-	weight uint8
+type activeBell struct {
+	sample *SampleVoice
+	synth  *KarplusVoice
+	pan    float32
+	gain   float32
 	offset int
 }
 
-// pendingVoice is a scheduled-but-not-yet-triggered event.
-type pendingVoice struct {
-	typeID    uint8
-	weight    uint8
-	triggerAt int // sample offset within the current second at which to fire
+type pendingNote struct {
+	trigger         NoteTrigger
+	triggerAtSample int
 }
 
 // NewMixer creates a Mixer for the given sample rate and frame rate.
@@ -60,9 +60,8 @@ func NewMixer(sampleRate, fps int) *Mixer {
 		sampleRate:      sampleRate,
 		fps:             fps,
 		samplesPerFrame: sampleRate / fps,
-		voices:          make(map[uint8]voiceBank),
-		eventWindow:     make([]int, 0, 60),
 		reverb:          NewReverb(sampleRate),
+		eventWindow:     make([]int, 0, 60),
 	}
 }
 
@@ -73,95 +72,66 @@ func (m *Mixer) SetBGM(pcm []float32, gain float32) {
 	m.bgmPos = 0
 }
 
-// RegisterVoice registers a one-shot voice sample for the given type ID.
-func (m *Mixer) RegisterVoice(typeID uint8, pcm []float32, gain float32) {
-	m.voices[typeID] = voiceBank{pcm: pcm, gain: gain}
-}
-
 // SetBeat enables the synthesized beat layer with the given linear gain.
 func (m *Mixer) SetBeat(gain float32) {
 	m.beat = NewBeatGenerator(m.sampleRate, gain)
 }
 
-// TriggerEvent starts playback of a registered voice immediately.
-func (m *Mixer) TriggerEvent(typeID uint8, weight uint8) {
-	if _, ok := m.voices[typeID]; !ok {
-		return
-	}
-	m.active = append(m.active, activeVoice{
-		typeID: typeID,
-		weight: weight,
-		offset: 0,
-	})
+// SetBellBank installs the 15-pitch bell bank and the linear gains for its
+// sampled and synthesized sources.
+func (m *Mixer) SetBellBank(b *BellBank, sampleGain, synthGain float32) {
+	m.bells = b
+	m.bellSampleGain = sampleGain
+	m.bellSynthGain = synthGain
 }
 
-// ScheduleSecond queues this second's events for staggered playback.
-// Events fire within the first 500 ms of the second at random offsets,
-// weighted so heavier events trigger slightly earlier.
-// Call this once per second (before rendering frames for that second).
-func (m *Mixer) ScheduleSecond(events []struct{ TypeID, Weight uint8 }) {
-	// Reset per-second position.
+// SetReleaseOcean installs the ocean sample that layers on top of a Release
+// event's bell strike. pcm may be nil to disable the layer.
+func (m *Mixer) SetReleaseOcean(pcm []float32, gain float32) {
+	m.oceanPCM = pcm
+	m.oceanGain = gain
+}
+
+// ScheduleNotes queues one second's worth of pre-clustered NoteTriggers.
+// Call this once per second before rendering frames for that second.
+func (m *Mixer) ScheduleNotes(triggers []NoteTrigger) {
 	m.secondPos = 0
-	m.pendingEvs = m.pendingEvs[:0]
-	m.updateBeatDensity(len(events))
+	m.pendingNotes = m.pendingNotes[:0]
+	m.updateBeatDensity(len(triggers))
 
-	halfSec := m.sampleRate / 2 // 22050 samples = 500 ms
-
-	for _, ev := range events {
-		if _, ok := m.voices[ev.TypeID]; !ok {
-			continue
-		}
-		// Higher weight → earlier in the window (more "important" = closer).
-		// weight 255 → offset near 0; weight 0 → offset near 500 ms.
-		maxOff := halfSec - halfSec*int(ev.Weight)/255
-		var off int
-		if maxOff > 0 {
-			off = rand.Intn(maxOff + 1)
-		}
-		m.pendingEvs = append(m.pendingEvs, pendingVoice{
-			typeID:    ev.TypeID,
-			weight:    ev.Weight,
-			triggerAt: off,
+	for _, tr := range triggers {
+		triggerAt := tr.MsOffset * m.sampleRate / 1000
+		m.pendingNotes = append(m.pendingNotes, pendingNote{
+			trigger:         tr,
+			triggerAtSample: triggerAt,
 		})
 	}
-	sort.Slice(m.pendingEvs, func(i, j int) bool {
-		return m.pendingEvs[i].triggerAt < m.pendingEvs[j].triggerAt
-	})
 }
 
-// bgmSample returns the next BGM sample and advances bgmPos.
-// In the last 50 ms of the loop, it crossfades the tail with the corresponding
-// head samples so the loop restart is seamless and pop-free.
-// Crossfade is skipped when the BGM is shorter than 2× the crossfade window.
+// bgmSample returns the next BGM sample with crossfade-at-loop.
 func (m *Mixer) bgmSample() float32 {
 	loopLen := len(m.bgmPCM)
 	pos := m.bgmPos % loopLen
 	sample := m.bgmPCM[pos]
 
-	crossfade := m.sampleRate / 20 // 50 ms
+	crossfade := m.sampleRate / 20
 	if crossfade > 0 && crossfade < loopLen/2 {
 		tail := loopLen - crossfade
 		if pos >= tail {
 			fadeOut := float32(loopLen-pos) / float32(crossfade)
 			fadeIn := 1.0 - fadeOut
-			headPos := pos - tail // 0 .. crossfade-1
+			headPos := pos - tail
 			sample = sample*fadeOut + m.bgmPCM[headPos]*fadeIn
 		}
 	}
-
 	m.bgmPos++
 	return sample
 }
 
 // RenderFrame renders one frame of stereo interleaved PCM float32.
-// Returns a slice of length samplesPerFrame*2 (L, R, L, R, ...).
-// events can be nil (legacy immediate-trigger path, still supported).
-func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
-	// Legacy: immediate trigger path.
-	for _, ev := range events {
-		m.TriggerEvent(ev.TypeID, ev.Weight)
-	}
-
+// The events parameter is accepted for backwards compatibility but is ignored;
+// clustering happens upstream via ScheduleNotes.
+func (m *Mixer) RenderFrame(_ []struct{ TypeID, Weight uint8 }) []float32 {
 	n := m.samplesPerFrame
 	if cap(m.frameBuf) < n*2 {
 		m.frameBuf = make([]float32, n*2)
@@ -169,99 +139,134 @@ func (m *Mixer) RenderFrame(events []struct{ TypeID, Weight uint8 }) []float32 {
 	out := m.frameBuf[:n*2]
 	clear(out)
 
-	// 1. BGM (mono → stereo duplicate).
 	if len(m.bgmPCM) > 0 {
-		// Sidechain ducking: more active voices → quieter BGM (up to -50%).
 		activeCount := float32(len(m.active))
 		duckFactor := float32(1.0) - clamp01(activeCount/4.0)*0.5
-		effectiveBGMGain := m.bgmGain * duckFactor
-
+		eff := m.bgmGain * duckFactor
 		for i := 0; i < n; i++ {
-			s := m.bgmSample() * effectiveBGMGain
-			out[i*2] += s   // L
-			out[i*2+1] += s // R
+			s := m.bgmSample() * eff
+			out[i*2] += s
+			out[i*2+1] += s
 		}
 	}
 
-	// 2. Drum layer: center-panned, fires at BPM intervals.
 	if m.beat != nil {
 		for i := 0; i < n; i++ {
 			s := m.beat.NextSample()
-			out[i*2] += s   // L centre
-			out[i*2+1] += s // R centre
+			out[i*2] += s
+			out[i*2+1] += s
 		}
 	}
 
-	// 4. Fire pending scheduled events whose triggerAt falls within this frame.
 	frameEnd := m.secondPos + n
-	remaining := m.pendingEvs[:0]
-	for _, pv := range m.pendingEvs {
-		if pv.triggerAt < frameEnd {
-			// Compute offset within this frame.
-			frameOff := pv.triggerAt - m.secondPos
+	remaining := m.pendingNotes[:0]
+	for _, pn := range m.pendingNotes {
+		if pn.triggerAtSample < frameEnd {
+			frameOff := pn.triggerAtSample - m.secondPos
 			if frameOff < 0 {
 				frameOff = 0
 			}
-			m.active = append(m.active, activeVoice{
-				typeID: pv.typeID,
-				weight: pv.weight,
-				offset: -frameOff, // negative offset = start mid-frame
-			})
+			m.spawnBell(pn.trigger, -frameOff)
+			if pn.trigger.WithOcean && m.oceanPCM != nil {
+				m.oceanActive = append(m.oceanActive, -frameOff)
+			}
 		} else {
-			remaining = append(remaining, pv)
+			remaining = append(remaining, pn)
 		}
 	}
-	m.pendingEvs = remaining
+	m.pendingNotes = remaining
 
-	// 5. Active voices — stereo panning.
 	for idx := range m.active {
 		v := &m.active[idx]
-		bank, ok := m.voices[v.typeID]
-		if !ok {
-			continue
-		}
-		wf := float32(v.weight) / 255.0
-		finalGain := bank.gain * wf
-
-		// Stereo pan per event type.
-		pan := voicePan(v.typeID) // 0.0=left, 0.5=center, 1.0=right
-		gainL := finalGain * (1.0 - pan)
-		gainR := finalGain * pan
-
+		gainL := v.gain * (1.0 - v.pan)
+		gainR := v.gain * v.pan
 		for i := 0; i < n; i++ {
 			pcmIdx := v.offset + i
 			if pcmIdx < 0 {
 				continue
 			}
-			if pcmIdx >= len(bank.pcm) {
-				break
+			var s float32
+			switch {
+			case v.sample != nil:
+				s = v.sample.NextSample()
+			case v.synth != nil:
+				s = v.synth.NextSample()
 			}
-			s := m.reverb.Process(bank.pcm[pcmIdx])
-			out[i*2] += s * gainL
-			out[i*2+1] += s * gainR
+			wet := m.reverb.Process(s)
+			out[i*2] += wet * gainL
+			out[i*2+1] += wet * gainR
 		}
 		v.offset += n
 	}
 
-	// 6. Advance per-second position.
+	if len(m.oceanActive) > 0 && m.oceanPCM != nil {
+		keep := m.oceanActive[:0]
+		for _, off := range m.oceanActive {
+			for i := 0; i < n; i++ {
+				pcmIdx := off + i
+				if pcmIdx < 0 {
+					continue
+				}
+				if pcmIdx >= len(m.oceanPCM) {
+					break
+				}
+				s := m.oceanPCM[pcmIdx] * m.oceanGain
+				out[i*2] += s
+				out[i*2+1] += s
+			}
+			newOff := off + n
+			if newOff < len(m.oceanPCM) {
+				keep = append(keep, newOff)
+			}
+		}
+		m.oceanActive = keep
+	}
+
 	m.secondPos += n
 
-	// 7. Remove finished voices.
 	alive := m.active[:0]
 	for _, v := range m.active {
-		bank, ok := m.voices[v.typeID]
-		if ok && v.offset < len(bank.pcm) {
+		done := true
+		if v.sample != nil {
+			done = v.sample.Done()
+		} else if v.synth != nil {
+			done = v.synth.Done()
+		}
+		if !done {
 			alive = append(alive, v)
 		}
 	}
 	m.active = alive
 
-	// 8. Soft clipping (tanh) instead of hard clip to avoid harsh distortion.
 	for i := range out {
 		out[i] = softClip(out[i])
 	}
-
 	return out
+}
+
+func (m *Mixer) spawnBell(tr NoteTrigger, offset int) {
+	if m.bells == nil {
+		return
+	}
+	pan := notePan(tr.Pitch.Note)
+	var v activeBell
+	if tr.Source == SourceSample {
+		if sv := m.bells.SampleVoice(tr.Pitch, tr.Velocity); sv != nil {
+			v = activeBell{sample: sv, pan: pan, gain: m.bellSampleGain, offset: offset}
+			m.active = append(m.active, v)
+			return
+		}
+	}
+	syn := m.bells.SynthVoice(tr.Pitch, tr.Velocity)
+	v = activeBell{synth: syn, pan: pan, gain: m.bellSynthGain, offset: offset}
+	m.active = append(m.active, v)
+}
+
+// notePan maps a 五声 note to stereo pan position (0=L, 0.5=C, 1=R).
+// 宫 centre, 商 偏左, 角 偏右, 徵 远左, 羽 远右.
+func notePan(n Note) float32 {
+	pans := [NoteCount]float32{0.50, 0.35, 0.65, 0.25, 0.75}
+	return pans[n]
 }
 
 func (m *Mixer) updateBeatDensity(eventsThisSecond int) {
@@ -273,28 +278,13 @@ func (m *Mixer) updateBeatDensity(eventsThisSecond int) {
 		m.eventWindow = m.eventWindow[:len(m.eventWindow)-1]
 	}
 	m.eventWindow = append(m.eventWindow, eventsThisSecond)
-
 	total := 0
-	for _, count := range m.eventWindow {
-		total += count
+	for _, c := range m.eventWindow {
+		total += c
 	}
 	m.beat.SetDensity(total)
 }
 
-// voicePan returns the stereo pan position for an event type.
-// 0.0 = full left, 0.5 = center, 1.0 = full right.
-func voicePan(typeID uint8) float32 {
-	// PushEvent=0, CreateEvent=1, IssuesEvent=2,
-	// PullRequestEvent=3, ForkEvent=4, ReleaseEvent=5
-	pans := [6]float32{0.30, 0.70, 0.40, 0.60, 0.20, 0.80}
-	if int(typeID) < len(pans) {
-		return pans[typeID]
-	}
-	return 0.5
-}
-
-// softClip applies a tanh-based soft limiter: keeps the signal below ±1.0
-// with a gentler transition than hard clipping.
 func softClip(x float32) float32 {
 	if x > 1.5 {
 		return 1.0
@@ -316,7 +306,7 @@ func clamp01(x float32) float32 {
 }
 
 // ---------------------------------------------------------------------------
-// WAV decoding
+// WAV decoding (unchanged from noise-era)
 // ---------------------------------------------------------------------------
 
 // DecodePCM reads WAV bytes and returns interleaved float32 samples.
@@ -325,8 +315,6 @@ func DecodePCM(data []byte) ([]float32, error) {
 	if len(data) < 44 {
 		return nil, errors.New("audio: data too short for WAV header")
 	}
-
-	// RIFF header
 	if string(data[0:4]) != "RIFF" {
 		return nil, errors.New("audio: missing RIFF tag")
 	}
@@ -334,7 +322,6 @@ func DecodePCM(data []byte) ([]float32, error) {
 		return nil, errors.New("audio: missing WAVE tag")
 	}
 
-	// Walk sub-chunks starting at offset 12.
 	var (
 		audioFormat   uint16
 		numChannels   uint16
@@ -354,7 +341,6 @@ func DecodePCM(data []byte) ([]float32, error) {
 			}
 			audioFormat = binary.LittleEndian.Uint16(data[pos : pos+2])
 			numChannels = binary.LittleEndian.Uint16(data[pos+2 : pos+4])
-			// sampleRate at pos+4..pos+8 (we don't enforce match here)
 			bitsPerSample = binary.LittleEndian.Uint16(data[pos+14 : pos+16])
 		case "data":
 			end := pos + chunkSize
@@ -365,7 +351,6 @@ func DecodePCM(data []byte) ([]float32, error) {
 		}
 
 		pos += chunkSize
-		// Chunks are word-aligned.
 		if chunkSize%2 != 0 {
 			pos++
 		}
@@ -380,7 +365,7 @@ func DecodePCM(data []byte) ([]float32, error) {
 	if dataBytes == nil {
 		return nil, errors.New("audio: no data chunk found")
 	}
-	_ = numChannels // channels preserved in interleaved output
+	_ = numChannels
 
 	numSamples := len(dataBytes) / 2
 	out := make([]float32, numSamples)
@@ -406,8 +391,7 @@ func GainToLinear(db float64) float32 {
 }
 
 // ApplyFadeOut returns a copy of pcm with a linear fade-out applied to the
-// last tailRatio fraction of the samples (e.g. tailRatio=0.15 → last 15%).
-// The fade goes from full amplitude at the fade start point down to 0 at the end.
+// last tailRatio fraction of the samples.
 func ApplyFadeOut(pcm []float32, tailRatio float32) []float32 {
 	n := len(pcm)
 	if n == 0 || tailRatio <= 0 {

@@ -115,102 +115,6 @@ func TestMixerBGMLoop(t *testing.T) {
 	}
 }
 
-func TestMixerVoiceTrigger(t *testing.T) {
-	m := NewMixer(44100, 30)
-
-	// Register a short voice: 500 samples of constant 0.7.
-	voice := make([]float32, 500)
-	for i := range voice {
-		voice[i] = 0.7
-	}
-	m.RegisterVoice(0, voice, 1.0)
-
-	// Trigger with weight 128.
-	events := []struct{ TypeID, Weight uint8 }{
-		{TypeID: 0, Weight: 128},
-	}
-	out := m.RenderFrame(events)
-
-	// Output should be non-zero.
-	nonZero := false
-	for _, s := range out {
-		if s != 0 {
-			nonZero = true
-			break
-		}
-	}
-	if !nonZero {
-		t.Fatal("output is all zeros after voice trigger")
-	}
-
-	// TypeID=0 (PushEvent) has pan=0.30 (left-biased).
-	// Reverb is applied to the voice sample before panning, so exact values
-	// depend on the reverb state. Verify structural properties instead.
-
-	// L and R must be non-zero.
-	if out[0] == 0 {
-		t.Errorf("L channel is zero, expected voice output")
-	}
-	if out[1] == 0 {
-		t.Errorf("R channel is zero, expected voice output")
-	}
-	// L != R because pan=0.30 (left-biased): L > R.
-	if out[0] <= out[1] {
-		t.Errorf("L (%f) <= R (%f): expected L > R for left-biased pan 0.30", out[0], out[1])
-	}
-	// All samples must be within [-1, 1] after softClip.
-	for i, s := range out {
-		if s > 1.0 || s < -1.0 {
-			t.Errorf("sample[%d] = %f outside [-1,1]", i, s)
-		}
-	}
-}
-
-func TestMixerClamp(t *testing.T) {
-	m := NewMixer(44100, 30)
-
-	// Loud BGM: constant 0.9.
-	bgm := make([]float32, 2000)
-	for i := range bgm {
-		bgm[i] = 0.9
-	}
-	m.SetBGM(bgm, 1.0)
-
-	// Loud voice: constant 0.9.
-	voice := make([]float32, 2000)
-	for i := range voice {
-		voice[i] = 0.9
-	}
-	m.RegisterVoice(0, voice, 1.0)
-
-	events := []struct{ TypeID, Weight uint8 }{
-		{TypeID: 0, Weight: 255},
-	}
-	out := m.RenderFrame(events)
-
-	for i, s := range out {
-		if s > 1.0 {
-			t.Fatalf("sample[%d] = %f exceeds 1.0", i, s)
-		}
-		if s < -1.0 {
-			t.Fatalf("sample[%d] = %f below -1.0", i, s)
-		}
-	}
-
-	// With 1 active voice: duckFactor = 1 - (1/4)*0.5 = 0.875
-	// BGM L contribution: softClip(0.9 * 0.875) = softClip(0.7875)
-	// Voice typeID=0 pan=0.30: L gain = 1.0 * (255/255) * 1.0 * (1-0.30) = 0.70
-	// Voice L contribution: 0.9 * 0.70 = 0.63
-	// Total pre-clip L = 0.7875 + 0.63 = 1.4175 → softClip ≈ 0.889
-	// Verify soft clamping engaged: value should be < 1.0 but positive.
-	if out[0] >= 1.0 {
-		t.Errorf("softClip should keep value < 1.0, got %f", out[0])
-	}
-	if out[0] <= 0.0 {
-		t.Errorf("expected positive clamped sample, got %f", out[0])
-	}
-}
-
 func TestBGMCrossfadeNoJump(t *testing.T) {
 	const sampleRate = 44100
 	m := NewMixer(sampleRate, 30)
@@ -252,5 +156,90 @@ func TestGainToLinear(t *testing.T) {
 	g = GainToLinear(-20)
 	if math.Abs(float64(g)-0.1) > 1e-3 {
 		t.Errorf("GainToLinear(-20) = %f, want ≈ 0.1", g)
+	}
+}
+
+func TestMixerScheduleNotes_Synth(t *testing.T) {
+	m := NewMixer(44100, 30)
+	bank := NewBellBank(44100)
+	m.SetBellBank(bank, 1.0, 1.0)
+
+	triggers := []NoteTrigger{
+		{
+			Pitch:    Pitch{NoteGong, OctaveMid},
+			Velocity: 1.0,
+			MsOffset: 0,
+			Source:   SourceSynth,
+		},
+	}
+	m.ScheduleNotes(triggers)
+
+	frame := m.RenderFrame(nil)
+	if len(frame) != (44100/30)*2 {
+		t.Fatalf("frame length = %d, want %d", len(frame), (44100/30)*2)
+	}
+	var peak float32
+	for _, s := range frame {
+		if s > peak {
+			peak = s
+		}
+		if -s > peak {
+			peak = -s
+		}
+	}
+	if peak == 0 {
+		t.Error("synth note produced silence")
+	}
+}
+
+func TestMixerScheduleNotes_SampleFallsBackToSynth(t *testing.T) {
+	m := NewMixer(44100, 30)
+	bank := NewBellBank(44100)
+	m.SetBellBank(bank, 1.0, 1.0)
+
+	m.ScheduleNotes([]NoteTrigger{{
+		Pitch:    Pitch{NoteYu, OctaveHigh},
+		Velocity: 1.0,
+		Source:   SourceSample,
+	}})
+	frame := m.RenderFrame(nil)
+	var peak float32
+	for _, s := range frame {
+		v := s
+		if v < 0 {
+			v = -v
+		}
+		if v > peak {
+			peak = v
+		}
+	}
+	if peak == 0 {
+		t.Error("sample→synth fallback produced silence")
+	}
+}
+
+func TestMixerNotePan(t *testing.T) {
+	render := func(note Note) (l, r float32) {
+		m := NewMixer(44100, 30)
+		m.SetBellBank(NewBellBank(44100), 1.0, 1.0)
+		m.ScheduleNotes([]NoteTrigger{{
+			Pitch:    Pitch{note, OctaveMid},
+			Velocity: 1.0,
+			Source:   SourceSynth,
+		}})
+		frame := m.RenderFrame(nil)
+		for i := 0; i < len(frame); i += 2 {
+			l += abs32(frame[i])
+			r += abs32(frame[i+1])
+		}
+		return
+	}
+	lG, rG := render(NoteGong)
+	lS, rS := render(NoteShang)
+	if abs32(lG-rG) > 0.1*(lG+rG) {
+		t.Errorf("NoteGong should be ~centered; L=%v R=%v", lG, rG)
+	}
+	if lS <= rS {
+		t.Errorf("NoteShang should be L-leaning; L=%v R=%v", lS, rS)
 	}
 }

@@ -321,3 +321,79 @@ func TestLoadInvalidBackgroundFadeSecs(t *testing.T) {
 		t.Fatalf("error %q should mention fade_secs", err.Error())
 	}
 }
+
+func TestLoadBellSection(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "c.toml")
+	if err := os.WriteFile(cfgPath, []byte(`
+[meta]
+profile = "test"
+[archive]
+source_dir = "x"
+daypack_dir = "y"
+target_date = "2026-04-01"
+[events]
+types = ["PushEvent"]
+max_per_second = 4
+[events.weights]
+PushEvent = 10
+[audio]
+sample_rate = 44100
+channels = 2
+[audio.bgm]
+wav_path = ""
+gain_db = 0
+[audio.beat]
+gain_db = 0
+[audio.bells]
+bank_dir = "bells"
+sample_gain_db = -2.0
+synth_gain_db = -4.0
+synth_decay = 0.995
+[audio.cluster]
+keep_top_n = 4
+event_types = ["PushEvent", "CreateEvent"]
+always_fire = ["ReleaseEvent"]
+velocities = [1.0, 0.75, 0.6, 0.45]
+release_velocity = 1.0
+octave_rank1 = 4
+octave_rank2 = [4, 5]
+octave_rank3 = 5
+octave_rank4 = 3
+octave_release = 5
+spread_ms = 500
+[video]
+width = 1280
+height = 720
+fps = 15
+[video.background]
+mode = "solid"
+switch_every_secs = 1.0
+fade_secs = 0.0
+[output]
+mode = "local"
+[output.local]
+path = "/tmp/x"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Audio.Bells.BankDir != "bells" {
+		t.Errorf("BankDir = %q, want %q", cfg.Audio.Bells.BankDir, "bells")
+	}
+	if cfg.Audio.Bells.SynthDecay != 0.995 {
+		t.Errorf("SynthDecay = %v", cfg.Audio.Bells.SynthDecay)
+	}
+	if cfg.Audio.Cluster.KeepTopN != 4 {
+		t.Errorf("KeepTopN = %d", cfg.Audio.Cluster.KeepTopN)
+	}
+	if len(cfg.Audio.Cluster.OctaveRank2) != 2 {
+		t.Errorf("OctaveRank2 = %v", cfg.Audio.Cluster.OctaveRank2)
+	}
+	if cfg.Audio.Cluster.Velocities[0] != 1.0 {
+		t.Errorf("Velocities[0] = %v", cfg.Audio.Cluster.Velocities[0])
+	}
+}

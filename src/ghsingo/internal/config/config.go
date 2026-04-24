@@ -53,6 +53,8 @@ type Audio struct {
 	BGM          AudioBGM         `toml:"bgm"`
 	Beat         AudioBeat        `toml:"beat"`
 	Voices       map[string]Voice `toml:"voices"`
+	Bells        AudioBells       `toml:"bells"`
+	Cluster      AudioCluster     `toml:"cluster"`
 }
 
 type AudioBeat struct {
@@ -69,6 +71,29 @@ type Voice struct {
 	WavPath    string  `toml:"wav_path"`
 	GainDB     float64 `toml:"gain_db"`
 	DurationMs int     `toml:"duration_ms"`
+}
+
+// AudioBells configures the 15-pitch pentatonic bell layer.
+type AudioBells struct {
+	BankDir      string  `toml:"bank_dir"`
+	SampleGainDB float64 `toml:"sample_gain_db"`
+	SynthGainDB  float64 `toml:"synth_gain_db"`
+	SynthDecay   float64 `toml:"synth_decay"`
+}
+
+// AudioCluster configures the per-second event-to-note mapping algorithm.
+type AudioCluster struct {
+	KeepTopN        int        `toml:"keep_top_n"`
+	EventTypes      []string   `toml:"event_types"`
+	AlwaysFire      []string   `toml:"always_fire"`
+	Velocities      [4]float32 `toml:"velocities"`
+	ReleaseVelocity float32    `toml:"release_velocity"`
+	OctaveRank1     int        `toml:"octave_rank1"`
+	OctaveRank2     []int      `toml:"octave_rank2"`
+	OctaveRank3     int        `toml:"octave_rank3"`
+	OctaveRank4     int        `toml:"octave_rank4"`
+	OctaveRelease   int        `toml:"octave_release"`
+	SpreadMs        int        `toml:"spread_ms"`
 }
 
 type Video struct {

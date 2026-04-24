@@ -64,7 +64,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- Build mixer ---
+	// --- Build mixer: BGM + beat + bell bank + Release ocean ---
 	mixer := audio.NewMixer(cfg.Audio.SampleRate, cfg.Video.FPS)
 
 	if cfg.Audio.BGM.WavPath != "" {
@@ -80,19 +80,35 @@ func main() {
 	mixer.SetBeat(audio.GainToLinear(cfg.Audio.Beat.GainDB))
 	slog.Info("beat enabled", "gain_db", cfg.Audio.Beat.GainDB)
 
-	for name, voice := range cfg.Audio.Voices {
-		typeID, ok := config.EventTypeID[name]
-		if !ok {
-			continue
-		}
-		pcm, err := audio.LoadWavFile(voice.WavPath)
+	bank := audio.NewBellBank(cfg.Audio.SampleRate)
+	if cfg.Audio.Bells.SynthDecay > 0 {
+		bank.SetSynthDecay(cfg.Audio.Bells.SynthDecay)
+	}
+	if cfg.Audio.Bells.BankDir != "" {
+		loaded, err := bank.LoadFromDir(cfg.Audio.Bells.BankDir)
 		if err != nil {
-			slog.Error("load voice", "name", name, "err", err)
+			slog.Error("load bell bank", "err", err)
 			os.Exit(1)
 		}
-		pcm = audio.ApplyFadeOut(pcm, 0.15)
-		mixer.RegisterVoice(typeID, pcm, audio.GainToLinear(voice.GainDB))
+		slog.Info("bell bank loaded", "dir", cfg.Audio.Bells.BankDir, "samples", loaded)
 	}
+	mixer.SetBellBank(bank,
+		audio.GainToLinear(cfg.Audio.Bells.SampleGainDB),
+		audio.GainToLinear(cfg.Audio.Bells.SynthGainDB),
+	)
+
+	if rel, ok := cfg.Audio.Voices["ReleaseEvent"]; ok && rel.WavPath != "" {
+		pcm, err := audio.LoadWavFile(rel.WavPath)
+		if err != nil {
+			slog.Warn("load release ocean", "err", err)
+		} else {
+			pcm = audio.ApplyFadeOut(pcm, 0.15)
+			mixer.SetReleaseOcean(pcm, audio.GainToLinear(rel.GainDB))
+			slog.Info("release ocean loaded", "samples", len(pcm))
+		}
+	}
+
+	clusterCfg := buildClusterConfig(cfg.Audio.Cluster)
 
 	// --- Start FFmpeg (audio-only) ---
 	if err := os.MkdirAll(filepath.Dir(*outputPath), 0755); err != nil {
@@ -145,12 +161,12 @@ func main() {
 			currentTick = t
 		case <-frameTicker.C:
 			if currentTick.Second != lastSecond {
-				evs := make([]struct{ TypeID, Weight uint8 }, len(currentTick.Events))
+				entries := make([]audio.EventEntry, len(currentTick.Events))
 				for i, ev := range currentTick.Events {
-					evs[i].TypeID = ev.TypeID
-					evs[i].Weight = ev.Weight
+					entries[i] = audio.EventEntry{TypeID: ev.TypeID, Weight: ev.Weight}
 				}
-				mixer.ScheduleSecond(evs)
+				triggers := audio.Assign(entries, clusterCfg)
+				mixer.ScheduleNotes(triggers)
 				lastSecond = currentTick.Second
 			}
 
@@ -212,4 +228,49 @@ func findLatestDaypack(daypackDir string) (binPath, dateStr string, err error) {
 	sort.Strings(dirs)
 	latest := dirs[len(dirs)-1]
 	return filepath.Join(daypackDir, latest, "day.bin"), latest, nil
+}
+
+// buildClusterConfig converts config.AudioCluster into audio.ClusterConfig,
+// resolving event-type names to uint8 IDs via config.EventTypeID.
+func buildClusterConfig(c config.AudioCluster) audio.ClusterConfig {
+	resolve := func(names []string) []uint8 {
+		out := make([]uint8, 0, len(names))
+		for _, n := range names {
+			if id, ok := config.EventTypeID[n]; ok {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	toOctave := func(n int) audio.Octave {
+		switch n {
+		case 3:
+			return audio.OctaveLow
+		case 4:
+			return audio.OctaveMid
+		case 5:
+			return audio.OctaveHigh
+		}
+		return audio.OctaveMid
+	}
+	octaveList := func(ns []int) []audio.Octave {
+		out := make([]audio.Octave, len(ns))
+		for i, n := range ns {
+			out[i] = toOctave(n)
+		}
+		return out
+	}
+	return audio.ClusterConfig{
+		KeepTopN:        c.KeepTopN,
+		EventTypeIDs:    resolve(c.EventTypes),
+		AlwaysFireIDs:   resolve(c.AlwaysFire),
+		Velocities:      c.Velocities,
+		ReleaseVelocity: c.ReleaseVelocity,
+		OctaveRank1:     toOctave(c.OctaveRank1),
+		OctaveRank2:     octaveList(c.OctaveRank2),
+		OctaveRank3:     toOctave(c.OctaveRank3),
+		OctaveRank4:     toOctave(c.OctaveRank4),
+		OctaveRelease:   toOctave(c.OctaveRelease),
+		SpreadMs:        c.SpreadMs,
+	}
 }

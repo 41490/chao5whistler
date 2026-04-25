@@ -139,3 +139,125 @@ func TestClusterFiltersUnknownTypes(t *testing.T) {
 		t.Error("remaining trigger should be Push")
 	}
 }
+
+func conductorTestConfig() ClusterConfig {
+	c := testClusterConfig()
+	c.ConductorMode = true
+	c.LeadVelocity = 1.00
+	c.BackgroundVelocity = 0.18
+	c.WindowMs = 800
+	c.WindowJitterMs = 0 // deterministic for tests
+	return c
+}
+
+func TestConductorEmpty(t *testing.T) {
+	if got := Assign(nil, conductorTestConfig()); got != nil {
+		t.Errorf("empty input → %v, want nil", got)
+	}
+}
+
+func TestConductorOneLeadAndBackground(t *testing.T) {
+	cfg := conductorTestConfig()
+	evs := []EventEntry{
+		{TypeID: 0}, // Push (rank 1, count=3)
+		{TypeID: 0},
+		{TypeID: 0},
+		{TypeID: 1}, // Create (rank 2, count=1)
+	}
+	triggers := Assign(evs, cfg)
+	if len(triggers) != 4 {
+		t.Fatalf("len = %d, want 4 (1 lead + 3 background)", len(triggers))
+	}
+
+	// First trigger is the lead bell (full velocity, sample, NoteGong @ OctaveMid).
+	lead := triggers[0]
+	if lead.Velocity != 1.00 {
+		t.Errorf("lead velocity = %v, want 1.00", lead.Velocity)
+	}
+	if lead.Source != SourceSample {
+		t.Errorf("lead source = %v, want SourceSample", lead.Source)
+	}
+	if lead.Pitch.Note != NoteGong || lead.Pitch.Octave != OctaveMid {
+		t.Errorf("lead pitch = %+v, want NoteGong/OctaveMid", lead.Pitch)
+	}
+	if lead.WithOcean {
+		t.Error("non-Release lead should not carry WithOcean")
+	}
+	if lead.MsOffset != 0 {
+		t.Errorf("lead MsOffset = %d, want 0 (no jitter in test)", lead.MsOffset)
+	}
+
+	// Remaining triggers must be background: SourceSynth, velocity scaled below 0.5.
+	for i := 1; i < 4; i++ {
+		if triggers[i].Source != SourceSynth {
+			t.Errorf("bg trigger %d source = %v, want SourceSynth", i, triggers[i].Source)
+		}
+		if triggers[i].Velocity > 0.5 {
+			t.Errorf("bg trigger %d velocity %v not attenuated", i, triggers[i].Velocity)
+		}
+		if triggers[i].WithOcean {
+			t.Errorf("bg trigger %d should not have WithOcean", i)
+		}
+	}
+}
+
+func TestConductorReleaseLeadCarriesOcean(t *testing.T) {
+	cfg := conductorTestConfig()
+	evs := []EventEntry{{TypeID: 5}} // Release alone
+	triggers := Assign(evs, cfg)
+	if len(triggers) != 1 {
+		t.Fatalf("len = %d, want 1", len(triggers))
+	}
+	tr := triggers[0]
+	if !tr.WithOcean {
+		t.Error("Release lead should carry WithOcean=true")
+	}
+	if tr.Pitch.Note != NoteYu || tr.Pitch.Octave != OctaveHigh {
+		t.Errorf("Release lead pitch = %+v, want NoteYu/OctaveHigh", tr.Pitch)
+	}
+	if tr.Source != SourceSample {
+		t.Errorf("Release lead source = %v, want SourceSample", tr.Source)
+	}
+}
+
+func TestConductorReleaseInBackgroundDoesNotOcean(t *testing.T) {
+	cfg := conductorTestConfig()
+	// Push×2 dominates; one Release event in the mix → background.
+	evs := []EventEntry{
+		{TypeID: 0}, {TypeID: 0}, {TypeID: 5},
+	}
+	triggers := Assign(evs, cfg)
+	if len(triggers) != 3 {
+		t.Fatalf("len = %d, want 3", len(triggers))
+	}
+	// Lead is Push (rank 1).
+	if triggers[0].WithOcean {
+		t.Error("Push lead should not have WithOcean")
+	}
+	// Find the Release background — it should NOT carry WithOcean.
+	for i := 1; i < 3; i++ {
+		if triggers[i].TypeID == 5 && triggers[i].WithOcean {
+			t.Error("background Release instance should not carry WithOcean (lead-only)")
+		}
+	}
+}
+
+func TestConductorLegacyModePreserved(t *testing.T) {
+	cfg := testClusterConfig() // ConductorMode = false (zero value)
+	evs := []EventEntry{
+		{TypeID: 0}, {TypeID: 0}, {TypeID: 0}, {TypeID: 0},
+	}
+	triggers := Assign(evs, cfg)
+	// Legacy: 4 triggers, all NoteGong, all SourceSample, all velocity 1.00.
+	if len(triggers) != 4 {
+		t.Fatalf("legacy len = %d, want 4", len(triggers))
+	}
+	for i, tr := range triggers {
+		if tr.Velocity != 1.00 {
+			t.Errorf("legacy trigger %d velocity = %v, want 1.00", i, tr.Velocity)
+		}
+		if tr.Source != SourceSample {
+			t.Errorf("legacy trigger %d source = %v, want SourceSample", i, tr.Source)
+		}
+	}
+}

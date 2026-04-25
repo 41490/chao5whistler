@@ -261,16 +261,21 @@ func buildClusterConfig(c config.AudioCluster) audio.ClusterConfig {
 		return out
 	}
 	return audio.ClusterConfig{
-		KeepTopN:        c.KeepTopN,
-		EventTypeIDs:    resolve(c.EventTypes),
-		AlwaysFireIDs:   resolve(c.AlwaysFire),
-		Velocities:      c.Velocities,
-		ReleaseVelocity: c.ReleaseVelocity,
-		OctaveRank1:     toOctave(c.OctaveRank1),
-		OctaveRank2:     octaveList(c.OctaveRank2),
-		OctaveRank3:     toOctave(c.OctaveRank3),
-		OctaveRank4:     toOctave(c.OctaveRank4),
-		OctaveRelease:   toOctave(c.OctaveRelease),
-		SpreadMs:        c.SpreadMs,
+		KeepTopN:           c.KeepTopN,
+		EventTypeIDs:       resolve(c.EventTypes),
+		AlwaysFireIDs:      resolve(c.AlwaysFire),
+		Velocities:         c.Velocities,
+		ReleaseVelocity:    c.ReleaseVelocity,
+		OctaveRank1:        toOctave(c.OctaveRank1),
+		OctaveRank2:        octaveList(c.OctaveRank2),
+		OctaveRank3:        toOctave(c.OctaveRank3),
+		OctaveRank4:        toOctave(c.OctaveRank4),
+		OctaveRelease:      toOctave(c.OctaveRelease),
+		SpreadMs:           c.SpreadMs,
+		ConductorMode:      c.ConductorMode,
+		LeadVelocity:       c.LeadVelocity,
+		BackgroundVelocity: c.BackgroundVelocity,
+		WindowMs:           c.WindowMs,
+		WindowJitterMs:     c.WindowJitterMs,
 	}
 }

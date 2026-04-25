@@ -362,6 +362,11 @@ octave_rank3 = 5
 octave_rank4 = 3
 octave_release = 5
 spread_ms = 500
+conductor_mode = true
+lead_velocity = 1.0
+background_velocity = 0.18
+window_ms = 800
+window_jitter_ms = 200
 [video]
 width = 1280
 height = 720
@@ -395,5 +400,20 @@ path = "/tmp/x"
 	}
 	if cfg.Audio.Cluster.Velocities[0] != 1.0 {
 		t.Errorf("Velocities[0] = %v", cfg.Audio.Cluster.Velocities[0])
+	}
+	if !cfg.Audio.Cluster.ConductorMode {
+		t.Error("ConductorMode should be true")
+	}
+	if cfg.Audio.Cluster.LeadVelocity != 1.0 {
+		t.Errorf("LeadVelocity = %v", cfg.Audio.Cluster.LeadVelocity)
+	}
+	if cfg.Audio.Cluster.BackgroundVelocity != 0.18 {
+		t.Errorf("BackgroundVelocity = %v", cfg.Audio.Cluster.BackgroundVelocity)
+	}
+	if cfg.Audio.Cluster.WindowMs != 800 {
+		t.Errorf("WindowMs = %v", cfg.Audio.Cluster.WindowMs)
+	}
+	if cfg.Audio.Cluster.WindowJitterMs != 200 {
+		t.Errorf("WindowJitterMs = %v", cfg.Audio.Cluster.WindowJitterMs)
 	}
 }

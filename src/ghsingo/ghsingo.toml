@@ -62,11 +62,19 @@ octave_rank3    = 5
 octave_rank4    = 3
 octave_release  = 5
 spread_ms       = 500
+# Conductor mode: 1 lead bell + quiet background bed (added 2026-04-25 from
+# user feedback that "every event = a bell" was too dense).
+conductor_mode      = true
+lead_velocity       = 1.00
+background_velocity = 0.18
+window_ms           = 800
+window_jitter_ms    = 200
 
-# Surviving voice: ReleaseEvent ocean texture, layered on top of the bell at A5.
+# Release ocean: layered ONLY when ReleaseEvent is the per-second lead.
+# Gain dropped from +3.1 to -12 dB after listener feedback (was overwhelming).
 [audio.voices.ReleaseEvent]
 wav_path = "../../ops/assets/sounds/normalized/ReleaseEvent.wav"
-gain_db = 3.1
+gain_db = -12.0
 duration_ms = 2490
 
 [video]

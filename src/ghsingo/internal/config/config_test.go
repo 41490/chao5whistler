@@ -367,6 +367,7 @@ lead_velocity = 1.0
 background_velocity = 0.18
 window_ms = 800
 window_jitter_ms = 200
+min_strike_interval_ms = 1200
 [video]
 width = 1280
 height = 720
@@ -415,5 +416,8 @@ path = "/tmp/x"
 	}
 	if cfg.Audio.Cluster.WindowJitterMs != 200 {
 		t.Errorf("WindowJitterMs = %v", cfg.Audio.Cluster.WindowJitterMs)
+	}
+	if cfg.Audio.Cluster.MinStrikeIntervalMs != 1200 {
+		t.Errorf("MinStrikeIntervalMs = %v", cfg.Audio.Cluster.MinStrikeIntervalMs)
 	}
 }

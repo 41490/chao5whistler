@@ -1,5 +1,5 @@
 [meta]
-profile = "default"
+profile = "mallet"
 
 [archive]
 source_dir = "../../ops/assets"
@@ -36,21 +36,15 @@ wav_path = "../../ops/assets/cosmos-leveloop-339.wav"
 gain_db = -4.8
 loop = true
 
-# Runtime-synthesized beat: BPM follows the last 60 seconds of event density.
-# Gain is well below the bell layer (-26 dB) — gentle subliminal anchor only.
 [audio.beat]
 gain_db = -26.0
 
-# Bell bank: 15 pentatonic pitches (5 note names × 3 octaves).
-# Default bank = GM 14 Tubular Bells. Long samples (lead + Release) +
-# Karplus–Strong synth fallback if a bank sample is missing.
 [audio.bells]
-bank_dir = "../../ops/assets/sounds/bells/sampled"
+bank_dir = "../../ops/assets/sounds/bells/mallet"
 sample_gain_db = -2.0
 synth_gain_db  = -4.0
 synth_decay    = 0.996
 
-# Per-second event cluster algorithm.
 [audio.cluster]
 keep_top_n = 4
 event_types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent"]
@@ -63,18 +57,13 @@ octave_rank3    = 5
 octave_rank4    = 3
 octave_release  = 5
 spread_ms       = 500
-# Conductor mode: keep only the lead bell audible by default, and gate lead
-# strikes to at most once every 1200 ms (~50 BPM) so sparse breathing seconds
-# appear naturally.
-conductor_mode      = true
-lead_velocity       = 1.00
+conductor_mode  = true
+lead_velocity   = 1.00
 background_velocity = 0.00
-window_ms           = 800
-window_jitter_ms    = 200
+window_ms       = 800
+window_jitter_ms = 200
 min_strike_interval_ms = 1200
 
-# Release ocean: layered ONLY when ReleaseEvent is the per-second lead.
-# Kept audible again at -6 dB because -12 dB disappeared in conductor mode.
 [audio.voices.ReleaseEvent]
 wav_path = "../../ops/assets/sounds/normalized/ReleaseEvent.wav"
 gain_db = -6.0
@@ -107,7 +96,6 @@ rotation_deg = 90.0
 
 [video.background]
 mode = "solid"
-# sequence_dir is kept for backward compatibility; prefer sequence_dirs.
 sequence_dir = ""
 sequence_dirs = ["../../ops/assets/backgrounds/movpixer/Headspace.Guide.to.Meditation.S01E07.How.to.Deal.with.Anger.1080p"]
 switch_every_secs = 2.0

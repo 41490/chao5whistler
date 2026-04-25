@@ -6,7 +6,8 @@ VAR_DIR := $(ROOT)/var/ghsingo
 
 .PHONY: build build-prepare build-live build-render-audio build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
-        prepare-bells normalize-voices \
+        prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
+        normalize-voices \
         run-prepare run-live run-live-5m render-audio-5m run-movpixer \
         install-units enable start stop status logs \
         fmt vet test clean
@@ -64,10 +65,19 @@ prepare-assets: normalize-voices
 	ffmpeg -i ../../ops/assets/cosmos-leveloop-339.mp3 \
 		-ar 44100 -ac 2 -y ../../ops/assets/cosmos-leveloop-339.wav
 
-# prepare-bells: render the 15-pitch pentatonic bell sample bank via fluidsynth.
-# Requires fluidsynth + ffmpeg + FluidR3_GM.sf2 at /usr/share/sounds/sf2/.
+# prepare-bells: render the default Tubular Bells bank (GM 14) used by
+# ghsingo.toml. Additional comparison banks are GM 12 Marimba and GM 19
+# Church Organ.
 prepare-bells:
-	bash scripts/render-bells.sh
+	bash scripts/render-bells.sh --bank-name sampled --program 14
+
+prepare-bells-mallet:
+	bash scripts/render-bells.sh --bank-name mallet --program 12
+
+prepare-bells-organ:
+	bash scripts/render-bells.sh --bank-name organ --program 19
+
+prepare-bells-all: prepare-bells prepare-bells-mallet prepare-bells-organ
 
 # === Run ===
 

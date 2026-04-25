@@ -109,6 +109,7 @@ func main() {
 	}
 
 	clusterCfg := buildClusterConfig(cfg.Audio.Cluster)
+	clusterer := audio.NewClusterer(clusterCfg)
 
 	// --- Start FFmpeg (audio-only) ---
 	if err := os.MkdirAll(filepath.Dir(*outputPath), 0755); err != nil {
@@ -165,7 +166,7 @@ func main() {
 				for i, ev := range currentTick.Events {
 					entries[i] = audio.EventEntry{TypeID: ev.TypeID, Weight: ev.Weight}
 				}
-				triggers := audio.Assign(entries, clusterCfg)
+				triggers := clusterer.Tick(entries)
 				mixer.ScheduleNotes(triggers)
 				lastSecond = currentTick.Second
 			}
@@ -261,21 +262,22 @@ func buildClusterConfig(c config.AudioCluster) audio.ClusterConfig {
 		return out
 	}
 	return audio.ClusterConfig{
-		KeepTopN:           c.KeepTopN,
-		EventTypeIDs:       resolve(c.EventTypes),
-		AlwaysFireIDs:      resolve(c.AlwaysFire),
-		Velocities:         c.Velocities,
-		ReleaseVelocity:    c.ReleaseVelocity,
-		OctaveRank1:        toOctave(c.OctaveRank1),
-		OctaveRank2:        octaveList(c.OctaveRank2),
-		OctaveRank3:        toOctave(c.OctaveRank3),
-		OctaveRank4:        toOctave(c.OctaveRank4),
-		OctaveRelease:      toOctave(c.OctaveRelease),
-		SpreadMs:           c.SpreadMs,
-		ConductorMode:      c.ConductorMode,
-		LeadVelocity:       c.LeadVelocity,
-		BackgroundVelocity: c.BackgroundVelocity,
-		WindowMs:           c.WindowMs,
-		WindowJitterMs:     c.WindowJitterMs,
+		KeepTopN:            c.KeepTopN,
+		EventTypeIDs:        resolve(c.EventTypes),
+		AlwaysFireIDs:       resolve(c.AlwaysFire),
+		Velocities:          c.Velocities,
+		ReleaseVelocity:     c.ReleaseVelocity,
+		OctaveRank1:         toOctave(c.OctaveRank1),
+		OctaveRank2:         octaveList(c.OctaveRank2),
+		OctaveRank3:         toOctave(c.OctaveRank3),
+		OctaveRank4:         toOctave(c.OctaveRank4),
+		OctaveRelease:       toOctave(c.OctaveRelease),
+		SpreadMs:            c.SpreadMs,
+		ConductorMode:       c.ConductorMode,
+		LeadVelocity:        c.LeadVelocity,
+		BackgroundVelocity:  c.BackgroundVelocity,
+		WindowMs:            c.WindowMs,
+		WindowJitterMs:      c.WindowJitterMs,
+		MinStrikeIntervalMs: c.MinStrikeIntervalMs,
 	}
 }

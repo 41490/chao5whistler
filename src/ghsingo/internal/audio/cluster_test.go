@@ -261,3 +261,79 @@ func TestConductorLegacyModePreserved(t *testing.T) {
 		}
 	}
 }
+
+func TestClustererGateSuppressesLead(t *testing.T) {
+	cfg := conductorTestConfig()
+	cfg.MinStrikeIntervalMs = 1500 // need >1.5s between strikes
+	c := NewClusterer(cfg)
+
+	evs := []EventEntry{{TypeID: 0}}
+
+	// Tick 1: starts with msSinceLastStrike very large → fires.
+	got1 := c.Tick(evs)
+	if len(got1) == 0 {
+		t.Fatal("first Tick should fire (no prior strike)")
+	}
+
+	// Tick 2: only 1000ms elapsed, gate (1500) blocks → silent.
+	got2 := c.Tick(evs)
+	if got2 != nil {
+		t.Errorf("Tick 2 should be silent (gate); got %v triggers", len(got2))
+	}
+
+	// Tick 3: cumulative 2000ms — gate releases.
+	got3 := c.Tick(evs)
+	if len(got3) == 0 {
+		t.Error("Tick 3 should fire (cumulative >= 1500)")
+	}
+}
+
+func TestClustererGateZeroMeansNoGate(t *testing.T) {
+	cfg := conductorTestConfig()
+	cfg.MinStrikeIntervalMs = 0 // disabled
+	c := NewClusterer(cfg)
+	evs := []EventEntry{{TypeID: 0}}
+	for i := 0; i < 5; i++ {
+		if c.Tick(evs) == nil {
+			t.Errorf("with gate=0, every Tick should fire (i=%d)", i)
+		}
+	}
+}
+
+func TestClustererLegacyBypassesGate(t *testing.T) {
+	cfg := testClusterConfig()       // ConductorMode = false
+	cfg.MinStrikeIntervalMs = 999999 // would block forever in conductor
+	c := NewClusterer(cfg)
+	evs := []EventEntry{{TypeID: 0}, {TypeID: 0}}
+	got := c.Tick(evs)
+	if len(got) != 2 {
+		t.Errorf("legacy mode should ignore gate; got %d triggers, want 2", len(got))
+	}
+}
+
+func TestClustererBackgroundZeroSilencesBed(t *testing.T) {
+	cfg := conductorTestConfig()
+	cfg.BackgroundVelocity = 0.0
+	cfg.MinStrikeIntervalMs = 0
+	c := NewClusterer(cfg)
+	evs := []EventEntry{
+		{TypeID: 0}, {TypeID: 0}, {TypeID: 1}, {TypeID: 2},
+	}
+	got := c.Tick(evs)
+	// We still get triggers, but background ones have velocity 0.
+	leadCount := 0
+	silentBgCount := 0
+	for _, tr := range got {
+		if tr.Velocity == 0.0 {
+			silentBgCount++
+		} else {
+			leadCount++
+		}
+	}
+	if leadCount != 1 {
+		t.Errorf("want exactly 1 audible lead, got %d", leadCount)
+	}
+	if silentBgCount != len(got)-1 {
+		t.Errorf("non-lead triggers should all be silent (vel=0); got silent=%d total=%d", silentBgCount, len(got))
+	}
+}

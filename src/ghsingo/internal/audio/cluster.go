@@ -54,6 +54,13 @@ type ClusterConfig struct {
 	BackgroundVelocity float32 // multiplier on rank velocities for background events (e.g. 0.18)
 	WindowMs           int     // active window length in ms within each second (e.g. 800)
 	WindowJitterMs     int     // random window-start jitter in ms 0..N (e.g. 200)
+
+	// MinStrikeIntervalMs sets the minimum gap between consecutive lead bells
+	// in conductor mode. The Clusterer accumulates elapsed time across calls
+	// and suppresses any lead that would fire sooner than this gap. 0 disables
+	// the gate (lead fires whenever conductor logic decides). Used to enforce
+	// the 42-60 BPM target (1000~1428 ms).
+	MinStrikeIntervalMs int
 }
 
 var rankNotes = [4]Note{NoteGong, NoteShang, NoteJue, NoteZhi}
@@ -342,5 +349,46 @@ func assignConductor(events []EventEntry, cfg ClusterConfig) []NoteTrigger {
 		})
 	}
 
+	return triggers
+}
+
+// Clusterer holds the small bit of state needed to enforce
+// MinStrikeIntervalMs across consecutive ticks. Each call to Tick advances
+// the internal clock by one second-of-data and returns the triggers for
+// that tick.
+type Clusterer struct {
+	cfg               ClusterConfig
+	msSinceLastStrike int
+}
+
+// NewClusterer creates a fresh Clusterer with the given configuration.
+// The first call to Tick is treated as already past any min-strike gate
+// (so a lead can fire immediately on the very first second of data).
+func NewClusterer(cfg ClusterConfig) *Clusterer {
+	return &Clusterer{
+		cfg:               cfg,
+		msSinceLastStrike: 1 << 30, // start "long ago" so first strike is allowed
+	}
+}
+
+// Tick processes one second of events and returns the triggers to schedule.
+// If the configured gate suppresses the lead, returns nil (silent breath).
+func (c *Clusterer) Tick(events []EventEntry) []NoteTrigger {
+	c.msSinceLastStrike += 1000
+
+	// Legacy mode: stateless, no gating, just delegate.
+	if !c.cfg.ConductorMode {
+		return assignLegacy(events, c.cfg)
+	}
+
+	// Conductor + min-strike gate.
+	if c.cfg.MinStrikeIntervalMs > 0 && c.msSinceLastStrike < c.cfg.MinStrikeIntervalMs {
+		return nil // breath: too soon since last strike
+	}
+
+	triggers := assignConductor(events, c.cfg)
+	if len(triggers) > 0 {
+		c.msSinceLastStrike = 0
+	}
 	return triggers
 }

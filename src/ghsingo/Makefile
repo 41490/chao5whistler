@@ -8,6 +8,7 @@ VAR_DIR := $(ROOT)/var/ghsingo
         build-composer-demo build-render-audio-v2 build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
+        prepare-tonal-bed \
         normalize-voices \
         run-prepare run-live run-live-5m render-audio-5m run-movpixer \
         composer-timeline composer-timeline-5m \
@@ -91,6 +92,11 @@ prepare-bells-organ:
 	bash scripts/render-bells.sh --bank-name organ --program 19
 
 prepare-bells-all: prepare-bells prepare-bells-mallet prepare-bells-organ
+
+# prepare-tonal-bed: derive ops/assets/sounds/ambient/tonal-bed.wav from
+# the cosmos-leveloop source for use as v2's L0.5 sample-based bed (#32).
+prepare-tonal-bed:
+	bash scripts/prepare-tonal-bed.sh
 
 # === Run ===
 

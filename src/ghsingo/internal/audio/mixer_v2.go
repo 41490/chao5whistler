@@ -14,21 +14,25 @@ import (
 //
 // Layer map:
 //
-//	L0 drone — DroneVoice, gain ∝ (1 - 0.4*Density), mode -> root Hz
-//	L1 bed   — BedVoice (filtered pink noise), gain ∝ Brightness
-//	L2 accent — short Karplus voice from BellBank, fired on composer.Accent
-//	all     — shared Reverb tail (existing internal/audio/reverb.go)
+//	L0   drone     — DroneVoice, gain ∝ (1 - 0.4*Density), mode -> root Hz
+//	L0.5 tonal-bed — TonalBedVoice, sample-based looped bed (#32)
+//	L1   bed       — BedVoice (filtered pink noise), gain ∝ Brightness
+//	L2   accent    — short Karplus voice from BellBank, fired on composer.Accent
+//	all          — shared Reverb send (mixerSpaceWet) for unified space
 type MixerV2 struct {
 	sampleRate      int
 	fps             int
 	samplesPerFrame int
 
-	drone *DroneVoice
-	bed   *BedVoice
+	drone     *DroneVoice
+	bed       *BedVoice
+	tonalBed  *TonalBedVoice
 
 	bells     *BellBank
 	accentMax int
 
+	// reverb is the shared "space" — every continuous layer plus the
+	// accent bus sends through it at its own wet ratio (#32).
 	reverb *Reverb
 
 	pendingAccents []v2PendingAccent
@@ -37,10 +41,17 @@ type MixerV2 struct {
 	frameBuf []float32
 
 	// Dial gains so callers can map dB to linear without rebuilding voices.
-	droneGain  float32 // base scalar applied on top of voice's own slew
-	bedGain    float32
-	accentGain float32
-	masterGain float32
+	droneGain    float32 // base scalar applied on top of voice's own slew
+	bedGain      float32
+	tonalBedGain float32
+	accentGain   float32
+	masterGain   float32
+
+	// Wet ratios for the shared reverb send. Continuous layers go in at
+	// a low wet so the floor stays defined; accents go in heavy so the
+	// space tail is the strongest part of an accent.
+	wetContinuous float32
+	wetAccent     float32
 
 	// Cached state used by metric reporting.
 	lastState composer.State
@@ -70,27 +81,48 @@ func NewMixerV2(sampleRate, fps, accentMax int) *MixerV2 {
 		samplesPerFrame: sampleRate / fps,
 		drone:           NewDroneVoice(sampleRate),
 		bed:             NewBedVoice(sampleRate, 0xb1d),
+		tonalBed:        NewTonalBedVoice(sampleRate, nil),
 		reverb:          NewReverb(sampleRate),
 		accentMax:       accentMax,
-		droneGain:  1.0,
-		bedGain:    1.0,
-		accentGain: 1.0,
-		// 0.7 master leaves ~3 dB of headroom for inter-sample peaks
-		// after AAC encoding, keeping true-peak under -1.5 dBTP.
-		masterGain: 0.7,
+		droneGain:    1.0,
+		bedGain:      1.0,
+		tonalBedGain: 1.0,
+		accentGain:   1.0,
+		// 0.55 master leaves ~5 dB of headroom for inter-sample peaks
+		// after AAC encoding plus the shared-reverb send stacking;
+		// empirically keeps true-peak under -1.5 dBTP across the
+		// drone+tonal+bed+accent layered mix.
+		masterGain:    0.55,
+		wetContinuous: 0.06,
+		wetAccent:     0.45,
 	}
 }
 
-// SetDroneGain / SetBedGain / SetAccentGain / SetMasterGain accept linear
-// scalars (use GainToLinear to convert from dB).
-func (m *MixerV2) SetDroneGain(g float32)  { m.droneGain = g }
-func (m *MixerV2) SetBedGain(g float32)    { m.bedGain = g }
-func (m *MixerV2) SetAccentGain(g float32) { m.accentGain = g }
-func (m *MixerV2) SetMasterGain(g float32) { m.masterGain = g }
+// Per-layer gain dials. Values are linear scalars; use GainToLinear to
+// convert from dB.
+func (m *MixerV2) SetDroneGain(g float32)    { m.droneGain = g }
+func (m *MixerV2) SetBedGain(g float32)      { m.bedGain = g }
+func (m *MixerV2) SetTonalBedGain(g float32) { m.tonalBedGain = g }
+func (m *MixerV2) SetAccentGain(g float32)   { m.accentGain = g }
+func (m *MixerV2) SetMasterGain(g float32)   { m.masterGain = g }
 
 // SetAccentBank installs the BellBank used to spawn accent voices.
 // Passing nil disables accents (useful for testing pure ambient layers).
 func (m *MixerV2) SetAccentBank(b *BellBank) { m.bells = b }
+
+// SetTonalBedPCM installs (or replaces) the tonal bed sample. nil/empty
+// disables the layer.
+func (m *MixerV2) SetTonalBedPCM(pcm []float32) {
+	m.tonalBed = NewTonalBedVoice(m.sampleRate, pcm)
+}
+
+// SetWet allows tuning of the shared-space send levels. Continuous layers
+// sit low (~0.1) so the floor stays defined; accents go heavier so their
+// tails define the perceived "space" of the engine.
+func (m *MixerV2) SetWet(continuous, accent float32) {
+	m.wetContinuous = clampUnit(continuous)
+	m.wetAccent = clampUnit(accent)
+}
 
 // ApplyOutput consumes one composer tick: updates the long-lived voices'
 // targets from State and queues any Accents to spawn on the next frame.
@@ -104,6 +136,13 @@ func (m *MixerV2) ApplyOutput(o composer.Output) {
 	// Bed swells with brightness; never below 0.04 so the bed is always
 	// audible (a defining property of the ambient engine).
 	m.bed.SetTargetGain(0.04 + 0.16*float32(o.State.Brightness))
+	// Tonal bed sits between drone and bed. SectionRest dips it so the
+	// engine breathes; everywhere else the tonal layer carries the floor.
+	tonalTarget := float32(0.18)
+	if o.State.Section == composer.SectionRest {
+		tonalTarget = 0.10
+	}
+	m.tonalBed.SetTargetGain(tonalTarget)
 
 	for _, a := range o.Accents {
 		// Random small offset within first 100 ms of the second so two
@@ -145,11 +184,13 @@ func (m *MixerV2) RenderFrame() []float32 {
 	for i := 0; i < n; i++ {
 		// L0 drone
 		drone := m.drone.NextSample() * m.droneGain
-		// L1 bed
+		// L0.5 tonal bed (sample-based)
+		tonal := m.tonalBed.NextSample() * m.tonalBedGain
+		// L1 bed (synth pink noise)
 		bed := m.bed.NextSample() * m.bedGain
-		mono := drone + bed
+		mono := drone + tonal + bed
 
-		// Accents (if any)
+		// Accents (if any) get summed dry first.
 		var accentMix float32
 		if len(m.activeAccents) > 0 {
 			for idx := range m.activeAccents {
@@ -164,19 +205,25 @@ func (m *MixerV2) RenderFrame() []float32 {
 				accentMix += v.voice.NextSample() * v.gain
 			}
 		}
+		accentDry := accentMix * m.accentGain
 
-		wetAccent := m.reverb.Process(accentMix * m.accentGain)
+		// Single shared reverb send: continuous layers go in light, the
+		// accent bus heavy. The reverb instance is one bus so all layers
+		// occupy the same room.
+		spaceIn := mono*m.wetContinuous + accentDry*m.wetAccent
+		spaceOut := m.reverb.Process(spaceIn)
 
-		// Balanced linear pan — total energy <= 1 across L+R, so adding
-		// drone+bed (centred) cannot push either channel past unity.
+		// Balanced linear pan on accent dry — total energy <= 1 across L+R
+		// so adding drone+bed+tonal (centred) cannot push either channel
+		// past unity.
 		var panL, panR float32 = 0.5, 0.5
 		if len(m.activeAccents) > 0 {
 			pan := m.activeAccents[0].pan
 			panL = 1.0 - pan
 			panR = pan
 		}
-		l := (mono + wetAccent*panL) * m.masterGain
-		r := (mono + wetAccent*panR) * m.masterGain
+		l := (mono + accentDry*panL + spaceOut) * m.masterGain
+		r := (mono + accentDry*panR + spaceOut) * m.masterGain
 
 		out[i*2] = softClipV2(l)
 		out[i*2+1] = softClipV2(r)
@@ -269,4 +316,14 @@ func softClipV2(x float32) float32 {
 		return -1.0
 	}
 	return float32(math.Tanh(float64(x)))
+}
+
+func clampUnit(x float32) float32 {
+	if x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
 }

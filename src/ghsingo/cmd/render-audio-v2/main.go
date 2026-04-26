@@ -87,6 +87,19 @@ func main() {
 		}
 		mx.SetAccentBank(bank)
 	}
+	// #32: load the tonal bed sample. Until #33 introduces a dedicated
+	// [audio.tonal_bed] block, fall back to the legacy BGM path so the
+	// existing cosmos sample (or any pre-processed bed) can be used
+	// without a config schema change.
+	if cfg.Audio.BGM.WavPath != "" {
+		if pcm, err := audio.LoadWavFile(cfg.Audio.BGM.WavPath); err != nil {
+			slog.Warn("load tonal bed", "err", err, "path", cfg.Audio.BGM.WavPath)
+		} else {
+			mx.SetTonalBedPCM(pcm)
+			mx.SetTonalBedGain(audio.GainToLinear(cfg.Audio.BGM.GainDB))
+			slog.Info("tonal bed loaded", "samples", len(pcm), "path", cfg.Audio.BGM.WavPath)
+		}
+	}
 	c := composer.New(composer.Config{Seed: *seed})
 
 	if err := os.MkdirAll(filepath.Dir(*outputPath), 0755); err != nil {

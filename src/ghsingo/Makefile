@@ -5,7 +5,8 @@ BIN_DIR := $(ROOT)/ops/bin
 VAR_DIR := $(ROOT)/var/ghsingo
 
 .PHONY: build build-prepare build-live build-render-audio build-audio-metrics \
-        build-composer-demo build-render-audio-v2 build-movpixer \
+        build-composer-demo build-render-audio-v2 build-migrate-config \
+        build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
         prepare-tonal-bed \
@@ -13,13 +14,15 @@ VAR_DIR := $(ROOT)/var/ghsingo
         run-prepare run-live run-live-5m render-audio-5m run-movpixer \
         composer-timeline composer-timeline-5m \
         render-audio-v2-30s render-audio-v2-5m \
+        render-audio-v2-profile-30s render-audio-v2-profile-5m \
         baseline baseline-30s baseline-5m \
+        migrate-default-to-v2 \
         install-units enable start stop status logs \
         fmt vet test clean
 
 # === Build ===
 
-build: build-prepare build-live build-render-audio build-audio-metrics build-composer-demo build-render-audio-v2 build-movpixer
+build: build-prepare build-live build-render-audio build-audio-metrics build-composer-demo build-render-audio-v2 build-migrate-config build-movpixer
 
 build-prepare:
 	go build -o $(BIN_DIR)/prepare ./cmd/prepare
@@ -38,6 +41,9 @@ build-composer-demo:
 
 build-render-audio-v2:
 	go build -o $(BIN_DIR)/render-audio-v2 ./cmd/render-audio-v2
+
+build-migrate-config:
+	go build -o $(BIN_DIR)/migrate-config ./cmd/migrate-config
 
 build-movpixer:
 	go build -o $(BIN_DIR)/movpixer ./cmd/movpixer
@@ -152,6 +158,31 @@ render-audio-v2-5m: build-render-audio-v2 build-audio-metrics
 	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-5m.m4a --out ../../ops/out/v2/v2-5m.report.json
 	@echo "Output: ops/out/v2/v2-5m.m4a + ops/out/v2/v2-5m.report.json"
 
+# render-audio-v2-profile-*: same as the rendering targets above but
+# loads the v2-shaped ghsingo-v2.toml profile (engine="v2"). The non-
+# profile targets keep using the legacy ghsingo.toml so we can A/B old
+# vs new with one make target.
+render-audio-v2-profile-30s: build-render-audio-v2 build-audio-metrics
+	mkdir -p ../../ops/out/v2
+	$(BIN_DIR)/render-audio-v2 --config ghsingo-v2.toml --duration 30s -o ../../ops/out/v2/v2-profile-30s.m4a
+	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-profile-30s.m4a --out ../../ops/out/v2/v2-profile-30s.report.json
+	@echo "Output: ops/out/v2/v2-profile-30s.m4a + ops/out/v2/v2-profile-30s.report.json"
+
+render-audio-v2-profile-5m: build-render-audio-v2 build-audio-metrics
+	mkdir -p ../../ops/out/v2
+	$(BIN_DIR)/render-audio-v2 --config ghsingo-v2.toml --duration 5m -o ../../ops/out/v2/v2-profile-5m.m4a
+	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-profile-5m.m4a --out ../../ops/out/v2/v2-profile-5m.report.json
+	@echo "Output: ops/out/v2/v2-profile-5m.m4a + ops/out/v2/v2-profile-5m.report.json"
+
+# migrate-default-to-v2: end-to-end smoke test of the migration tool.
+# Reads ghsingo.toml (bell-era frozen) and writes a fresh ghsingo-v2.toml
+# alongside it (overwrites the checked-in template — useful for diff-based
+# review during code review, NOT a checked-in workflow).
+migrate-default-to-v2: build-migrate-config
+	$(BIN_DIR)/migrate-config --in ghsingo.toml --out /tmp/ghsingo-v2.migrated.toml
+	@diff -u ghsingo-v2.toml /tmp/ghsingo-v2.migrated.toml || true
+	@echo "Migration output written to /tmp/ghsingo-v2.migrated.toml"
+
 run-movpixer: build-movpixer
 	$(BIN_DIR)/movpixer --config movpixer.toml
 
@@ -195,6 +226,7 @@ clean:
 		$(BIN_DIR)/audio-metrics \
 		$(BIN_DIR)/composer-demo \
 		$(BIN_DIR)/live \
+		$(BIN_DIR)/migrate-config \
 		$(BIN_DIR)/movpixer \
 		$(BIN_DIR)/movpixer-darwin-arm64 \
 		$(BIN_DIR)/movpixer-linux-amd64 \

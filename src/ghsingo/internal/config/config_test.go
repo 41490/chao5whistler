@@ -322,6 +322,183 @@ func TestLoadInvalidBackgroundFadeSecs(t *testing.T) {
 	}
 }
 
+func TestResolvedEngineDefaults(t *testing.T) {
+	cases := []struct {
+		engine string
+		legacy bool
+		want   string
+	}{
+		{"", false, "v1"},
+		{"", true, "v1"},
+		{"v1", false, "v1"},
+		{"v2", false, "v2"},
+		{"unknown", false, "v1"}, // unknown values fall back to v1
+	}
+	for _, tc := range cases {
+		c := &Config{Meta: Meta{Engine: tc.engine, Legacy: tc.legacy}}
+		if got := c.ResolvedEngine(); got != tc.want {
+			t.Errorf("engine=%q legacy=%v: got %q want %q", tc.engine, tc.legacy, got, tc.want)
+		}
+	}
+}
+
+func TestLoadV2Schema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "v2.toml")
+	body := `
+[meta]
+profile = "ambient-v2"
+engine  = "v2"
+[archive]
+source_dir = "x"
+daypack_dir = "y"
+target_date = "2026-04-01"
+[events]
+types = ["PushEvent"]
+max_per_second = 4
+[events.weights]
+PushEvent = 30
+[audio]
+sample_rate = 44100
+channels = 2
+[composer]
+ema_alpha = 0.06
+phrase_ticks = 16
+accent_base_prob = 0.10
+[mixer]
+master_gain = 0.55
+wet_continuous = 0.06
+wet_accent = 0.45
+accent_max = 4
+[assets.tonal_bed]
+wav_path = "/tmp/tb.wav"
+gain_db = -4.8
+[assets.accents]
+bank_dir = "/tmp/bank"
+synth_decay = 0.996
+[video]
+width = 1280
+height = 720
+fps = 15
+[video.background]
+mode = "solid"
+switch_every_secs = 1.0
+fade_secs = 0.0
+[output]
+mode = "local"
+[output.local]
+path = "/tmp/x"
+`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load v2: %v", err)
+	}
+	if cfg.ResolvedEngine() != "v2" {
+		t.Fatalf("engine = %q, want v2", cfg.ResolvedEngine())
+	}
+	if cfg.Composer.PhraseTicks != 16 {
+		t.Errorf("Composer.PhraseTicks = %d", cfg.Composer.PhraseTicks)
+	}
+	if cfg.Mixer.MasterGain != 0.55 {
+		t.Errorf("Mixer.MasterGain = %v", cfg.Mixer.MasterGain)
+	}
+	if cfg.Assets.TonalBed.WavPath != "/tmp/tb.wav" {
+		t.Errorf("Assets.TonalBed.WavPath = %q", cfg.Assets.TonalBed.WavPath)
+	}
+	if cfg.Assets.Accents.BankDir != "/tmp/bank" {
+		t.Errorf("Assets.Accents.BankDir = %q", cfg.Assets.Accents.BankDir)
+	}
+}
+
+func TestLoadV2ForbidsClusterBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.toml")
+	body := `
+[meta]
+profile = "x"
+engine = "v2"
+[archive]
+source_dir = "x"
+daypack_dir = "y"
+target_date = "2026-04-01"
+[events]
+types = ["PushEvent"]
+max_per_second = 4
+[events.weights]
+PushEvent = 30
+[audio]
+sample_rate = 44100
+channels = 2
+[audio.cluster]
+keep_top_n = 4
+event_types = ["PushEvent"]
+[video]
+width = 1280
+height = 720
+fps = 15
+[video.background]
+mode = "solid"
+switch_every_secs = 1.0
+fade_secs = 0.0
+[output]
+mode = "local"
+[output.local]
+path = "/tmp/x"
+`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected error for [audio.cluster] under engine=v2")
+	} else if !strings.Contains(err.Error(), "audio.cluster") {
+		t.Fatalf("error should mention audio.cluster, got %v", err)
+	}
+}
+
+func TestLoadV2ForbidsLegacyFlag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.toml")
+	body := `
+[meta]
+profile = "x"
+engine = "v2"
+legacy = true
+[archive]
+source_dir = "x"
+daypack_dir = "y"
+target_date = "2026-04-01"
+[events]
+types = ["PushEvent"]
+max_per_second = 4
+[events.weights]
+PushEvent = 30
+[audio]
+sample_rate = 44100
+channels = 2
+[video]
+width = 1280
+height = 720
+fps = 15
+[video.background]
+mode = "solid"
+switch_every_secs = 1.0
+fade_secs = 0.0
+[output]
+mode = "local"
+[output.local]
+path = "/tmp/x"
+`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected error for engine=v2 + legacy=true combination")
+	}
+}
+
 func TestLoadBellSection(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "c.toml")

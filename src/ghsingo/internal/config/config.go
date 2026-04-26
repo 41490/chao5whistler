@@ -11,13 +11,16 @@ import (
 )
 
 type Config struct {
-	Meta    Meta    `toml:"meta"`
-	Archive Archive `toml:"archive"`
-	Events  Events  `toml:"events"`
-	Audio   Audio   `toml:"audio"`
-	Video   Video   `toml:"video"`
-	Output  Output  `toml:"output"`
-	Observe Observe `toml:"observe"`
+	Meta     Meta           `toml:"meta"`
+	Archive  Archive        `toml:"archive"`
+	Events   Events         `toml:"events"`
+	Audio    Audio          `toml:"audio"`
+	Video    Video          `toml:"video"`
+	Output   Output         `toml:"output"`
+	Observe  Observe        `toml:"observe"`
+	Composer ConfigComposer `toml:"composer"`
+	Mixer    ConfigMixer    `toml:"mixer"`
+	Assets   ConfigAssets   `toml:"assets"`
 }
 
 type Meta struct {
@@ -28,6 +31,10 @@ type Meta struct {
 	// this true does not change runtime behavior; tooling (e.g. baseline
 	// reports) reads it to label outputs.
 	Legacy bool `toml:"legacy"`
+	// Engine selects the audio engine: "v1" (bell-era, frozen) or "v2"
+	// (ambient, #28+). Empty defaults to "v1" so existing profiles keep
+	// loading; the new ghsingo-v2.toml sets engine = "v2" explicitly.
+	Engine string `toml:"engine"`
 }
 
 type Archive struct {
@@ -172,6 +179,48 @@ type Observe struct {
 	EmitStatsEverySecs int    `toml:"emit_stats_every_secs"`
 }
 
+// ConfigComposer maps to the [composer] block (v2 only). Fields mirror
+// composer.Config exactly. Zero values fall back to composer defaults.
+type ConfigComposer struct {
+	EMAAlpha             float64 `toml:"ema_alpha"`
+	DensitySaturation    float64 `toml:"density_saturation"`
+	BrightnessSaturation float64 `toml:"brightness_saturation"`
+	PhraseTicks          int     `toml:"phrase_ticks"`
+	AccentCooldownTicks  int     `toml:"accent_cooldown_ticks"`
+	AccentBaseProb       float64 `toml:"accent_base_prob"`
+	Seed                 int64   `toml:"seed"`
+}
+
+// ConfigMixer maps to the [mixer] block (v2 only). Each field is a linear
+// gain or wet ratio in [0,1]; when zero the MixerV2 default applies.
+type ConfigMixer struct {
+	MasterGain    float32 `toml:"master_gain"`
+	DroneGain     float32 `toml:"drone_gain"`
+	BedGain       float32 `toml:"bed_gain"`
+	TonalBedGain  float32 `toml:"tonal_bed_gain"`
+	AccentGain    float32 `toml:"accent_gain"`
+	WetContinuous float32 `toml:"wet_continuous"`
+	WetAccent     float32 `toml:"wet_accent"`
+	AccentMax     int     `toml:"accent_max"`
+}
+
+// ConfigAssets maps to the [assets.*] blocks (v2 only). Replaces the
+// bell-era [audio.bgm] / [audio.bells] role assignments.
+type ConfigAssets struct {
+	TonalBed AssetTonalBed `toml:"tonal_bed"`
+	Accents  AssetAccents  `toml:"accents"`
+}
+
+type AssetTonalBed struct {
+	WavPath string  `toml:"wav_path"`
+	GainDB  float64 `toml:"gain_db"`
+}
+
+type AssetAccents struct {
+	BankDir    string  `toml:"bank_dir"`
+	SynthDecay float64 `toml:"synth_decay"`
+}
+
 var EventTypeID = map[string]uint8{
 	"PushEvent":        0,
 	"CreateEvent":      1,
@@ -210,6 +259,19 @@ func Load(path string) (*Config, error) {
 func localOverlayPath(basePath string) string {
 	ext := filepath.Ext(basePath)
 	return basePath[:len(basePath)-len(ext)] + ".local" + ext
+}
+
+// ResolvedEngine returns the engine name to use, applying the rule
+// "blank engine + Legacy=true means v1, blank engine otherwise means v1
+// for compatibility — only an explicit engine = \"v2\" opts into the
+// ambient mainline." This keeps every bell-era profile in the v1 lane
+// without a code change.
+func (c *Config) ResolvedEngine() string {
+	switch c.Meta.Engine {
+	case "v1", "v2":
+		return c.Meta.Engine
+	}
+	return "v1"
 }
 
 // ResolveTargetDate converts symbolic date names ("yesterday", "today") to
@@ -257,6 +319,14 @@ func (c *Config) validate() error {
 	}
 	if c.Events.MaxPerSecond <= 0 {
 		return fmt.Errorf("events.max_per_second must be positive")
+	}
+	if c.ResolvedEngine() == "v2" {
+		if c.Meta.Legacy {
+			return fmt.Errorf("meta.engine=\"v2\" cannot be combined with meta.legacy=true")
+		}
+		if c.Audio.Cluster.KeepTopN > 0 || len(c.Audio.Cluster.EventTypes) > 0 {
+			return fmt.Errorf("meta.engine=\"v2\" must not define [audio.cluster] (bell-era only); use [composer] instead")
+		}
 	}
 	return nil
 }

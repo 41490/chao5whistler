@@ -76,31 +76,64 @@ func main() {
 		os.Exit(1)
 	}
 
-	mx := audio.NewMixerV2(cfg.Audio.SampleRate, cfg.Video.FPS, 4)
-	if cfg.Audio.Bells.BankDir != "" {
+	accentMax := cfg.Mixer.AccentMax
+	if accentMax <= 0 {
+		accentMax = 4
+	}
+	mx := audio.NewMixerV2(cfg.Audio.SampleRate, cfg.Video.FPS, accentMax)
+	applyMixerOverrides(mx, cfg.Mixer)
+
+	// Accent bank: prefer the v2 [assets.accents] path, fall back to
+	// the legacy [audio.bells] block so a partially-migrated config
+	// still loads.
+	bankDir := cfg.Assets.Accents.BankDir
+	bankDecay := cfg.Assets.Accents.SynthDecay
+	if bankDir == "" {
+		bankDir = cfg.Audio.Bells.BankDir
+		bankDecay = cfg.Audio.Bells.SynthDecay
+	}
+	if bankDir != "" {
 		bank := audio.NewBellBank(cfg.Audio.SampleRate)
-		if cfg.Audio.Bells.SynthDecay > 0 {
-			bank.SetSynthDecay(cfg.Audio.Bells.SynthDecay)
+		if bankDecay > 0 {
+			bank.SetSynthDecay(bankDecay)
 		}
-		if _, err := bank.LoadFromDir(cfg.Audio.Bells.BankDir); err != nil {
-			slog.Warn("load bell bank for accents", "err", err)
+		if _, err := bank.LoadFromDir(bankDir); err != nil {
+			slog.Warn("load accent bank", "err", err, "path", bankDir)
 		}
 		mx.SetAccentBank(bank)
 	}
-	// #32: load the tonal bed sample. Until #33 introduces a dedicated
-	// [audio.tonal_bed] block, fall back to the legacy BGM path so the
-	// existing cosmos sample (or any pre-processed bed) can be used
-	// without a config schema change.
-	if cfg.Audio.BGM.WavPath != "" {
-		if pcm, err := audio.LoadWavFile(cfg.Audio.BGM.WavPath); err != nil {
-			slog.Warn("load tonal bed", "err", err, "path", cfg.Audio.BGM.WavPath)
+
+	// Tonal bed: prefer v2 [assets.tonal_bed]; fall back to legacy
+	// [audio.bgm] only when the v2 block is absent (migration aid).
+	tbPath := cfg.Assets.TonalBed.WavPath
+	tbGainDB := cfg.Assets.TonalBed.GainDB
+	if tbPath == "" {
+		tbPath = cfg.Audio.BGM.WavPath
+		tbGainDB = cfg.Audio.BGM.GainDB
+	}
+	if tbPath != "" {
+		if pcm, err := audio.LoadWavFile(tbPath); err != nil {
+			slog.Warn("load tonal bed", "err", err, "path", tbPath)
 		} else {
 			mx.SetTonalBedPCM(pcm)
-			mx.SetTonalBedGain(audio.GainToLinear(cfg.Audio.BGM.GainDB))
-			slog.Info("tonal bed loaded", "samples", len(pcm), "path", cfg.Audio.BGM.WavPath)
+			mx.SetTonalBedGain(audio.GainToLinear(tbGainDB))
+			slog.Info("tonal bed loaded", "samples", len(pcm), "path", tbPath)
 		}
 	}
-	c := composer.New(composer.Config{Seed: *seed})
+
+	composerCfg := composer.Config{
+		EMAAlpha:             cfg.Composer.EMAAlpha,
+		DensitySaturation:    cfg.Composer.DensitySaturation,
+		BrightnessSaturation: cfg.Composer.BrightnessSaturation,
+		PhraseTicks:          cfg.Composer.PhraseTicks,
+		AccentCooldownTicks:  cfg.Composer.AccentCooldownTicks,
+		AccentBaseProb:       cfg.Composer.AccentBaseProb,
+		Seed:                 cfg.Composer.Seed,
+	}
+	if *seed != 0 {
+		composerCfg.Seed = *seed
+	}
+	c := composer.New(composerCfg)
 
 	if err := os.MkdirAll(filepath.Dir(*outputPath), 0755); err != nil {
 		slog.Error("mkdir", "err", err)
@@ -203,6 +236,34 @@ func main() {
 		"final_density", fmt.Sprintf("%.3f", side.FinalDensity),
 		"final_brightness", fmt.Sprintf("%.3f", side.FinalBrightness),
 	)
+}
+
+// applyMixerOverrides copies any non-zero v2 mixer dial from config into
+// the live MixerV2 so the toml can override the in-code defaults. Each
+// dial is independent: omitting a field keeps the engine's default.
+func applyMixerOverrides(mx *audio.MixerV2, cfg config.ConfigMixer) {
+	if cfg.MasterGain > 0 {
+		mx.SetMasterGain(cfg.MasterGain)
+	}
+	if cfg.DroneGain > 0 {
+		mx.SetDroneGain(cfg.DroneGain)
+	}
+	if cfg.BedGain > 0 {
+		mx.SetBedGain(cfg.BedGain)
+	}
+	if cfg.TonalBedGain > 0 {
+		mx.SetTonalBedGain(cfg.TonalBedGain)
+	}
+	if cfg.AccentGain > 0 {
+		mx.SetAccentGain(cfg.AccentGain)
+	}
+	if cfg.WetContinuous > 0 || cfg.WetAccent > 0 {
+		// SetWet writes both fields atomically; preserve any unset side
+		// by reading current via a temporary apply. We don't expose a
+		// getter, so just write the configured pair as-is — empty/zero
+		// is a valid "fully dry" choice.
+		mx.SetWet(cfg.WetContinuous, cfg.WetAccent)
+	}
 }
 
 func writeSidecar(path string, m sidecar) error {

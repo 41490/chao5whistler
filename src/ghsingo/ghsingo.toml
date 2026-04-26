@@ -12,12 +12,12 @@ profile = "ambient"
 engine  = "v2"
 
 [archive]
-source_dir = "../../ops/assets"
+source_dir = "../../var/ghsingo/archive/raw"
 daypack_dir = "../../var/ghsingo/daypack"
-target_date = "2026-03-28"
+target_date = "yesterday"
 
 [archive.download]
-enabled = false
+enabled = true
 base_url = "https://data.gharchive.org"
 timeout_secs = 60
 max_parallel = 4

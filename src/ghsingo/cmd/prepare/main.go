@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/41490/chao5whistler/src/ghsingo/internal/archive"
 	"github.com/41490/chao5whistler/src/ghsingo/internal/config"
@@ -15,6 +16,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "ghsingo.toml", "path to config file")
+	hoursSpec := flag.String("hours", "", "comma-separated UTC hours or ranges to prepare, e.g. 16 or 12-17")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
@@ -23,29 +25,63 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("prepare starting", "profile", cfg.Meta.Profile, "target_date", cfg.Archive.TargetDate)
+	slog.Info("prepare starting", "profile", cfg.Meta.Profile, "target_date", cfg.Archive.TargetDate, "hours", *hoursSpec)
 
 	targetDate := config.ResolveTargetDate(cfg.Archive.TargetDate)
+	hours, err := parseHours(*hoursSpec)
+	if err != nil {
+		slog.Error("parse hours", "spec", *hoursSpec, "err", err)
+		os.Exit(2)
+	}
 
 	allowedTypes := make(map[string]bool)
 	for _, t := range cfg.Events.Types {
 		allowedTypes[t] = true
 	}
 
-	// Find source .json.gz files: {source_dir}/{date}-{H}.json.gz
-	var gzFiles []string
-	for h := 0; h < 24; h++ {
-		name := fmt.Sprintf("%s-%d.json.gz", targetDate, h)
-		path := filepath.Join(cfg.Archive.SourceDir, name)
-		if _, err := os.Stat(path); err == nil {
-			gzFiles = append(gzFiles, path)
+	if cfg.Archive.Download.Enabled {
+		err := archive.DownloadMissingHours(archive.DownloadOptions{
+			BaseURL:     cfg.Archive.Download.BaseURL,
+			TargetDate:  targetDate,
+			SourceDir:   cfg.Archive.SourceDir,
+			Hours:       hours,
+			Timeout:     time.Duration(cfg.Archive.Download.TimeoutSecs) * time.Second,
+			MaxParallel: cfg.Archive.Download.MaxParallel,
+			UserAgent:   cfg.Archive.Download.UserAgent,
+		})
+		if err != nil {
+			slog.Error("download inputs", "err", err, "date", targetDate)
+			os.Exit(1)
 		}
 	}
-	if len(gzFiles) == 0 {
-		slog.Error("no .json.gz files found", "source_dir", cfg.Archive.SourceDir, "date", targetDate)
+
+	requireAll := cfg.Archive.Download.Enabled || strings.TrimSpace(*hoursSpec) != ""
+
+	// Find source .json.gz files: {source_dir}/{date}-{H}.json.gz
+	var gzFiles []string
+	missingHours := make([]int, 0)
+	availableHours := make([]int, 0, len(hours))
+	for _, h := range hours {
+		path := archive.HourFilePath(cfg.Archive.SourceDir, targetDate, h)
+		if _, err := os.Stat(path); err == nil {
+			gzFiles = append(gzFiles, path)
+			availableHours = append(availableHours, h)
+		} else if os.IsNotExist(err) {
+			missingHours = append(missingHours, h)
+		} else {
+			slog.Error("stat source file", "path", path, "err", err)
+			os.Exit(1)
+		}
+	}
+	if requireAll && len(missingHours) > 0 {
+		slog.Error("missing required source files", "source_dir", cfg.Archive.SourceDir, "date", targetDate, "hours", missingHours)
 		os.Exit(1)
 	}
-	slog.Info("found source files", "count", len(gzFiles))
+	if len(gzFiles) == 0 {
+		slog.Error("no .json.gz files found", "source_dir", cfg.Archive.SourceDir, "date", targetDate, "hours", hours)
+		os.Exit(1)
+	}
+	slog.Info("found source files", "count", len(gzFiles), "hours", availableHours)
 
 	var allEvents []archive.ParsedEvent
 	for _, path := range gzFiles {
@@ -110,6 +146,9 @@ func main() {
 	}
 	manifest := map[string]any{
 		"date":              targetDate,
+		"requested_hours":   hours,
+		"available_hours":   availableHours,
+		"source_files":      gzFiles,
 		"total_events":      len(allEvents),
 		"kept_events":       keptEvents,
 		"ticks_with_events": ticksWithEvents,

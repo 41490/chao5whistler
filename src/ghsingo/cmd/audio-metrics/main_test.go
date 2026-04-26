@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 const sampleStderr = `[Parsed_loudnorm_0 @ 0x55]
 {
@@ -39,5 +42,24 @@ func TestParseLoudnorm(t *testing.T) {
 func TestParseLoudnormMissing(t *testing.T) {
 	if _, err := parseLoudnorm([]byte("ffmpeg ran but produced no JSON")); err == nil {
 		t.Fatal("expected error on missing JSON")
+	}
+}
+
+func TestSidecarUnmarshalKeepsWindowFields(t *testing.T) {
+	data := []byte(`{
+		"profile":"ambient",
+		"daypack_date":"2026-04-25",
+		"start_second":57600,
+		"source_span_secs":3600
+	}`)
+	var got sidecar
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal sidecar: %v", err)
+	}
+	if got.StartSecond != 57600 {
+		t.Fatalf("StartSecond = %d, want 57600", got.StartSecond)
+	}
+	if got.SourceSpanSecs != 3600 {
+		t.Fatalf("SourceSpanSecs = %v, want 3600", got.SourceSpanSecs)
 	}
 }

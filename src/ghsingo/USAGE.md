@@ -12,6 +12,7 @@
 
 - 主配置: `src/ghsingo/ghsingo.toml`
 - 背景抽帧配置: `src/ghsingo/movpixer.toml`
+- GHArchive 原始小时缓存: `var/ghsingo/archive/raw/`
 - 本地输出目录: `var/ghsingo/records/`
 - 背景序列目录: `ops/assets/backgrounds/movpixer/`
 
@@ -56,9 +57,26 @@ make prepare-assets
 make run-prepare
 ```
 
+如需让 `prepare` 自动下载缺失的 GHArchive 小时文件，开启：
+
+```toml
+[archive.download]
+enabled = true
+```
+
+如只想处理特定 UTC 小时段，可直接运行：
+
+```bash
+../../ops/bin/prepare --config ghsingo.toml --hours 16
+../../ops/bin/prepare --config ghsingo.toml --hours 12-17
+```
+
+`--hours` 使用 GHArchive 的 UTC 小时编号，不是本地时区小时。
+
 关键配置项在 `ghsingo.toml`：
 
 - `[archive] target_date`: 指定要使用哪一天的 GitHub 历史事件
+- `[archive.download]`: 控制是否自动下载缺失的小时文件
 - `[events]`: 控制纳入哪些事件类型
 - `[audio.*]`: 控制 BGM、事件音色、增益与时长
 
@@ -177,6 +195,17 @@ make run-live
 
 ```bash
 make run-live-5m
+```
+
+如果要把某个 UTC 时间窗压缩成更短的离线音频，可直接用：
+
+```bash
+../../ops/bin/render-audio-v2 \
+  --config ../../var/ghsingo/sonify/ghsingo-hourly.toml \
+  --start-clock 16:00 \
+  --source-span 1h \
+  --duration 5m \
+  -o ../../ops/out/sonify/example-16utc-5m.m4a
 ```
 
 ## 直播方式

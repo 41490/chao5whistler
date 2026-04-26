@@ -41,6 +41,8 @@ type sidecar struct {
 	Engine              string  `json:"engine,omitempty"`
 	Config              string  `json:"config"`
 	DaypackDate         string  `json:"daypack_date"`
+	StartSecond         int     `json:"start_second,omitempty"`
+	SourceSpanSecs      float64 `json:"source_span_secs,omitempty"`
 	DurationSecs        float64 `json:"duration_secs"`
 	SampleRate          int     `json:"sample_rate"`
 	Ticks               int     `json:"ticks"`

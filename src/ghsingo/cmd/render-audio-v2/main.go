@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/41490/chao5whistler/src/ghsingo/internal/archive"
@@ -35,6 +36,8 @@ type sidecar struct {
 	Engine              string  `json:"engine"`
 	Config              string  `json:"config"`
 	DaypackDate         string  `json:"daypack_date"`
+	StartSecond         int     `json:"start_second"`
+	SourceSpanSecs      float64 `json:"source_span_secs"`
 	DurationSecs        float64 `json:"duration_secs"`
 	SampleRate          int     `json:"sample_rate"`
 	Ticks               int     `json:"ticks"`
@@ -53,6 +56,8 @@ func main() {
 	configPath := flag.String("config", "ghsingo.toml", "path to config file")
 	outputPath := flag.String("o", "/tmp/ghsingo-audio-v2.m4a", "output audio path")
 	durationStr := flag.String("duration", "30s", "render duration")
+	startClock := flag.String("start-clock", "", "UTC clock within the daypack to start from, e.g. 16:00 or 16:00:00")
+	sourceSpanStr := flag.String("source-span", "", "source data span to map into the render duration, e.g. 1h")
 	seed := flag.Int64("seed", 0, "composer seed (0 = time.Now)")
 	backendName := flag.String("backend", "go-v2", `audio backend: "go-v2" | "scsynth"`)
 	synthDefDir := flag.String("synthdef-dir", "scsynth/synthdefs", "scsynth: where compiled .scsyndef files live")
@@ -62,6 +67,27 @@ func main() {
 	if err != nil {
 		slog.Error("invalid duration", "err", err)
 		os.Exit(1)
+	}
+	if dur <= 0 {
+		slog.Error("invalid duration", "err", "must be positive")
+		os.Exit(2)
+	}
+	startSecond, err := parseStartClock(*startClock)
+	if err != nil {
+		slog.Error("invalid start clock", "value", *startClock, "err", err)
+		os.Exit(2)
+	}
+	sourceSpan := dur
+	if strings.TrimSpace(*sourceSpanStr) != "" {
+		sourceSpan, err = time.ParseDuration(*sourceSpanStr)
+		if err != nil {
+			slog.Error("invalid source span", "value", *sourceSpanStr, "err", err)
+			os.Exit(2)
+		}
+		if sourceSpan <= 0 {
+			slog.Error("invalid source span", "value", *sourceSpanStr, "err", "must be positive")
+			os.Exit(2)
+		}
 	}
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -138,20 +164,23 @@ func main() {
 	totalFrames := int(dur.Seconds() * float64(cfg.Video.FPS))
 	framesPerSec := cfg.Video.FPS
 	side := sidecar{
-		Profile:     cfg.Meta.Profile,
-		Engine:      be.Name(),
-		Config:      *configPath,
-		DaypackDate: dateStr,
-		SampleRate:  cfg.Audio.SampleRate,
+		Profile:        cfg.Meta.Profile,
+		Engine:         be.Name(),
+		Config:         *configPath,
+		DaypackDate:    dateStr,
+		StartSecond:    startSecond,
+		SourceSpanSecs: sourceSpan.Seconds(),
+		SampleRate:     cfg.Audio.SampleRate,
 	}
 
-	tick := -1
+	sourceRate := sourceSpan.Seconds() / dur.Seconds()
+	lastWindowStart := -1
 	for f := 0; f < totalFrames; f++ {
-		secOfRender := f / framesPerSec
-		if secOfRender != tick {
-			tick = secOfRender
-			idx := tick % len(pack.Ticks)
-			evs := pack.Ticks[idx].Events
+		renderSecond := f / framesPerSec
+		windowStart, windowEnd := sourceWindowForRenderSecond(startSecond, sourceRate, renderSecond)
+		if windowStart != lastWindowStart {
+			lastWindowStart = windowStart
+			evs := collectWindowEvents(pack, windowStart, windowEnd)
 			be.ApplyEventsForSecond(toBackendEvents(evs))
 		}
 
@@ -326,4 +355,39 @@ func findLatestDaypack(dir string) (string, string, error) {
 	sort.Strings(dirs)
 	latest := dirs[len(dirs)-1]
 	return filepath.Join(dir, latest, "day.bin"), latest, nil
+}
+
+func parseStartClock(spec string) (int, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return 0, nil
+	}
+	for _, layout := range []string{"15:04:05", "15:04"} {
+		t, err := time.Parse(layout, spec)
+		if err == nil {
+			return t.Hour()*3600 + t.Minute()*60 + t.Second(), nil
+		}
+	}
+	return 0, fmt.Errorf("expected HH:MM or HH:MM:SS, got %q", spec)
+}
+
+func sourceWindowForRenderSecond(startSecond int, sourceRate float64, renderSecond int) (int, int) {
+	windowStart := startSecond + int(math.Floor(float64(renderSecond)*sourceRate))
+	windowEnd := startSecond + int(math.Floor(float64(renderSecond+1)*sourceRate))
+	if windowEnd <= windowStart {
+		windowEnd = windowStart + 1
+	}
+	return windowStart, windowEnd
+}
+
+func collectWindowEvents(pack *archive.Daypack, windowStart int, windowEnd int) []archive.Event {
+	if len(pack.Ticks) == 0 {
+		return nil
+	}
+	out := make([]archive.Event, 0, 8)
+	for second := windowStart; second < windowEnd; second++ {
+		idx := second % len(pack.Ticks)
+		out = append(out, pack.Ticks[idx].Events...)
+	}
+	return out
 }

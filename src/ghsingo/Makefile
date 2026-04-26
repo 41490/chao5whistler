@@ -5,19 +5,20 @@ BIN_DIR := $(ROOT)/ops/bin
 VAR_DIR := $(ROOT)/var/ghsingo
 
 .PHONY: build build-prepare build-live build-render-audio build-audio-metrics \
-        build-composer-demo build-movpixer \
+        build-composer-demo build-render-audio-v2 build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
         normalize-voices \
         run-prepare run-live run-live-5m render-audio-5m run-movpixer \
         composer-timeline composer-timeline-5m \
+        render-audio-v2-30s render-audio-v2-5m \
         baseline baseline-30s baseline-5m \
         install-units enable start stop status logs \
         fmt vet test clean
 
 # === Build ===
 
-build: build-prepare build-live build-render-audio build-audio-metrics build-composer-demo build-movpixer
+build: build-prepare build-live build-render-audio build-audio-metrics build-composer-demo build-render-audio-v2 build-movpixer
 
 build-prepare:
 	go build -o $(BIN_DIR)/prepare ./cmd/prepare
@@ -33,6 +34,9 @@ build-audio-metrics:
 
 build-composer-demo:
 	go build -o $(BIN_DIR)/composer-demo ./cmd/composer-demo
+
+build-render-audio-v2:
+	go build -o $(BIN_DIR)/render-audio-v2 ./cmd/render-audio-v2
 
 build-movpixer:
 	go build -o $(BIN_DIR)/movpixer ./cmd/movpixer
@@ -127,6 +131,21 @@ composer-timeline-5m: build-composer-demo
 	$(BIN_DIR)/composer-demo --config ghsingo.toml --duration 5m -o ../../ops/out/composer/timeline-5m.json
 	@echo "Output: ops/out/composer/timeline-5m.json"
 
+# render-audio-v2: ambient v2 mixer (#31). Drives the composer (#30) into
+# MixerV2 (drone + bed + accent bank), same sidecar contract as render-audio
+# so audio-metrics can A/B vs the bell-era baseline (#29).
+render-audio-v2-30s: build-render-audio-v2 build-audio-metrics
+	mkdir -p ../../ops/out/v2
+	$(BIN_DIR)/render-audio-v2 --config ghsingo.toml --duration 30s -o ../../ops/out/v2/v2-30s.m4a
+	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-30s.m4a --out ../../ops/out/v2/v2-30s.report.json
+	@echo "Output: ops/out/v2/v2-30s.m4a + ops/out/v2/v2-30s.report.json"
+
+render-audio-v2-5m: build-render-audio-v2 build-audio-metrics
+	mkdir -p ../../ops/out/v2
+	$(BIN_DIR)/render-audio-v2 --config ghsingo.toml --duration 5m -o ../../ops/out/v2/v2-5m.m4a
+	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-5m.m4a --out ../../ops/out/v2/v2-5m.report.json
+	@echo "Output: ops/out/v2/v2-5m.m4a + ops/out/v2/v2-5m.report.json"
+
 run-movpixer: build-movpixer
 	$(BIN_DIR)/movpixer --config movpixer.toml
 
@@ -175,4 +194,5 @@ clean:
 		$(BIN_DIR)/movpixer-linux-amd64 \
 		$(BIN_DIR)/prepare \
 		$(BIN_DIR)/render-audio \
+		$(BIN_DIR)/render-audio-v2 \
 		/tmp/ghsingo-audio*.m4a

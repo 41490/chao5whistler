@@ -8,6 +8,12 @@ import (
 	"os"
 )
 
+// LEGACY — bell-era trigger-centric mixer. This file is the old "every
+// per-second NoteTrigger becomes a bell strike" engine. It is preserved
+// only so the bell-era profiles (#29) keep working as A/B reference for
+// the ambient-engine refactor (#28). New work happens in mixer_v2.go
+// (#31). #38 will remove this file once the v2 mainline is stable.
+//
 // Mixer mixes a looping BGM track, a synthesized beat, and bell note triggers
 // (plus an optional ocean layer for Release events) into stereo interleaved
 // float32 PCM, one video-frame at a time.

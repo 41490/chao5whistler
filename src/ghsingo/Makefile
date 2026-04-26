@@ -9,12 +9,13 @@ VAR_DIR := $(ROOT)/var/ghsingo
         build-migrate-config build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
-        prepare-tonal-bed \
+        prepare-tonal-bed compile-synthdefs \
         normalize-voices \
         run-prepare run-live run-live-5m run-live-v2-5m render-audio-5m run-movpixer \
         composer-timeline composer-timeline-5m \
         render-audio-v2-30s render-audio-v2-5m \
         render-audio-v2-profile-30s render-audio-v2-profile-5m \
+        render-audio-v2-scsynth-30s \
         baseline baseline-30s baseline-5m \
         migrate-default-to-v2 \
         install-units enable start stop status logs \
@@ -107,6 +108,11 @@ prepare-bells-all: prepare-bells prepare-bells-mallet prepare-bells-organ
 prepare-tonal-bed:
 	bash scripts/prepare-tonal-bed.sh
 
+# compile-synthdefs: compile scsynth/synthdefs/*.scd -> .scsyndef (#35).
+# Requires `sclang` on PATH (apt install supercollider-language).
+compile-synthdefs:
+	bash scripts/compile-synthdefs.sh
+
 # === Run ===
 
 run-prepare: build-prepare
@@ -182,6 +188,18 @@ render-audio-v2-profile-5m: build-render-audio-v2 build-audio-metrics
 	$(BIN_DIR)/render-audio-v2 --config ghsingo-v2.toml --duration 5m -o ../../ops/out/v2/v2-profile-5m.m4a
 	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-profile-5m.m4a --out ../../ops/out/v2/v2-profile-5m.report.json
 	@echo "Output: ops/out/v2/v2-profile-5m.m4a + ops/out/v2/v2-profile-5m.report.json"
+
+# render-audio-v2-scsynth-30s: drive the scsynth backend (#35). Requires
+# scsynth on PATH and pre-compiled SynthDefs (run `make compile-synthdefs`
+# once). Without scsynth, the render fails with a clear "not on PATH"
+# error, intended.
+render-audio-v2-scsynth-30s: build-render-audio-v2 build-audio-metrics
+	mkdir -p ../../ops/out/v2
+	$(BIN_DIR)/render-audio-v2 --config ghsingo-v2.toml --backend scsynth \
+		--synthdef-dir scsynth/synthdefs \
+		--duration 30s -o ../../ops/out/v2/v2-scsynth-30s.m4a
+	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-scsynth-30s.m4a --out ../../ops/out/v2/v2-scsynth-30s.report.json
+	@echo "Output: ops/out/v2/v2-scsynth-30s.m4a + ops/out/v2/v2-scsynth-30s.report.json"
 
 # migrate-default-to-v2: end-to-end smoke test of the migration tool.
 # Reads ghsingo.toml (bell-era frozen) and writes a fresh ghsingo-v2.toml

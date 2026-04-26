@@ -25,6 +25,7 @@ import (
 	"github.com/41490/chao5whistler/src/ghsingo/internal/audio"
 	"github.com/41490/chao5whistler/src/ghsingo/internal/backend"
 	"github.com/41490/chao5whistler/src/ghsingo/internal/backend/gov2"
+	"github.com/41490/chao5whistler/src/ghsingo/internal/backend/sc"
 	"github.com/41490/chao5whistler/src/ghsingo/internal/composer"
 	"github.com/41490/chao5whistler/src/ghsingo/internal/config"
 )
@@ -54,6 +55,8 @@ func main() {
 	outputPath := flag.String("o", "/tmp/ghsingo-audio-v2.m4a", "output audio path")
 	durationStr := flag.String("duration", "30s", "render duration")
 	seed := flag.Int64("seed", 0, "composer seed (0 = time.Now)")
+	backendName := flag.String("backend", "go-v2", `audio backend: "go-v2" | "scsynth"`)
+	synthDefDir := flag.String("synthdef-dir", "scsynth/synthdefs", "scsynth: where compiled .scsyndef files live")
 	flag.Parse()
 
 	dur, err := time.ParseDuration(*durationStr)
@@ -78,10 +81,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	be, err := buildGoV2Backend(cfg, *seed)
-	if err != nil {
-		slog.Error("build backend", "err", err)
-		os.Exit(1)
+	var be backend.Backend
+	switch *backendName {
+	case "go-v2", "":
+		gob, err := buildGoV2Backend(cfg, *seed)
+		if err != nil {
+			slog.Error("build backend", "err", err)
+			os.Exit(1)
+		}
+		be = gob
+	case "scsynth":
+		scb, err := sc.New(sc.Options{
+			SampleRate:  cfg.Audio.SampleRate,
+			FPS:         cfg.Video.FPS,
+			Composer:    composerConfigFrom(cfg, *seed),
+			SynthDefDir: *synthDefDir,
+		})
+		if err != nil {
+			slog.Error("build scsynth backend", "err", err)
+			os.Exit(1)
+		}
+		be = scb
+	default:
+		slog.Error("unknown --backend", "got", *backendName, "want", "go-v2|scsynth")
+		os.Exit(2)
 	}
 	if err := be.Init(); err != nil {
 		slog.Error("backend init", "err", err)
@@ -156,18 +179,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	stats := be.Stats()
-	side.Ticks = stats.Ticks
-	side.LeadStrikes = stats.Accents
-	side.SectionTransitions = stats.SectionTransitions
-	side.ModeTransitions = stats.ModeTransitions
+	switch impl := be.(type) {
+	case *gov2.Backend:
+		s := impl.Stats()
+		side.Ticks = s.Ticks
+		side.LeadStrikes = s.Accents
+		side.SectionTransitions = s.SectionTransitions
+		side.ModeTransitions = s.ModeTransitions
+		side.FinalDensity = impl.LastState().Density
+		side.FinalBrightness = impl.LastState().Brightness
+	case *sc.Backend:
+		side.LeadStrikes = int(impl.AccentsFired())
+		side.FinalDensity = impl.LastState().Density
+		side.FinalBrightness = impl.LastState().Brightness
+	}
 	side.DurationSecs = float64(totalFrames) / float64(framesPerSec)
 	if side.DurationSecs > 0 {
 		side.EffStrikeRatePerSec = float64(side.LeadStrikes) / side.DurationSecs
 		side.ReleaseAccentRate = float64(side.ReleaseAccents) / side.DurationSecs
 	}
-	side.FinalDensity = be.LastState().Density
-	side.FinalBrightness = be.LastState().Brightness
 
 	sidePath := *outputPath + ".metrics.json"
 	if err := writeSidecar(sidePath, side); err != nil {
@@ -184,11 +214,10 @@ func main() {
 	)
 }
 
-// buildGoV2Backend assembles the gov2 backend from a v2-shaped config
-// and an optional CLI seed override. It performs the I/O the backend
-// itself refuses to do (loading WAV samples, the bell bank).
-func buildGoV2Backend(cfg *config.Config, seedOverride int64) (*gov2.Backend, error) {
-	composerCfg := composer.Config{
+// composerConfigFrom maps a v2-shaped Config to composer.Config,
+// applying an optional CLI seed override. Shared by gov2 + sc backends.
+func composerConfigFrom(cfg *config.Config, seedOverride int64) composer.Config {
+	out := composer.Config{
 		EMAAlpha:             cfg.Composer.EMAAlpha,
 		DensitySaturation:    cfg.Composer.DensitySaturation,
 		BrightnessSaturation: cfg.Composer.BrightnessSaturation,
@@ -198,8 +227,16 @@ func buildGoV2Backend(cfg *config.Config, seedOverride int64) (*gov2.Backend, er
 		Seed:                 cfg.Composer.Seed,
 	}
 	if seedOverride != 0 {
-		composerCfg.Seed = seedOverride
+		out.Seed = seedOverride
 	}
+	return out
+}
+
+// buildGoV2Backend assembles the gov2 backend from a v2-shaped config
+// and an optional CLI seed override. It performs the I/O the backend
+// itself refuses to do (loading WAV samples, the bell bank).
+func buildGoV2Backend(cfg *config.Config, seedOverride int64) (*gov2.Backend, error) {
+	composerCfg := composerConfigFrom(cfg, seedOverride)
 
 	mixerCfg := gov2.MixerConfig{
 		MasterGain:    cfg.Mixer.MasterGain,

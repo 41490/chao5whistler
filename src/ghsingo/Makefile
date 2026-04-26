@@ -5,18 +5,19 @@ BIN_DIR := $(ROOT)/ops/bin
 VAR_DIR := $(ROOT)/var/ghsingo
 
 .PHONY: build build-prepare build-live build-render-audio build-audio-metrics \
-        build-movpixer \
+        build-composer-demo build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
         normalize-voices \
         run-prepare run-live run-live-5m render-audio-5m run-movpixer \
+        composer-timeline composer-timeline-5m \
         baseline baseline-30s baseline-5m \
         install-units enable start stop status logs \
         fmt vet test clean
 
 # === Build ===
 
-build: build-prepare build-live build-render-audio build-audio-metrics build-movpixer
+build: build-prepare build-live build-render-audio build-audio-metrics build-composer-demo build-movpixer
 
 build-prepare:
 	go build -o $(BIN_DIR)/prepare ./cmd/prepare
@@ -29,6 +30,9 @@ build-render-audio:
 
 build-audio-metrics:
 	go build -o $(BIN_DIR)/audio-metrics ./cmd/audio-metrics
+
+build-composer-demo:
+	go build -o $(BIN_DIR)/composer-demo ./cmd/composer-demo
 
 build-movpixer:
 	go build -o $(BIN_DIR)/movpixer ./cmd/movpixer
@@ -111,6 +115,18 @@ baseline-30s: build-render-audio build-audio-metrics
 baseline-5m: build-render-audio build-audio-metrics
 	DURATION=5m bash scripts/render-baseline.sh
 
+# composer-timeline: drive the v1 state-vector composer (#30) against the
+# latest daypack and dump the per-second state timeline as JSON.
+composer-timeline: build-composer-demo
+	mkdir -p ../../ops/out/composer
+	$(BIN_DIR)/composer-demo --config ghsingo.toml --duration 30s -o ../../ops/out/composer/timeline-30s.json
+	@echo "Output: ops/out/composer/timeline-30s.json"
+
+composer-timeline-5m: build-composer-demo
+	mkdir -p ../../ops/out/composer
+	$(BIN_DIR)/composer-demo --config ghsingo.toml --duration 5m -o ../../ops/out/composer/timeline-5m.json
+	@echo "Output: ops/out/composer/timeline-5m.json"
+
 run-movpixer: build-movpixer
 	$(BIN_DIR)/movpixer --config movpixer.toml
 
@@ -152,6 +168,7 @@ test:
 clean:
 	rm -rf $(VAR_DIR)/records/ \
 		$(BIN_DIR)/audio-metrics \
+		$(BIN_DIR)/composer-demo \
 		$(BIN_DIR)/live \
 		$(BIN_DIR)/movpixer \
 		$(BIN_DIR)/movpixer-darwin-arm64 \

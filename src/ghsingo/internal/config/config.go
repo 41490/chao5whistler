@@ -22,6 +22,12 @@ type Config struct {
 
 type Meta struct {
 	Profile string `toml:"profile"`
+	// Legacy marks a profile as a frozen bell-era baseline. Frozen profiles
+	// are kept only as A/B reference for the ambient-engine refactor (#28)
+	// and will be removed by #38 once the new mainline is stable. Setting
+	// this true does not change runtime behavior; tooling (e.g. baseline
+	// reports) reads it to label outputs.
+	Legacy bool `toml:"legacy"`
 }
 
 type Archive struct {

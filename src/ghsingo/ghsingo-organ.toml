@@ -1,5 +1,11 @@
+# FROZEN — bell-era legacy baseline (#29).
+# This profile is kept only as A/B reference for the ambient-engine refactor
+# tracked in #28. Do NOT extend it; new musical work happens in the v2
+# state-vector composer (#30+). #38 will delete this file once the new
+# mainline is stable.
 [meta]
 profile = "organ"
+legacy = true
 
 [archive]
 source_dir = "../../ops/assets"

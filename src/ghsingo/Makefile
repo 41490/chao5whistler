@@ -4,17 +4,19 @@ ROOT := $(abspath $(CURDIR)/../..)
 BIN_DIR := $(ROOT)/ops/bin
 VAR_DIR := $(ROOT)/var/ghsingo
 
-.PHONY: build build-prepare build-live build-render-audio build-movpixer \
+.PHONY: build build-prepare build-live build-render-audio build-audio-metrics \
+        build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
         normalize-voices \
         run-prepare run-live run-live-5m render-audio-5m run-movpixer \
+        baseline baseline-30s baseline-5m \
         install-units enable start stop status logs \
         fmt vet test clean
 
 # === Build ===
 
-build: build-prepare build-live build-render-audio build-movpixer
+build: build-prepare build-live build-render-audio build-audio-metrics build-movpixer
 
 build-prepare:
 	go build -o $(BIN_DIR)/prepare ./cmd/prepare
@@ -24,6 +26,9 @@ build-live:
 
 build-render-audio:
 	go build -o $(BIN_DIR)/render-audio ./cmd/render-audio
+
+build-audio-metrics:
+	go build -o $(BIN_DIR)/audio-metrics ./cmd/audio-metrics
 
 build-movpixer:
 	go build -o $(BIN_DIR)/movpixer ./cmd/movpixer
@@ -95,6 +100,17 @@ render-audio-5m: build-render-audio
 	$(BIN_DIR)/render-audio --config ghsingo.toml --duration 5m -o /tmp/ghsingo-audio-5m.m4a
 	@echo "Output: /tmp/ghsingo-audio-5m.m4a  →  ffplay /tmp/ghsingo-audio-5m.m4a"
 
+# baseline: render default/mallet/organ as the frozen bell-era baseline (#29).
+# Output: ops/out/baseline/{REPORT.md, <profile>.m4a, <profile>.report.json}.
+# Override duration with DURATION=5m (default 30s).
+baseline: baseline-30s
+
+baseline-30s: build-render-audio build-audio-metrics
+	DURATION=30s bash scripts/render-baseline.sh
+
+baseline-5m: build-render-audio build-audio-metrics
+	DURATION=5m bash scripts/render-baseline.sh
+
 run-movpixer: build-movpixer
 	$(BIN_DIR)/movpixer --config movpixer.toml
 
@@ -135,6 +151,7 @@ test:
 
 clean:
 	rm -rf $(VAR_DIR)/records/ \
+		$(BIN_DIR)/audio-metrics \
 		$(BIN_DIR)/live \
 		$(BIN_DIR)/movpixer \
 		$(BIN_DIR)/movpixer-darwin-arm64 \

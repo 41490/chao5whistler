@@ -10,6 +10,7 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -25,6 +26,25 @@ import (
 	"github.com/41490/chao5whistler/src/ghsingo/internal/config"
 	"github.com/41490/chao5whistler/src/ghsingo/internal/replay"
 )
+
+// renderSidecar is the trigger-level summary written next to every audio
+// render so #29 baseline reports can compare profiles without re-running
+// the renderer. Loudness numbers come from a separate ffmpeg pass; this
+// file only carries data the Go pipeline already knows.
+type renderSidecar struct {
+	Profile             string  `json:"profile"`
+	Legacy              bool    `json:"legacy"`
+	Config              string  `json:"config"`
+	DaypackDate         string  `json:"daypack_date"`
+	DurationSecs        float64 `json:"duration_secs"`
+	SampleRate          int     `json:"sample_rate"`
+	Ticks               int     `json:"ticks"`
+	LeadStrikes         int     `json:"lead_strikes"`
+	BackgroundStrikes   int     `json:"background_strikes"`
+	ReleaseAccents      int     `json:"release_accents"`
+	EffStrikeRatePerSec float64 `json:"effective_strike_rate_per_sec"`
+	ReleaseAccentRate   float64 `json:"release_accent_rate_per_sec"`
+}
 
 func main() {
 	configPath := flag.String("config", "ghsingo.toml", "path to config file")
@@ -153,6 +173,18 @@ func main() {
 	var currentTick replay.Tick
 	startTime := time.Now()
 
+	leadVel := cfg.Audio.Cluster.LeadVelocity
+	if leadVel == 0 {
+		leadVel = 1.0
+	}
+	metrics := renderSidecar{
+		Profile:     cfg.Meta.Profile,
+		Legacy:      cfg.Meta.Legacy,
+		Config:      *configPath,
+		DaypackDate: dateStr,
+		SampleRate:  cfg.Audio.SampleRate,
+	}
+
 	for frameCount < framesTarget {
 		select {
 		case t, ok := <-tickCh:
@@ -167,6 +199,17 @@ func main() {
 					entries[i] = audio.EventEntry{TypeID: ev.TypeID, Weight: ev.Weight}
 				}
 				triggers := clusterer.Tick(entries)
+				metrics.Ticks++
+				for _, t := range triggers {
+					switch {
+					case t.WithOcean:
+						metrics.ReleaseAccents++
+					case t.Velocity >= leadVel*0.999:
+						metrics.LeadStrikes++
+					default:
+						metrics.BackgroundStrikes++
+					}
+				}
 				mixer.ScheduleNotes(triggers)
 				lastSecond = currentTick.Second
 			}
@@ -197,7 +240,30 @@ done:
 		slog.Error("ffmpeg wait", "err", err)
 		os.Exit(1)
 	}
+
+	metrics.DurationSecs = float64(frameCount) / float64(cfg.Video.FPS)
+	if metrics.DurationSecs > 0 {
+		metrics.EffStrikeRatePerSec = float64(metrics.LeadStrikes+metrics.BackgroundStrikes) / metrics.DurationSecs
+		metrics.ReleaseAccentRate = float64(metrics.ReleaseAccents) / metrics.DurationSecs
+	}
+	sidecarPath := *outputPath + ".metrics.json"
+	if err := writeSidecar(sidecarPath, metrics); err != nil {
+		slog.Warn("write sidecar metrics", "err", err, "path", sidecarPath)
+	} else {
+		slog.Info("metrics sidecar", "path", sidecarPath)
+	}
 	slog.Info("done", "output", *outputPath, "frames", frameCount)
+}
+
+func writeSidecar(path string, m renderSidecar) error {
+	buf, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(buf, '\n'), 0644)
 }
 
 func pcmToBytes(samples []float32) []byte {

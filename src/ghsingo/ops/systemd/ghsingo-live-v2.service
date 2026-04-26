@@ -1,0 +1,28 @@
+[Unit]
+Description=ghsingo v2 ambient live (audio-only)
+Documentation=https://github.com/41490/chao5whistler/issues/36
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ghsingo
+ExecStart=%h/ghsingo/ops/bin/live-v2 --config %h/ghsingo/src/ghsingo/ghsingo-v2.toml
+# #36: live-v2 owns the ffmpeg/RTMP pipe. systemd restarts the *whole*
+# process only on a hard crash; transient backend failures are absorbed
+# by lifecycle.BackendBox and recovered via SIGUSR1 sent to the running
+# pid. Hence Restart=on-failure (not always) — Restart=always would mask
+# bugs that should surface as systemd failures.
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+KillMode=mixed
+KillSignal=SIGINT
+
+# To recover the audio backend without dropping the RTMP stream, send:
+#   systemctl --user kill -s USR1 ghsingo-live-v2.service
+# That triggers BackendBox.Restart(); ffmpeg keeps streaming silence
+# while the inner backend rebuilds.
+
+[Install]
+WantedBy=default.target

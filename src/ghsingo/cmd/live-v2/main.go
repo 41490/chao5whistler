@@ -31,8 +31,11 @@ import (
 	"github.com/41490/chao5whistler/src/ghsingo/internal/backend/gov2"
 	"github.com/41490/chao5whistler/src/ghsingo/internal/composer"
 	"github.com/41490/chao5whistler/src/ghsingo/internal/config"
+	"github.com/41490/chao5whistler/src/ghsingo/internal/lifecycle"
 	"github.com/41490/chao5whistler/src/ghsingo/internal/replay"
 )
+
+
 
 func main() {
 	configPath := flag.String("config", "ghsingo-v2.toml", "path to v2 config")
@@ -73,17 +76,18 @@ func main() {
 		"duration", duration,
 	)
 
-	be, err := buildBackend(cfg)
-	if err != nil {
-		slog.Error("build backend", "err", err)
-		os.Exit(1)
+	box := lifecycle.NewBackendBox(
+		func() (backend.Backend, error) { return buildBackend(cfg) },
+		cfg.Audio.SampleRate/cfg.Video.FPS,
+	)
+	if err := box.Init(); err != nil {
+		// #36 contract: do NOT exit. ffmpeg pipe must outlive backend
+		// startup failures so the RTMP session never drops. Log + carry on
+		// emitting silence; SIGUSR1 / scheduled timers can retry Init.
+		slog.Warn("backend init failed; live stream proceeding with silence", "err", err)
 	}
-	if err := be.Init(); err != nil {
-		slog.Error("backend init", "err", err)
-		os.Exit(1)
-	}
-	defer be.Close()
-	slog.Info("backend ready", "name", be.Name(), "sample_rate", be.SampleRate())
+	defer box.Close()
+	slog.Info("backend wrapper ready", "name", box.Name(), "sample_rate", box.SampleRate())
 
 	outPath := *outOverride
 	if outPath == "" {
@@ -100,7 +104,7 @@ func main() {
 
 	cmd := exec.Command("ffmpeg",
 		"-f", "f32le",
-		"-ar", fmt.Sprintf("%d", be.SampleRate()),
+		"-ar", fmt.Sprintf("%d", cfg.Audio.SampleRate),
 		"-ac", "2",
 		"-i", "pipe:0",
 		"-c:a", "aac",
@@ -126,6 +130,21 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	// #36: SIGUSR1 triggers a backend-only restart without dropping the
+	// ffmpeg/RTMP pipe. Useful for ops to recover from a wedged scsynth
+	// supervisor without bouncing the whole stream.
+	restartCh := make(chan os.Signal, 1)
+	signal.Notify(restartCh, syscall.SIGUSR1)
+	go func() {
+		for range restartCh {
+			if err := box.Restart(); err != nil {
+				slog.Warn("backend restart failed", "err", err)
+			} else {
+				slog.Info("backend restarted", "count", box.RestartCount())
+			}
+		}
+	}()
+
 	frameTicker := time.NewTicker(time.Second / time.Duration(cfg.Video.FPS))
 	defer frameTicker.Stop()
 
@@ -150,10 +169,10 @@ loop:
 			currentTick = t
 		case <-frameTicker.C:
 			if currentTick.Second != lastSecond {
-				be.ApplyEventsForSecond(toBackendEvents(currentTick.Events))
+				box.ApplyEventsForSecond(toBackendEvents(currentTick.Events))
 				lastSecond = currentTick.Second
 			}
-			samples, err := be.RenderFrame()
+			samples, err := box.RenderFrame()
 			if err != nil {
 				slog.Error("render", "err", err)
 				break loop
@@ -173,16 +192,11 @@ loop:
 	if err := cmd.Wait(); err != nil {
 		slog.Warn("ffmpeg wait", "err", err)
 	}
-	if v2 := be.(*gov2.Backend); v2 != nil {
-		s := v2.Stats()
-		slog.Info("done",
-			"output", outPath,
-			"ticks", s.Ticks,
-			"accents", s.Accents,
-			"section_transitions", s.SectionTransitions,
-			"mode_transitions", s.ModeTransitions,
-		)
-	}
+	slog.Info("done",
+		"output", outPath,
+		"backend_restarts", box.RestartCount(),
+		"last_init_err", box.LastInitErr(),
+	)
 }
 
 func buildBackend(cfg *config.Config) (backend.Backend, error) {

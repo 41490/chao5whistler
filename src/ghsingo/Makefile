@@ -9,7 +9,7 @@ VAR_DIR := $(ROOT)/var/ghsingo
         build-migrate-config build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
-        prepare-tonal-bed compile-synthdefs \
+        prepare-tonal-bed compile-synthdefs check-jack-routing \
         normalize-voices \
         run-prepare run-live run-live-5m run-live-v2-5m render-audio-5m run-movpixer \
         composer-timeline composer-timeline-5m \
@@ -18,7 +18,7 @@ VAR_DIR := $(ROOT)/var/ghsingo
         render-audio-v2-scsynth-30s \
         baseline baseline-30s baseline-5m \
         migrate-default-to-v2 \
-        install-units enable start stop status logs \
+        install-units install-units-v2 enable start stop status logs \
         fmt vet test clean
 
 # === Build ===
@@ -112,6 +112,11 @@ prepare-tonal-bed:
 # Requires `sclang` on PATH (apt install supercollider-language).
 compile-synthdefs:
 	bash scripts/compile-synthdefs.sh
+
+# check-jack-routing: report which scsynth/JACK runtime dependencies
+# are present (#36). Exits non-zero if any required dep is missing.
+check-jack-routing:
+	bash scripts/check-jack-routing.sh
 
 # === Run ===
 
@@ -221,6 +226,15 @@ install-units:
 	cp ops/systemd/ghsingo-prepare.timer ~/.config/systemd/user/
 	cp ops/systemd/ghsingo-live.service ~/.config/systemd/user/
 	systemctl --user daemon-reload
+
+# install-units-v2: install only the v2 ambient live unit (#36). Use
+# this on machines that do not need the bell-era live + prepare timers.
+install-units-v2:
+	mkdir -p ~/.config/systemd/user
+	cp ops/systemd/ghsingo-live-v2.service ~/.config/systemd/user/
+	systemctl --user daemon-reload
+	@echo "Installed ghsingo-live-v2.service. Send SIGUSR1 to recover the backend without dropping the stream:"
+	@echo "  systemctl --user kill -s USR1 ghsingo-live-v2.service"
 
 enable:
 	systemctl --user enable ghsingo-live ghsingo-prepare.timer

@@ -41,7 +41,7 @@ import (
 
 
 func main() {
-	configPath := flag.String("config", "ghsingo-v2.toml", "path to v2 config")
+	configPath := flag.String("config", "ghsingo.toml", "path to v2 config")
 	durationStr := flag.String("duration", "0", "max duration (0 = until SIGINT)")
 	outOverride := flag.String("o", "", "override output path; empty uses cfg.Output.Local.Path")
 	metricsPath := flag.String("metrics", "", "soak metrics output (.ndjson). empty disables.")

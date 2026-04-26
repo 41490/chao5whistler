@@ -25,15 +25,9 @@ type Config struct {
 
 type Meta struct {
 	Profile string `toml:"profile"`
-	// Legacy marks a profile as a frozen bell-era baseline. Frozen profiles
-	// are kept only as A/B reference for the ambient-engine refactor (#28)
-	// and will be removed by #38 once the new mainline is stable. Setting
-	// this true does not change runtime behavior; tooling (e.g. baseline
-	// reports) reads it to label outputs.
-	Legacy bool `toml:"legacy"`
-	// Engine selects the audio engine: "v1" (bell-era, frozen) or "v2"
-	// (ambient, #28+). Empty defaults to "v1" so existing profiles keep
-	// loading; the new ghsingo-v2.toml sets engine = "v2" explicitly.
+	// Engine selects the audio engine. After #38 only "v2" is valid;
+	// the field is kept so existing v2 profiles keep parsing and so a
+	// future v3 has somewhere to live without another schema break.
 	Engine string `toml:"engine"`
 }
 
@@ -60,59 +54,9 @@ type Events struct {
 }
 
 type Audio struct {
-	SampleRate   int              `toml:"sample_rate"`
-	Channels     int              `toml:"channels"`
-	MasterGainDB float64          `toml:"master_gain_db"`
-	BGM          AudioBGM         `toml:"bgm"`
-	Beat         AudioBeat        `toml:"beat"`
-	Voices       map[string]Voice `toml:"voices"`
-	Bells        AudioBells       `toml:"bells"`
-	Cluster      AudioCluster     `toml:"cluster"`
-}
-
-type AudioBeat struct {
-	GainDB float64 `toml:"gain_db"`
-}
-
-type AudioBGM struct {
-	WavPath string  `toml:"wav_path"`
-	GainDB  float64 `toml:"gain_db"`
-	Loop    bool    `toml:"loop"`
-}
-
-type Voice struct {
-	WavPath    string  `toml:"wav_path"`
-	GainDB     float64 `toml:"gain_db"`
-	DurationMs int     `toml:"duration_ms"`
-}
-
-// AudioBells configures the 15-pitch pentatonic bell layer.
-type AudioBells struct {
-	BankDir      string  `toml:"bank_dir"`
-	SampleGainDB float64 `toml:"sample_gain_db"`
-	SynthGainDB  float64 `toml:"synth_gain_db"`
-	SynthDecay   float64 `toml:"synth_decay"`
-}
-
-// AudioCluster configures the per-second event-to-note mapping algorithm.
-type AudioCluster struct {
-	KeepTopN            int        `toml:"keep_top_n"`
-	EventTypes          []string   `toml:"event_types"`
-	AlwaysFire          []string   `toml:"always_fire"`
-	Velocities          [4]float32 `toml:"velocities"`
-	ReleaseVelocity     float32    `toml:"release_velocity"`
-	OctaveRank1         int        `toml:"octave_rank1"`
-	OctaveRank2         []int      `toml:"octave_rank2"`
-	OctaveRank3         int        `toml:"octave_rank3"`
-	OctaveRank4         int        `toml:"octave_rank4"`
-	OctaveRelease       int        `toml:"octave_release"`
-	SpreadMs            int        `toml:"spread_ms"`
-	ConductorMode       bool       `toml:"conductor_mode"`
-	LeadVelocity        float32    `toml:"lead_velocity"`
-	BackgroundVelocity  float32    `toml:"background_velocity"`
-	WindowMs            int        `toml:"window_ms"`
-	WindowJitterMs      int        `toml:"window_jitter_ms"`
-	MinStrikeIntervalMs int        `toml:"min_strike_interval_ms"`
+	SampleRate   int     `toml:"sample_rate"`
+	Channels     int     `toml:"channels"`
+	MasterGainDB float64 `toml:"master_gain_db"`
 }
 
 type Video struct {
@@ -261,17 +205,15 @@ func localOverlayPath(basePath string) string {
 	return basePath[:len(basePath)-len(ext)] + ".local" + ext
 }
 
-// ResolvedEngine returns the engine name to use, applying the rule
-// "blank engine + Legacy=true means v1, blank engine otherwise means v1
-// for compatibility — only an explicit engine = \"v2\" opts into the
-// ambient mainline." This keeps every bell-era profile in the v1 lane
-// without a code change.
+// ResolvedEngine returns the engine name to use. After #38 only "v2"
+// is a valid engine; an empty engine field also resolves to "v2" so
+// existing v2 profiles that pre-date the explicit field keep loading.
 func (c *Config) ResolvedEngine() string {
 	switch c.Meta.Engine {
-	case "v1", "v2":
-		return c.Meta.Engine
+	case "", "v2":
+		return "v2"
 	}
-	return "v1"
+	return c.Meta.Engine
 }
 
 // ResolveTargetDate converts symbolic date names ("yesterday", "today") to
@@ -320,13 +262,8 @@ func (c *Config) validate() error {
 	if c.Events.MaxPerSecond <= 0 {
 		return fmt.Errorf("events.max_per_second must be positive")
 	}
-	if c.ResolvedEngine() == "v2" {
-		if c.Meta.Legacy {
-			return fmt.Errorf("meta.engine=\"v2\" cannot be combined with meta.legacy=true")
-		}
-		if c.Audio.Cluster.KeepTopN > 0 || len(c.Audio.Cluster.EventTypes) > 0 {
-			return fmt.Errorf("meta.engine=\"v2\" must not define [audio.cluster] (bell-era only); use [composer] instead")
-		}
+	if e := c.ResolvedEngine(); e != "v2" {
+		return fmt.Errorf("meta.engine = %q is not supported (only \"v2\" remains after #38)", e)
 	}
 	return nil
 }

@@ -7,7 +7,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/ghsingo
-ExecStart=%h/ghsingo/ops/bin/live-v2 --config %h/ghsingo/src/ghsingo/ghsingo-v2.toml
+ExecStart=%h/ghsingo/ops/bin/live-v2 --config %h/ghsingo/src/ghsingo/ghsingo.toml
 # #36: live-v2 owns the ffmpeg/RTMP pipe. systemd restarts the *whole*
 # process only on a hard crash; transient backend failures are absorbed
 # by lifecycle.BackendBox and recovered via SIGUSR1 sent to the running

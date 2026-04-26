@@ -1,42 +1,32 @@
-# ghsingo Makefile
+# ghsingo Makefile — bell-era removed in #38; v2 ambient is the only path.
 
 ROOT := $(abspath $(CURDIR)/../..)
 BIN_DIR := $(ROOT)/ops/bin
 VAR_DIR := $(ROOT)/var/ghsingo
 
-.PHONY: build build-prepare build-live build-live-v2 build-render-audio \
+.PHONY: build build-prepare build-live-v2 \
         build-audio-metrics build-composer-demo build-render-audio-v2 \
-        build-migrate-config build-soak-analyze build-movpixer \
+        build-soak-analyze build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
-        prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
-        prepare-tonal-bed compile-synthdefs check-jack-routing \
+        prepare-bells prepare-tonal-bed compile-synthdefs check-jack-routing \
         normalize-voices \
-        run-prepare run-live run-live-5m run-live-v2-5m render-audio-5m run-movpixer \
+        run-prepare run-live-v2-5m run-movpixer \
         composer-timeline composer-timeline-5m \
-        render-audio-v2-30s render-audio-v2-5m \
-        render-audio-v2-profile-30s render-audio-v2-profile-5m \
-        render-audio-v2-scsynth-30s \
+        render-audio-v2-30s render-audio-v2-5m render-audio-v2-scsynth-30s \
         soak-90s soak-24h soak-7d \
-        baseline baseline-30s baseline-5m \
-        migrate-default-to-v2 \
-        install-units install-units-v2 enable start stop status logs \
+        install-units enable start stop status logs \
         fmt vet test clean
 
 # === Build ===
 
-build: build-prepare build-live build-live-v2 build-render-audio build-audio-metrics build-composer-demo build-render-audio-v2 build-migrate-config build-soak-analyze build-movpixer
+build: build-prepare build-live-v2 build-audio-metrics build-composer-demo \
+       build-render-audio-v2 build-soak-analyze build-movpixer
 
 build-prepare:
 	go build -o $(BIN_DIR)/prepare ./cmd/prepare
 
-build-live:
-	go build -o $(BIN_DIR)/live ./cmd/live
-
 build-live-v2:
 	go build -o $(BIN_DIR)/live-v2 ./cmd/live-v2
-
-build-render-audio:
-	go build -o $(BIN_DIR)/render-audio ./cmd/render-audio
 
 build-audio-metrics:
 	go build -o $(BIN_DIR)/audio-metrics ./cmd/audio-metrics
@@ -46,9 +36,6 @@ build-composer-demo:
 
 build-render-audio-v2:
 	go build -o $(BIN_DIR)/render-audio-v2 ./cmd/render-audio-v2
-
-build-migrate-config:
-	go build -o $(BIN_DIR)/migrate-config ./cmd/migrate-config
 
 build-soak-analyze:
 	go build -o $(BIN_DIR)/soak-analyze ./cmd/soak-analyze
@@ -66,7 +53,6 @@ build-movpixer-darwin-arm64:
 
 # normalize-voices: Convert ocean_v3events/ samples to 44100 Hz mono 16-bit PCM
 # with EBU R128 loudness normalization and bandpass (80–8000 Hz).
-# Output files named by event type (e.g. PushEvent.wav) in sounds/.
 normalize-voices:
 	@mkdir -p ../../ops/assets/sounds/normalized
 	@for f in ../../ops/assets/sounds/ocean_v3events/*.wav; do \
@@ -93,19 +79,11 @@ prepare-assets: normalize-voices
 	ffmpeg -i ../../ops/assets/cosmos-leveloop-339.mp3 \
 		-ar 44100 -ac 2 -y ../../ops/assets/cosmos-leveloop-339.wav
 
-# prepare-bells: render the default Tubular Bells bank (GM 14) used by
-# ghsingo.toml. Additional comparison banks are GM 12 Marimba and GM 19
-# Church Organ.
+# prepare-bells: render the GM 14 Tubular Bells bank used as the v2
+# accent voice library (`[assets.accents].bank_dir`). The mallet/organ
+# variants from bell-era are gone (#38).
 prepare-bells:
 	bash scripts/render-bells.sh --bank-name sampled --program 14
-
-prepare-bells-mallet:
-	bash scripts/render-bells.sh --bank-name mallet --program 12
-
-prepare-bells-organ:
-	bash scripts/render-bells.sh --bank-name organ --program 19
-
-prepare-bells-all: prepare-bells prepare-bells-mallet prepare-bells-organ
 
 # prepare-tonal-bed: derive ops/assets/sounds/ambient/tonal-bed.wav from
 # the cosmos-leveloop source for use as v2's L0.5 sample-based bed (#32).
@@ -127,35 +105,13 @@ check-jack-routing:
 run-prepare: build-prepare
 	$(BIN_DIR)/prepare --config ghsingo.toml
 
-run-live: build-live
-	$(BIN_DIR)/live --config ghsingo.toml
-
-run-live-5m: build-live
-	timeout 300 $(BIN_DIR)/live --config ghsingo.toml
-
-# run-live-v2-5m: realtime ambient v2 backend (#34) for 5 minutes,
+# run-live-v2-5m: realtime ambient backend (#34) for 5 minutes,
 # audio-only, output to /tmp/live-v2-5m.flv. Verifies the backend
 # abstraction works end-to-end at wall-clock pace.
 run-live-v2-5m: build-live-v2
-	$(BIN_DIR)/live-v2 --config ghsingo-v2.toml --duration 5m -o /tmp/live-v2-5m.flv
+	$(BIN_DIR)/live-v2 --config ghsingo.toml --duration 5m -o /tmp/live-v2-5m.flv
 
-# render-audio-5m: Render 5 minutes of audio to MP3 for quick verification.
-render-audio-5m: build-render-audio
-	$(BIN_DIR)/render-audio --config ghsingo.toml --duration 5m -o /tmp/ghsingo-audio-5m.m4a
-	@echo "Output: /tmp/ghsingo-audio-5m.m4a  →  ffplay /tmp/ghsingo-audio-5m.m4a"
-
-# baseline: render default/mallet/organ as the frozen bell-era baseline (#29).
-# Output: ops/out/baseline/{REPORT.md, <profile>.m4a, <profile>.report.json}.
-# Override duration with DURATION=5m (default 30s).
-baseline: baseline-30s
-
-baseline-30s: build-render-audio build-audio-metrics
-	DURATION=30s bash scripts/render-baseline.sh
-
-baseline-5m: build-render-audio build-audio-metrics
-	DURATION=5m bash scripts/render-baseline.sh
-
-# composer-timeline: drive the v1 state-vector composer (#30) against the
+# composer-timeline: drive the state-vector composer (#30) against the
 # latest daypack and dump the per-second state timeline as JSON.
 composer-timeline: build-composer-demo
 	mkdir -p ../../ops/out/composer
@@ -167,9 +123,7 @@ composer-timeline-5m: build-composer-demo
 	$(BIN_DIR)/composer-demo --config ghsingo.toml --duration 5m -o ../../ops/out/composer/timeline-5m.json
 	@echo "Output: ops/out/composer/timeline-5m.json"
 
-# render-audio-v2: ambient v2 mixer (#31). Drives the composer (#30) into
-# MixerV2 (drone + bed + accent bank), same sidecar contract as render-audio
-# so audio-metrics can A/B vs the bell-era baseline (#29).
+# render-audio-v2: ambient render to m4a + audio-metrics report.
 render-audio-v2-30s: build-render-audio-v2 build-audio-metrics
 	mkdir -p ../../ops/out/v2
 	$(BIN_DIR)/render-audio-v2 --config ghsingo.toml --duration 30s -o ../../ops/out/v2/v2-30s.m4a
@@ -182,29 +136,13 @@ render-audio-v2-5m: build-render-audio-v2 build-audio-metrics
 	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-5m.m4a --out ../../ops/out/v2/v2-5m.report.json
 	@echo "Output: ops/out/v2/v2-5m.m4a + ops/out/v2/v2-5m.report.json"
 
-# render-audio-v2-profile-*: same as the rendering targets above but
-# loads the v2-shaped ghsingo-v2.toml profile (engine="v2"). The non-
-# profile targets keep using the legacy ghsingo.toml so we can A/B old
-# vs new with one make target.
-render-audio-v2-profile-30s: build-render-audio-v2 build-audio-metrics
-	mkdir -p ../../ops/out/v2
-	$(BIN_DIR)/render-audio-v2 --config ghsingo-v2.toml --duration 30s -o ../../ops/out/v2/v2-profile-30s.m4a
-	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-profile-30s.m4a --out ../../ops/out/v2/v2-profile-30s.report.json
-	@echo "Output: ops/out/v2/v2-profile-30s.m4a + ops/out/v2/v2-profile-30s.report.json"
-
-render-audio-v2-profile-5m: build-render-audio-v2 build-audio-metrics
-	mkdir -p ../../ops/out/v2
-	$(BIN_DIR)/render-audio-v2 --config ghsingo-v2.toml --duration 5m -o ../../ops/out/v2/v2-profile-5m.m4a
-	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-profile-5m.m4a --out ../../ops/out/v2/v2-profile-5m.report.json
-	@echo "Output: ops/out/v2/v2-profile-5m.m4a + ops/out/v2/v2-profile-5m.report.json"
-
 # render-audio-v2-scsynth-30s: drive the scsynth backend (#35). Requires
 # scsynth on PATH and pre-compiled SynthDefs (run `make compile-synthdefs`
 # once). Without scsynth, the render fails with a clear "not on PATH"
 # error, intended.
 render-audio-v2-scsynth-30s: build-render-audio-v2 build-audio-metrics
 	mkdir -p ../../ops/out/v2
-	$(BIN_DIR)/render-audio-v2 --config ghsingo-v2.toml --backend scsynth \
+	$(BIN_DIR)/render-audio-v2 --config ghsingo.toml --backend scsynth \
 		--synthdef-dir scsynth/synthdefs \
 		--duration 30s -o ../../ops/out/v2/v2-scsynth-30s.m4a
 	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-scsynth-30s.m4a --out ../../ops/out/v2/v2-scsynth-30s.report.json
@@ -216,7 +154,7 @@ render-audio-v2-scsynth-30s: build-render-audio-v2 build-audio-metrics
 # the default 16-tick phrase length.
 soak-90s: build-live-v2 build-soak-analyze
 	mkdir -p ../../var/ghsingo/soak
-	$(BIN_DIR)/live-v2 --config ghsingo-v2.toml --duration 90s \
+	$(BIN_DIR)/live-v2 --config ghsingo.toml --duration 90s \
 		--metrics ../../var/ghsingo/soak/metrics-90s.ndjson \
 		--metrics-interval 5s \
 		--snapshot ../../var/ghsingo/soak/snapshot-90s.json \
@@ -226,7 +164,7 @@ soak-90s: build-live-v2 build-soak-analyze
 
 soak-24h: build-live-v2 build-soak-analyze
 	mkdir -p ../../var/ghsingo/soak
-	$(BIN_DIR)/live-v2 --config ghsingo-v2.toml --duration 24h \
+	$(BIN_DIR)/live-v2 --config ghsingo.toml --duration 24h \
 		--metrics ../../var/ghsingo/soak/metrics-24h.ndjson \
 		--metrics-interval 30s \
 		--snapshot ../../var/ghsingo/soak/snapshot-24h.json \
@@ -234,20 +172,11 @@ soak-24h: build-live-v2 build-soak-analyze
 
 soak-7d: build-live-v2 build-soak-analyze
 	mkdir -p ../../var/ghsingo/soak
-	$(BIN_DIR)/live-v2 --config ghsingo-v2.toml --duration 168h \
+	$(BIN_DIR)/live-v2 --config ghsingo.toml --duration 168h \
 		--metrics ../../var/ghsingo/soak/metrics-7d.ndjson \
 		--metrics-interval 30s \
 		--snapshot ../../var/ghsingo/soak/snapshot-7d.json \
 		-o ../../var/ghsingo/soak/7d.flv
-
-# migrate-default-to-v2: end-to-end smoke test of the migration tool.
-# Reads ghsingo.toml (bell-era frozen) and writes a fresh ghsingo-v2.toml
-# alongside it (overwrites the checked-in template — useful for diff-based
-# review during code review, NOT a checked-in workflow).
-migrate-default-to-v2: build-migrate-config
-	$(BIN_DIR)/migrate-config --in ghsingo.toml --out /tmp/ghsingo-v2.migrated.toml
-	@diff -u ghsingo-v2.toml /tmp/ghsingo-v2.migrated.toml || true
-	@echo "Migration output written to /tmp/ghsingo-v2.migrated.toml"
 
 run-movpixer: build-movpixer
 	$(BIN_DIR)/movpixer --config movpixer.toml
@@ -258,32 +187,25 @@ install-units:
 	mkdir -p ~/.config/systemd/user
 	cp ops/systemd/ghsingo-prepare.service ~/.config/systemd/user/
 	cp ops/systemd/ghsingo-prepare.timer ~/.config/systemd/user/
-	cp ops/systemd/ghsingo-live.service ~/.config/systemd/user/
-	systemctl --user daemon-reload
-
-# install-units-v2: install only the v2 ambient live unit (#36). Use
-# this on machines that do not need the bell-era live + prepare timers.
-install-units-v2:
-	mkdir -p ~/.config/systemd/user
 	cp ops/systemd/ghsingo-live-v2.service ~/.config/systemd/user/
 	systemctl --user daemon-reload
-	@echo "Installed ghsingo-live-v2.service. Send SIGUSR1 to recover the backend without dropping the stream:"
+	@echo "Installed v2 units. Send SIGUSR1 to recover the backend without dropping the stream:"
 	@echo "  systemctl --user kill -s USR1 ghsingo-live-v2.service"
 
 enable:
-	systemctl --user enable ghsingo-live ghsingo-prepare.timer
+	systemctl --user enable ghsingo-live-v2 ghsingo-prepare.timer
 
 start:
-	systemctl --user start ghsingo-live
+	systemctl --user start ghsingo-live-v2
 
 stop:
-	systemctl --user stop ghsingo-live
+	systemctl --user stop ghsingo-live-v2
 
 status:
-	systemctl --user status ghsingo-live ghsingo-prepare.timer
+	systemctl --user status ghsingo-live-v2 ghsingo-prepare.timer
 
 logs:
-	journalctl --user -u ghsingo-live -f
+	journalctl --user -u ghsingo-live-v2 -f
 
 # === Development ===
 
@@ -300,13 +222,11 @@ clean:
 	rm -rf $(VAR_DIR)/records/ \
 		$(BIN_DIR)/audio-metrics \
 		$(BIN_DIR)/composer-demo \
-		$(BIN_DIR)/live \
 		$(BIN_DIR)/live-v2 \
-		$(BIN_DIR)/migrate-config \
 		$(BIN_DIR)/movpixer \
 		$(BIN_DIR)/movpixer-darwin-arm64 \
 		$(BIN_DIR)/movpixer-linux-amd64 \
 		$(BIN_DIR)/prepare \
-		$(BIN_DIR)/render-audio \
 		$(BIN_DIR)/render-audio-v2 \
+		$(BIN_DIR)/soak-analyze \
 		/tmp/ghsingo-audio*.m4a

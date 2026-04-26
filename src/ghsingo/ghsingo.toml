@@ -1,11 +1,15 @@
-# FROZEN — bell-era legacy baseline (#29).
-# This profile is kept only as A/B reference for the ambient-engine refactor
-# tracked in #28. Do NOT extend it; new musical work happens in the v2
-# state-vector composer (#30+). #38 will delete this file once the new
-# mainline is stable.
+# ghsingo canonical profile.
+#
+# Ambient mainline (composer #30 -> MixerV2 #31 -> tonal-bed/shared-space
+# #32). The bell-era trigger model was removed by #38; the [composer] /
+# [mixer] / [assets.*] blocks below are the only audio knobs.
+# Loaded by cmd/render-audio-v2 and cmd/live-v2.
+#
+# Schema reference: docs/ambient/config.md.
+
 [meta]
-profile = "default"
-legacy = true
+profile = "ambient"
+engine  = "v2"
 
 [archive]
 source_dir = "../../ops/assets"
@@ -17,7 +21,7 @@ enabled = false
 base_url = "https://data.gharchive.org"
 timeout_secs = 60
 max_parallel = 4
-user_agent = "ghsingo/0.1"
+user_agent = "ghsingo/0.2"
 
 [events]
 types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent", "ReleaseEvent"]
@@ -37,54 +41,36 @@ sample_rate = 44100
 channels = 2
 master_gain_db = 0.0
 
-[audio.bgm]
-wav_path = "../../ops/assets/cosmos-leveloop-339.wav"
-gain_db = -4.8
-loop = true
+# Composer (state-vector core, #30). Empty fields fall back to vetted
+# composer defaults documented in internal/composer/composer.go.
+[composer]
+ema_alpha             = 0.06
+density_saturation    = 12.0
+brightness_saturation = 80.0
+phrase_ticks          = 16
+accent_cooldown_ticks = 3
+accent_base_prob      = 0.10
+seed                  = 0
 
-# Runtime-synthesized beat: BPM follows the last 60 seconds of event density.
-# Gain is well below the bell layer (-26 dB) — gentle subliminal anchor only.
-[audio.beat]
-gain_db = -26.0
+# Mixer (long-lived bus model, #31 + #32). Linear gains in [0, 1].
+[mixer]
+master_gain     = 0.55
+drone_gain      = 1.0
+bed_gain        = 1.0
+tonal_bed_gain  = 0.575    # -4.8 dB
+accent_gain     = 1.0
+wet_continuous  = 0.06
+wet_accent      = 0.45
+accent_max      = 4
 
-# Bell bank: 15 pentatonic pitches (5 note names × 3 octaves).
-# Default bank = GM 14 Tubular Bells. Long samples (lead + Release) +
-# Karplus–Strong synth fallback if a bank sample is missing.
-[audio.bells]
-bank_dir = "../../ops/assets/sounds/bells/sampled"
-sample_gain_db = -2.0
-synth_gain_db  = -4.0
-synth_decay    = 0.996
+# Assets (v2 ambient layer assignments, #32).
+[assets.tonal_bed]
+wav_path = "../../ops/assets/sounds/ambient/tonal-bed.wav"
+gain_db  = -4.8
 
-# Per-second event cluster algorithm.
-[audio.cluster]
-keep_top_n = 4
-event_types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent"]
-always_fire = ["ReleaseEvent"]
-velocities = [1.00, 0.75, 0.60, 0.45]
-release_velocity = 1.00
-octave_rank1    = 4
-octave_rank2    = [4, 5]
-octave_rank3    = 5
-octave_rank4    = 3
-octave_release  = 5
-spread_ms       = 500
-# Conductor mode: keep only the lead bell audible by default, and gate lead
-# strikes to at most once every 1200 ms (~50 BPM) so sparse breathing seconds
-# appear naturally.
-conductor_mode      = true
-lead_velocity       = 1.00
-background_velocity = 0.00
-window_ms           = 800
-window_jitter_ms    = 200
-min_strike_interval_ms = 1200
-
-# Release ocean: layered ONLY when ReleaseEvent is the per-second lead.
-# Kept audible again at -6 dB because -12 dB disappeared in conductor mode.
-[audio.voices.ReleaseEvent]
-wav_path = "../../ops/assets/sounds/normalized/ReleaseEvent.wav"
-gain_db = -6.0
-duration_ms = 2490
+[assets.accents]
+bank_dir    = "../../ops/assets/sounds/bells/sampled"
+synth_decay = 0.996
 
 [video]
 width = 1280
@@ -113,9 +99,8 @@ rotation_deg = 90.0
 
 [video.background]
 mode = "solid"
-# sequence_dir is kept for backward compatibility; prefer sequence_dirs.
 sequence_dir = ""
-sequence_dirs = ["../../ops/assets/backgrounds/movpixer/Headspace.Guide.to.Meditation.S01E07.How.to.Deal.with.Anger.1080p"]
+sequence_dirs = []
 switch_every_secs = 2.0
 fade_secs = 0.2
 

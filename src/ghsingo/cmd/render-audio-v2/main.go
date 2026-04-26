@@ -33,7 +33,6 @@ import (
 type sidecar struct {
 	Profile             string  `json:"profile"`
 	Engine              string  `json:"engine"`
-	Legacy              bool    `json:"legacy"`
 	Config              string  `json:"config"`
 	DaypackDate         string  `json:"daypack_date"`
 	DurationSecs        float64 `json:"duration_secs"`
@@ -141,7 +140,6 @@ func main() {
 	side := sidecar{
 		Profile:     cfg.Meta.Profile,
 		Engine:      be.Name(),
-		Legacy:      cfg.Meta.Legacy,
 		Config:      *configPath,
 		DaypackDate: dateStr,
 		SampleRate:  cfg.Audio.SampleRate,
@@ -251,41 +249,25 @@ func buildGoV2Backend(cfg *config.Config, seedOverride int64) (*gov2.Backend, er
 
 	assets := gov2.AssetsConfig{}
 
-	// Accent bank: prefer v2 [assets.accents]; fall back to legacy
-	// [audio.bells] only when the v2 block is absent (migration aid).
-	bankDir := cfg.Assets.Accents.BankDir
-	bankDecay := cfg.Assets.Accents.SynthDecay
-	if bankDir == "" {
-		bankDir = cfg.Audio.Bells.BankDir
-		bankDecay = cfg.Audio.Bells.SynthDecay
-	}
-	if bankDir != "" {
+	if bankDir := cfg.Assets.Accents.BankDir; bankDir != "" {
 		bank := audio.NewBellBank(cfg.Audio.SampleRate)
-		if bankDecay > 0 {
-			bank.SetSynthDecay(bankDecay)
+		if d := cfg.Assets.Accents.SynthDecay; d > 0 {
+			bank.SetSynthDecay(d)
 		}
 		if _, err := bank.LoadFromDir(bankDir); err != nil {
 			slog.Warn("load accent bank", "err", err, "path", bankDir)
 		}
 		assets.AccentBank = bank
-		assets.AccentSynthDecay = bankDecay
+		assets.AccentSynthDecay = cfg.Assets.Accents.SynthDecay
 	}
 
-	// Tonal bed: prefer v2 [assets.tonal_bed]; fall back to legacy
-	// [audio.bgm] only when the v2 block is absent (migration aid).
-	tbPath := cfg.Assets.TonalBed.WavPath
-	tbGainDB := cfg.Assets.TonalBed.GainDB
-	if tbPath == "" {
-		tbPath = cfg.Audio.BGM.WavPath
-		tbGainDB = cfg.Audio.BGM.GainDB
-	}
-	if tbPath != "" {
+	if tbPath := cfg.Assets.TonalBed.WavPath; tbPath != "" {
 		pcm, err := audio.LoadWavFile(tbPath)
 		if err != nil {
 			slog.Warn("load tonal bed", "err", err, "path", tbPath)
 		} else {
 			assets.TonalBedPCM = pcm
-			assets.TonalBedGainDB = tbGainDB
+			assets.TonalBedGainDB = cfg.Assets.TonalBed.GainDB
 			slog.Info("tonal bed loaded", "samples", len(pcm), "path", tbPath)
 		}
 	}

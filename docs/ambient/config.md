@@ -86,45 +86,25 @@ synth_decay = 0.996
 [observe]                  # unchanged from v1
 ```
 
-## Removed in v2
+## Removed (#38)
 
-These bell-era fields are NOT read by the v2 path. The Loader rejects
-`[audio.cluster]` under `engine = "v2"`; the rest are silently ignored
-when the engine is v2 (kept parseable so a partial migration still
-loads).
+These bell-era fields no longer exist in the schema. Profiles that
+still mention them now fail to parse.
 
-| field                  | reason                                        |
+| field                  | replacement / reason                          |
 |------------------------|-----------------------------------------------|
-| `[audio.cluster]`      | trigger-centric model replaced by composer    |
+| `[audio.cluster]`      | composer-driven; see `[composer]`             |
 | `[audio.bells]`        | renamed to `[assets.accents]`                 |
-| `[audio.beat]`         | beat density is a v1 modulation; v2 has none  |
-| `[audio.voices]`       | per-event voice samples; v2 stems happen via accents |
-| `[audio.bgm]`          | BGM is no longer a role; cosmos -> tonal-bed  |
+| `[audio.beat]`         | gone; v2 has no beat layer                    |
+| `[audio.voices]`       | gone; sparse triggers now come from accents   |
+| `[audio.bgm]`          | renamed to `[assets.tonal_bed]`               |
 
 ## Migration
 
-Use the `migrate-config` helper to translate any bell-era profile to the
-v2 shape:
-
-```sh
-cd src/ghsingo
-go run ./cmd/migrate-config --in ghsingo.toml --out /tmp/v2.toml
-diff -u ghsingo-v2.toml /tmp/v2.toml
-```
-
-The tool:
-
-- preserves `[archive]` / `[events]` / `[video]` / `[output]` / `[observe]`
-  exactly
-- writes `[composer]` and `[mixer]` from vetted defaults (the bell-era
-  values rarely transfer meaningfully — review them after migration)
-- maps `[audio.bgm].wav_path` to `[assets.tonal_bed].wav_path` (default
-  `ops/assets/sounds/ambient/tonal-bed.wav`) and carries the dB value
-- maps `[audio.bells].bank_dir` to `[assets.accents].bank_dir`
-- refuses to migrate a profile that already declares `engine = "v2"`
-
-`make migrate-default-to-v2` runs this end-to-end against the frozen
-default and shows a diff against the canonical `ghsingo-v2.toml`.
+`cmd/migrate-config` was deleted in #38; bell-era profiles were a one-
+shot transition and the helper had no users left. If you still have an
+old toml lying around, hand-translate it using the field mapping above
+or recover the tool from the git history before commit dad87d9f.
 
 ## Override semantics
 
@@ -144,13 +124,9 @@ engine  = "v2"
 `[output]`, `[observe]` — those are required by validation regardless of
 engine.
 
-## Removal boundary
+## History
 
-[#38](../../../) removes the bell-era code paths. After that lands:
-
-- `[audio.bells]` / `[audio.cluster]` / `[audio.bgm]` / `[audio.beat]`
-  / `[audio.voices]` are removed from `internal/config`.
-- `migrate-config` itself is deleted (its only caller was the bell-era
-  -> v2 transition; nothing should be running v1 by then).
-- `ghsingo.toml` / `ghsingo-mallet.toml` / `ghsingo-organ.toml` are
-  deleted; `ghsingo-v2.toml` is renamed to `ghsingo.toml`.
+The bell-era schema (`[audio.bgm]` / `[audio.bells]` / `[audio.cluster]`
+/ `[audio.beat]` / `[audio.voices]`) was removed by [#38](../../../).
+See [`docs/baselines/bell-era/`](../baselines/bell-era/) for the
+tombstone listing what was dropped.

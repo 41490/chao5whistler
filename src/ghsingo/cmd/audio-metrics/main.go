@@ -39,7 +39,6 @@ type loudness struct {
 type sidecar struct {
 	Profile             string  `json:"profile"`
 	Engine              string  `json:"engine,omitempty"`
-	Legacy              bool    `json:"legacy"`
 	Config              string  `json:"config"`
 	DaypackDate         string  `json:"daypack_date"`
 	DurationSecs        float64 `json:"duration_secs"`

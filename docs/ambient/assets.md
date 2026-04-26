@@ -74,7 +74,7 @@ and (2) are the responsibility of the source material.
 
 ## Removal boundary
 
-When #38 deletes the bell-era code paths it should NOT delete the
-`ops/assets/sounds/bells/sampled/` directory — those samples are
-re-used by v2 as the accent voice bank. The `mallet/` and `organ/`
-banks are A/B-only and may be removed.
+Bell-era code was removed in #38. The `ops/assets/sounds/bells/sampled/`
+WAV bank stays — v2 reuses it as the accent voice library. The
+`mallet/` and `organ/` banks are now orphaned (no profile references
+them); they sit under a gitignored directory so deletion is optional.

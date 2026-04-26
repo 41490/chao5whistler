@@ -11,6 +11,7 @@ import (
 const validTOML = `
 [meta]
 profile = "test"
+engine = "v2"
 
 [archive]
 source_dir = "/tmp/assets"
@@ -37,16 +38,6 @@ CreateEvent = 40
 sample_rate = 44100
 channels = 2
 master_gain_db = 0.0
-
-[audio.bgm]
-wav_path = "/tmp/bgm.wav"
-gain_db = -9.0
-loop = true
-
-[audio.voices.PushEvent]
-wav_path = "/tmp/push.wav"
-gain_db = 0.0
-duration_ms = 500
 
 [video]
 width = 1280
@@ -141,12 +132,6 @@ func TestLoadValidConfig(t *testing.T) {
 	}
 	if w, ok := cfg.Events.Weights["PushEvent"]; !ok || w != 30 {
 		t.Errorf("Events.Weights[PushEvent] = %d, want 30", w)
-	}
-	if v, ok := cfg.Audio.Voices["PushEvent"]; !ok || v.DurationMs != 500 {
-		t.Errorf("Audio.Voices[PushEvent].DurationMs = %d, want 500", v.DurationMs)
-	}
-	if cfg.Audio.BGM.Loop != true {
-		t.Error("Audio.BGM.Loop = false, want true")
 	}
 }
 
@@ -325,19 +310,16 @@ func TestLoadInvalidBackgroundFadeSecs(t *testing.T) {
 func TestResolvedEngineDefaults(t *testing.T) {
 	cases := []struct {
 		engine string
-		legacy bool
 		want   string
 	}{
-		{"", false, "v1"},
-		{"", true, "v1"},
-		{"v1", false, "v1"},
-		{"v2", false, "v2"},
-		{"unknown", false, "v1"}, // unknown values fall back to v1
+		{"", "v2"},
+		{"v2", "v2"},
+		{"v3", "v3"}, // future engines pass through; validate() rejects them
 	}
 	for _, tc := range cases {
-		c := &Config{Meta: Meta{Engine: tc.engine, Legacy: tc.legacy}}
+		c := &Config{Meta: Meta{Engine: tc.engine}}
 		if got := c.ResolvedEngine(); got != tc.want {
-			t.Errorf("engine=%q legacy=%v: got %q want %q", tc.engine, tc.legacy, got, tc.want)
+			t.Errorf("engine=%q: got %q want %q", tc.engine, got, tc.want)
 		}
 	}
 }
@@ -413,59 +395,15 @@ path = "/tmp/x"
 	}
 }
 
-func TestLoadV2ForbidsClusterBlock(t *testing.T) {
+// TestLoadRejectsUnknownEngine ensures the "v2 only" stance from #38
+// holds: validate() refuses anything else.
+func TestLoadRejectsUnknownEngine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.toml")
 	body := `
 [meta]
 profile = "x"
-engine = "v2"
-[archive]
-source_dir = "x"
-daypack_dir = "y"
-target_date = "2026-04-01"
-[events]
-types = ["PushEvent"]
-max_per_second = 4
-[events.weights]
-PushEvent = 30
-[audio]
-sample_rate = 44100
-channels = 2
-[audio.cluster]
-keep_top_n = 4
-event_types = ["PushEvent"]
-[video]
-width = 1280
-height = 720
-fps = 15
-[video.background]
-mode = "solid"
-switch_every_secs = 1.0
-fade_secs = 0.0
-[output]
-mode = "local"
-[output.local]
-path = "/tmp/x"
-`
-	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Load(path); err == nil {
-		t.Fatal("expected error for [audio.cluster] under engine=v2")
-	} else if !strings.Contains(err.Error(), "audio.cluster") {
-		t.Fatalf("error should mention audio.cluster, got %v", err)
-	}
-}
-
-func TestLoadV2ForbidsLegacyFlag(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bad.toml")
-	body := `
-[meta]
-profile = "x"
-engine = "v2"
-legacy = true
+engine = "v3"
 [archive]
 source_dir = "x"
 daypack_dir = "y"
@@ -495,106 +433,8 @@ path = "/tmp/x"
 		t.Fatal(err)
 	}
 	if _, err := Load(path); err == nil {
-		t.Fatal("expected error for engine=v2 + legacy=true combination")
-	}
-}
-
-func TestLoadBellSection(t *testing.T) {
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "c.toml")
-	if err := os.WriteFile(cfgPath, []byte(`
-[meta]
-profile = "test"
-[archive]
-source_dir = "x"
-daypack_dir = "y"
-target_date = "2026-04-01"
-[events]
-types = ["PushEvent"]
-max_per_second = 4
-[events.weights]
-PushEvent = 10
-[audio]
-sample_rate = 44100
-channels = 2
-[audio.bgm]
-wav_path = ""
-gain_db = 0
-[audio.beat]
-gain_db = 0
-[audio.bells]
-bank_dir = "bells"
-sample_gain_db = -2.0
-synth_gain_db = -4.0
-synth_decay = 0.995
-[audio.cluster]
-keep_top_n = 4
-event_types = ["PushEvent", "CreateEvent"]
-always_fire = ["ReleaseEvent"]
-velocities = [1.0, 0.75, 0.6, 0.45]
-release_velocity = 1.0
-octave_rank1 = 4
-octave_rank2 = [4, 5]
-octave_rank3 = 5
-octave_rank4 = 3
-octave_release = 5
-spread_ms = 500
-conductor_mode = true
-lead_velocity = 1.0
-background_velocity = 0.18
-window_ms = 800
-window_jitter_ms = 200
-min_strike_interval_ms = 1200
-[video]
-width = 1280
-height = 720
-fps = 15
-[video.background]
-mode = "solid"
-switch_every_secs = 1.0
-fade_secs = 0.0
-[output]
-mode = "local"
-[output.local]
-path = "/tmp/x"
-`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(cfgPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Audio.Bells.BankDir != "bells" {
-		t.Errorf("BankDir = %q, want %q", cfg.Audio.Bells.BankDir, "bells")
-	}
-	if cfg.Audio.Bells.SynthDecay != 0.995 {
-		t.Errorf("SynthDecay = %v", cfg.Audio.Bells.SynthDecay)
-	}
-	if cfg.Audio.Cluster.KeepTopN != 4 {
-		t.Errorf("KeepTopN = %d", cfg.Audio.Cluster.KeepTopN)
-	}
-	if len(cfg.Audio.Cluster.OctaveRank2) != 2 {
-		t.Errorf("OctaveRank2 = %v", cfg.Audio.Cluster.OctaveRank2)
-	}
-	if cfg.Audio.Cluster.Velocities[0] != 1.0 {
-		t.Errorf("Velocities[0] = %v", cfg.Audio.Cluster.Velocities[0])
-	}
-	if !cfg.Audio.Cluster.ConductorMode {
-		t.Error("ConductorMode should be true")
-	}
-	if cfg.Audio.Cluster.LeadVelocity != 1.0 {
-		t.Errorf("LeadVelocity = %v", cfg.Audio.Cluster.LeadVelocity)
-	}
-	if cfg.Audio.Cluster.BackgroundVelocity != 0.18 {
-		t.Errorf("BackgroundVelocity = %v", cfg.Audio.Cluster.BackgroundVelocity)
-	}
-	if cfg.Audio.Cluster.WindowMs != 800 {
-		t.Errorf("WindowMs = %v", cfg.Audio.Cluster.WindowMs)
-	}
-	if cfg.Audio.Cluster.WindowJitterMs != 200 {
-		t.Errorf("WindowJitterMs = %v", cfg.Audio.Cluster.WindowJitterMs)
-	}
-	if cfg.Audio.Cluster.MinStrikeIntervalMs != 1200 {
-		t.Errorf("MinStrikeIntervalMs = %v", cfg.Audio.Cluster.MinStrikeIntervalMs)
+		t.Fatal("expected error for engine=v3")
+	} else if !strings.Contains(err.Error(), "v2") {
+		t.Fatalf("error should mention v2 as the only supported engine, got %v", err)
 	}
 }

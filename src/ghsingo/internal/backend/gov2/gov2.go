@@ -162,3 +162,12 @@ func (b *Backend) LastState() composer.State { return b.mx.LastState() }
 
 // Stats returns lifetime counters since the backend was constructed.
 func (b *Backend) Stats() Stats { return b.stats }
+
+// Snapshot returns the composer state for #37 soak survivability.
+// MixerV2 voice state (slewed gains, drone phase) is intentionally not
+// captured: those quantities re-derive within ~250 ms of resuming
+// playback, fast enough that listeners never notice the seam.
+func (b *Backend) Snapshot() composer.Snapshot { return b.c.Snapshot() }
+
+// Restore overwrites the composer state from a Snapshot.
+func (b *Backend) Restore(s composer.Snapshot) { b.c.Restore(s) }

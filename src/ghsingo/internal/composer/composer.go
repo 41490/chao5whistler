@@ -172,6 +172,52 @@ type Composer struct {
 	totalTicks    int
 }
 
+// Snapshot is the serializable composer state used by #37 soak/observe
+// to survive a backend restart without hearing the musical phrase reset.
+// rng state is intentionally omitted — accent timing across a restart
+// is allowed to diverge slightly; the slow musical state (Density,
+// Brightness, Mode, Section, ticksInPhrase) is what listeners notice.
+type Snapshot struct {
+	Density       float64 `json:"density"`
+	Brightness    float64 `json:"brightness"`
+	Mode          int     `json:"mode"`
+	Section       int     `json:"section"`
+	Cooldown      int     `json:"cooldown"`
+	TicksInPhrase int     `json:"ticks_in_phrase"`
+	TotalTicks    int     `json:"total_ticks"`
+}
+
+// Snapshot returns the current composer state as a serializable struct.
+func (c *Composer) Snapshot() Snapshot {
+	return Snapshot{
+		Density:       c.state.Density,
+		Brightness:    c.state.Brightness,
+		Mode:          int(c.state.Mode),
+		Section:       int(c.state.Section),
+		Cooldown:      c.cooldown,
+		TicksInPhrase: c.ticksInPhrase,
+		TotalTicks:    c.totalTicks,
+	}
+}
+
+// Restore overwrites the composer state from a Snapshot. Caller is
+// responsible for ensuring the Snapshot was produced by a compatible
+// composer version; bad data will not panic but will produce surprising
+// musical state.
+func (c *Composer) Restore(s Snapshot) {
+	c.state.Density = s.Density
+	c.state.Brightness = s.Brightness
+	c.state.Mode = Mode(s.Mode)
+	c.state.Section = Section(s.Section)
+	c.cooldown = s.Cooldown
+	c.ticksInPhrase = s.TicksInPhrase
+	c.totalTicks = s.TotalTicks
+	c.state.ModeName = c.state.Mode.String()
+	c.state.SectionName = c.state.Section.String()
+	c.state.AccentProb = c.cfg.AccentBaseProb * sectionMultiplier(c.state.Section)
+	c.state.TicksInPhrase = c.ticksInPhrase
+}
+
 // New constructs a Composer. Initial state: Section=Rest, Mode=Yo, all EMAs zero.
 func New(cfg Config) *Composer {
 	cfg.applyDefaults()

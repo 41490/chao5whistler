@@ -6,7 +6,7 @@ VAR_DIR := $(ROOT)/var/ghsingo
 
 .PHONY: build build-prepare build-live build-live-v2 build-render-audio \
         build-audio-metrics build-composer-demo build-render-audio-v2 \
-        build-migrate-config build-movpixer \
+        build-migrate-config build-soak-analyze build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
         prepare-tonal-bed compile-synthdefs check-jack-routing \
@@ -16,6 +16,7 @@ VAR_DIR := $(ROOT)/var/ghsingo
         render-audio-v2-30s render-audio-v2-5m \
         render-audio-v2-profile-30s render-audio-v2-profile-5m \
         render-audio-v2-scsynth-30s \
+        soak-90s soak-24h soak-7d \
         baseline baseline-30s baseline-5m \
         migrate-default-to-v2 \
         install-units install-units-v2 enable start stop status logs \
@@ -23,7 +24,7 @@ VAR_DIR := $(ROOT)/var/ghsingo
 
 # === Build ===
 
-build: build-prepare build-live build-live-v2 build-render-audio build-audio-metrics build-composer-demo build-render-audio-v2 build-migrate-config build-movpixer
+build: build-prepare build-live build-live-v2 build-render-audio build-audio-metrics build-composer-demo build-render-audio-v2 build-migrate-config build-soak-analyze build-movpixer
 
 build-prepare:
 	go build -o $(BIN_DIR)/prepare ./cmd/prepare
@@ -48,6 +49,9 @@ build-render-audio-v2:
 
 build-migrate-config:
 	go build -o $(BIN_DIR)/migrate-config ./cmd/migrate-config
+
+build-soak-analyze:
+	go build -o $(BIN_DIR)/soak-analyze ./cmd/soak-analyze
 
 build-movpixer:
 	go build -o $(BIN_DIR)/movpixer ./cmd/movpixer
@@ -205,6 +209,36 @@ render-audio-v2-scsynth-30s: build-render-audio-v2 build-audio-metrics
 		--duration 30s -o ../../ops/out/v2/v2-scsynth-30s.m4a
 	$(BIN_DIR)/audio-metrics --audio ../../ops/out/v2/v2-scsynth-30s.m4a --out ../../ops/out/v2/v2-scsynth-30s.report.json
 	@echo "Output: ops/out/v2/v2-scsynth-30s.m4a + ops/out/v2/v2-scsynth-30s.report.json"
+
+# soak-* targets run live-v2 with metrics + snapshot enabled and then
+# evaluate via soak-analyze (#37). soak-90s is the CI smoke variant —
+# 90 seconds is enough to cross at least one Section transition with
+# the default 16-tick phrase length.
+soak-90s: build-live-v2 build-soak-analyze
+	mkdir -p ../../var/ghsingo/soak
+	$(BIN_DIR)/live-v2 --config ghsingo-v2.toml --duration 90s \
+		--metrics ../../var/ghsingo/soak/metrics-90s.ndjson \
+		--metrics-interval 5s \
+		--snapshot ../../var/ghsingo/soak/snapshot-90s.json \
+		-o ../../var/ghsingo/soak/90s.flv 2>&1 | tail -3
+	$(BIN_DIR)/soak-analyze --in ../../var/ghsingo/soak/metrics-90s.ndjson \
+		--min-uptime 80s --max-zero-density-secs 30
+
+soak-24h: build-live-v2 build-soak-analyze
+	mkdir -p ../../var/ghsingo/soak
+	$(BIN_DIR)/live-v2 --config ghsingo-v2.toml --duration 24h \
+		--metrics ../../var/ghsingo/soak/metrics-24h.ndjson \
+		--metrics-interval 30s \
+		--snapshot ../../var/ghsingo/soak/snapshot-24h.json \
+		-o ../../var/ghsingo/soak/24h.flv
+
+soak-7d: build-live-v2 build-soak-analyze
+	mkdir -p ../../var/ghsingo/soak
+	$(BIN_DIR)/live-v2 --config ghsingo-v2.toml --duration 168h \
+		--metrics ../../var/ghsingo/soak/metrics-7d.ndjson \
+		--metrics-interval 30s \
+		--snapshot ../../var/ghsingo/soak/snapshot-7d.json \
+		-o ../../var/ghsingo/soak/7d.flv
 
 # migrate-default-to-v2: end-to-end smoke test of the migration tool.
 # Reads ghsingo.toml (bell-era frozen) and writes a fresh ghsingo-v2.toml

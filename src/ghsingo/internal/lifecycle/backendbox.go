@@ -137,6 +137,20 @@ func (b *BackendBox) LastInitErr() error {
 	return b.lastErr
 }
 
+// Inner returns the current wrapped Backend, or nil if the box is
+// unhealthy. Callers MUST treat the returned Backend as ephemeral —
+// it can be torn down by a concurrent Restart at any moment. The use
+// case is read-only metric pulls (#37): grab a snapshot of the inner
+// state, never store the pointer.
+func (b *BackendBox) Inner() backend.Backend {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.healthy {
+		return nil
+	}
+	return b.inner
+}
+
 // SampleRate forwards to inner; returns 0 when no inner is alive.
 func (b *BackendBox) SampleRate() int {
 	b.mu.Lock()

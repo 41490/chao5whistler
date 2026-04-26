@@ -4,14 +4,14 @@ ROOT := $(abspath $(CURDIR)/../..)
 BIN_DIR := $(ROOT)/ops/bin
 VAR_DIR := $(ROOT)/var/ghsingo
 
-.PHONY: build build-prepare build-live build-render-audio build-audio-metrics \
-        build-composer-demo build-render-audio-v2 build-migrate-config \
-        build-movpixer \
+.PHONY: build build-prepare build-live build-live-v2 build-render-audio \
+        build-audio-metrics build-composer-demo build-render-audio-v2 \
+        build-migrate-config build-movpixer \
         build-movpixer-linux-amd64 build-movpixer-darwin-arm64 prepare-assets \
         prepare-bells prepare-bells-mallet prepare-bells-organ prepare-bells-all \
         prepare-tonal-bed \
         normalize-voices \
-        run-prepare run-live run-live-5m render-audio-5m run-movpixer \
+        run-prepare run-live run-live-5m run-live-v2-5m render-audio-5m run-movpixer \
         composer-timeline composer-timeline-5m \
         render-audio-v2-30s render-audio-v2-5m \
         render-audio-v2-profile-30s render-audio-v2-profile-5m \
@@ -22,13 +22,16 @@ VAR_DIR := $(ROOT)/var/ghsingo
 
 # === Build ===
 
-build: build-prepare build-live build-render-audio build-audio-metrics build-composer-demo build-render-audio-v2 build-migrate-config build-movpixer
+build: build-prepare build-live build-live-v2 build-render-audio build-audio-metrics build-composer-demo build-render-audio-v2 build-migrate-config build-movpixer
 
 build-prepare:
 	go build -o $(BIN_DIR)/prepare ./cmd/prepare
 
 build-live:
 	go build -o $(BIN_DIR)/live ./cmd/live
+
+build-live-v2:
+	go build -o $(BIN_DIR)/live-v2 ./cmd/live-v2
 
 build-render-audio:
 	go build -o $(BIN_DIR)/render-audio ./cmd/render-audio
@@ -114,6 +117,12 @@ run-live: build-live
 
 run-live-5m: build-live
 	timeout 300 $(BIN_DIR)/live --config ghsingo.toml
+
+# run-live-v2-5m: realtime ambient v2 backend (#34) for 5 minutes,
+# audio-only, output to /tmp/live-v2-5m.flv. Verifies the backend
+# abstraction works end-to-end at wall-clock pace.
+run-live-v2-5m: build-live-v2
+	$(BIN_DIR)/live-v2 --config ghsingo-v2.toml --duration 5m -o /tmp/live-v2-5m.flv
 
 # render-audio-5m: Render 5 minutes of audio to MP3 for quick verification.
 render-audio-5m: build-render-audio
@@ -226,6 +235,7 @@ clean:
 		$(BIN_DIR)/audio-metrics \
 		$(BIN_DIR)/composer-demo \
 		$(BIN_DIR)/live \
+		$(BIN_DIR)/live-v2 \
 		$(BIN_DIR)/migrate-config \
 		$(BIN_DIR)/movpixer \
 		$(BIN_DIR)/movpixer-darwin-arm64 \

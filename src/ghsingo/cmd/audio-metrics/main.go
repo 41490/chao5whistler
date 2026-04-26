@@ -38,6 +38,7 @@ type loudness struct {
 
 type sidecar struct {
 	Profile             string  `json:"profile"`
+	Engine              string  `json:"engine,omitempty"`
 	Legacy              bool    `json:"legacy"`
 	Config              string  `json:"config"`
 	DaypackDate         string  `json:"daypack_date"`
@@ -49,6 +50,8 @@ type sidecar struct {
 	ReleaseAccents      int     `json:"release_accents"`
 	EffStrikeRatePerSec float64 `json:"effective_strike_rate_per_sec"`
 	ReleaseAccentRate   float64 `json:"release_accent_rate_per_sec"`
+	SectionTransitions  int     `json:"section_transitions,omitempty"`
+	ModeTransitions     int     `json:"mode_transitions,omitempty"`
 }
 
 type combined struct {

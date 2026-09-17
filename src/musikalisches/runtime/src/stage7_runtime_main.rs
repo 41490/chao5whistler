@@ -402,7 +402,7 @@ fn probe_tcp_connectivity(host: &str, port: u16, timeout_seconds: f64) -> Result
         }
     }
     let error = last_error
-        .unwrap_or_else(|| std::io::Error::new(ErrorKind::Other, "no socket addresses resolved"));
+        .unwrap_or_else(|| std::io::Error::other("no socket addresses resolved"));
     Err(anyhow!(error).context(format!("unable to reach {host}:{port}")))
 }
 

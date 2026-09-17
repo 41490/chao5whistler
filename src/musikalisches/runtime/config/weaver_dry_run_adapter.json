@@ -1,0 +1,72 @@
+{
+  "adapter_id": "weaver_dry_run_adapter_v1",
+  "description": "Keyless dry run: real stage5/stage6 rendering and the real stage7 bridge contract build, but playback goes to the local fake bridge instead of RTMPS. No YouTube credentials and no RTMPS URL anywhere in the repo.",
+  "steps": {
+    "stage5_audio": {
+      "description": "Allocate a unique combination from the persistent stage5 ledger and render audio.",
+      "program": "python3",
+      "args": [
+        "src/musikalisches/tools/build_stage5_unique_stream.py",
+        "--work-id",
+        "{work_id}",
+        "--output-dir",
+        "{audio_dir}",
+        "--ledger-path",
+        "{stage5_ledger}",
+        "--loop-count",
+        "{loop_count}",
+        "--soundfont",
+        "{soundfont}",
+        "--soundscape-profile",
+        "{soundscape_profile}"
+      ]
+    },
+    "stage6_stub": {
+      "description": "Derive the stage6 visual stub from the stage5 analyzer artifacts.",
+      "program": "python3",
+      "args": [
+        "src/musikalisches/tools/build_stage6_video_stub.py",
+        "{audio_dir}",
+        "{stub_dir}"
+      ]
+    },
+    "stage6_video": {
+      "description": "Render the offline video preview for the asset.",
+      "program": "python3",
+      "args": [
+        "src/musikalisches/tools/build_stage6_video_render.py",
+        "--ffmpeg-bin",
+        "ffmpeg",
+        "{stub_dir}",
+        "{video_dir}"
+      ]
+    },
+    "bridge_build": {
+      "description": "Freeze the stage7 bridge contract for this asset (local, no ingest credentials).",
+      "program": "python3",
+      "args": [
+        "src/musikalisches/tools/build_stage7_stream_bridge.py",
+        "--ffmpeg-bin",
+        "ffmpeg",
+        "--ffprobe-bin",
+        "ffprobe",
+        "{audio_dir}",
+        "{video_dir}",
+        "{bridge_dir}"
+      ]
+    },
+    "bridge_run": {
+      "description": "Local fake bridge: verifies the published digests and journals the consumption. Needs no stream key.",
+      "program": "python3",
+      "args": [
+        "src/musikalisches/tools/fake_weaver_bridge.py",
+        "--asset-dir",
+        "{asset_dir}",
+        "--journal",
+        "{bridge_journal}",
+        "--play-seconds",
+        "{play_seconds}"
+      ]
+    }
+  }
+}

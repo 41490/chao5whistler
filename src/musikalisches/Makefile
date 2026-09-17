@@ -11,6 +11,13 @@ VIDEO_STUB_SF2_OUT := $(ROOT)/ops/out/video-stub-sf2
 VIDEO_RENDER_OUT := $(ROOT)/ops/out/video-render
 VIDEO_RENDER_SF2_OUT := $(ROOT)/ops/out/video-render-sf2
 STREAM_BRIDGE_OUT := $(ROOT)/ops/out/stream-bridge
+WEAVER_STATE_OUT := $(ROOT)/ops/out/state/musikalisches/weaver
+WEAVER_BUFFER_OUT := $(ROOT)/ops/out/weaver-buffer
+WEAVER_WORK_OUT := $(ROOT)/ops/out/weaver-work
+WEAVER_DRY_RUN_ADAPTER := $(ROOT)/src/musikalisches/runtime/config/weaver_dry_run_adapter.json
+WEAVER_CONSUME_COUNT ?= 3
+WEAVER_PLAY_SECONDS ?= 0
+WEAVER_LOOP_COUNT ?= 1
 FFMPEG_TOOLCHAIN_OUT := $(ROOT)/ops/out/ffmpeg-rtmps-check
 STAGE7_PREFLIGHT_REGRESSION_OUT := $(ROOT)/ops/out/stage7-preflight-regressions
 DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_synth_profile.json
@@ -86,6 +93,13 @@ help:
 	'  make stage7-bridge-profile-show Show default stage7 bridge profile path' \
 	'  make stage7-plan-show     Show stage7 bridge guide path' \
 	'  make stage8-plan-show     Show stage8 real-soak ops guide path' \
+	'' \
+	'Weaver supervisor (issue #62):' \
+	'  make weaver-build         Build the musikalisches-weaver binary' \
+	'  make weaver-test          Run the weaver end-to-end regression set' \
+	'  make weaver-dry-run       Buffer + consume assets through the local fake bridge (no stream key)' \
+	'  make weaver-report        Print the latest weaver throughput report' \
+	'  make weaver-runbook-show  Show the weaver operator runbook path' \
 	'' \
 	'Utilities:' \
 	'  make stage5-all            fmt + test + golden + stream render + validate' \
@@ -469,6 +483,37 @@ stage7-all:
 .PHONY: plans-open
 plans-open:
 	@printf '%s\n' $(ROOT)/docs/plans/260321-stage5-build-and-manual-test-guide.md
+
+.PHONY: weaver-build
+weaver-build:
+	cd $(ROOT) && $(CARGO) build --bin musikalisches-weaver
+
+.PHONY: weaver-test
+weaver-test:
+	cd $(ROOT) && $(CARGO) test --test weaver_e2e
+
+# Keyless end-to-end smoke: real stage5/stage6 rendering, real stage7 bridge
+# contract build, local fake bridge instead of RTMPS.
+.PHONY: weaver-dry-run
+weaver-dry-run:
+	cd $(ROOT) && $(CARGO) run --bin musikalisches-weaver -- \
+		--adapter-config "$(WEAVER_DRY_RUN_ADAPTER)" \
+		--state-dir "$(WEAVER_STATE_OUT)" \
+		--buffer-dir "$(WEAVER_BUFFER_OUT)" \
+		--work-dir "$(WEAVER_WORK_OUT)" \
+		--consume-count $(WEAVER_CONSUME_COUNT) \
+		--buffer-depth 3 \
+		--low-water 2 \
+		--loop-count $(WEAVER_LOOP_COUNT) \
+		--play-seconds $(WEAVER_PLAY_SECONDS)
+
+.PHONY: weaver-report
+weaver-report:
+	cd $(ROOT) && $(PYTHON) -m json.tool "$(WEAVER_STATE_OUT)/weaver_throughput_report.json"
+
+.PHONY: weaver-runbook-show
+weaver-runbook-show:
+	@printf '%s\n' $(ROOT)/docs/plans/260917-musikalisches-weaver-runbook.md
 
 .PHONY: clean-out
 clean-out:

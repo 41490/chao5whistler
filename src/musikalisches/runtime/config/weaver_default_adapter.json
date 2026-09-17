@@ -30,6 +30,14 @@
         "{stub_dir}"
       ]
     },
+    "stage6_stub_check": {
+      "description": "Validate the stub; the render step reads its report.",
+      "program": "python3",
+      "args": [
+        "src/musikalisches/tools/validate_stage6_video_stub.py",
+        "{stub_dir}"
+      ]
+    },
     "stage6_video": {
       "description": "Render the offline video preview for the asset.",
       "program": "python3",
@@ -38,6 +46,14 @@
         "--ffmpeg-bin",
         "ffmpeg",
         "{stub_dir}",
+        "{video_dir}"
+      ]
+    },
+    "stage6_video_check": {
+      "description": "Validate the render; the bridge builder reads its report.",
+      "program": "python3",
+      "args": [
+        "src/musikalisches/tools/validate_stage6_video_render.py",
         "{video_dir}"
       ]
     },

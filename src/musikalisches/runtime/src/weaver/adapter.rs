@@ -22,8 +22,12 @@ use super::jsonio;
 pub const STEP_STAGE5_AUDIO: &str = "stage5_audio";
 /// Derive the stage6 video stub from the stage5 artifacts (optional).
 pub const STEP_STAGE6_STUB: &str = "stage6_stub";
+/// Validate the video stub so the render step finds its report (optional).
+pub const STEP_STAGE6_STUB_CHECK: &str = "stage6_stub_check";
 /// Render the offline video preview (existing stage6 tool by default).
 pub const STEP_STAGE6_VIDEO: &str = "stage6_video";
+/// Validate the rendered video so the bridge step finds its report (optional).
+pub const STEP_STAGE6_VIDEO_CHECK: &str = "stage6_video_check";
 /// Freeze the bridge contract for the published asset (optional).
 pub const STEP_BRIDGE_BUILD: &str = "bridge_build";
 /// Hand the published asset to the bridge for playback (fake bridge in tests).

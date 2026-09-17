@@ -17,6 +17,7 @@ pub mod hash;
 pub mod jsonio;
 pub mod ledger;
 pub mod report;
+pub mod soundfont;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -27,7 +28,7 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use adapter::{
     Adapter, STEP_BRIDGE_BUILD, STEP_BRIDGE_RUN, STEP_STAGE5_AUDIO, STEP_STAGE6_STUB,
-    STEP_STAGE6_VIDEO,
+    STEP_STAGE6_STUB_CHECK, STEP_STAGE6_VIDEO, STEP_STAGE6_VIDEO_CHECK,
 };
 use buffer::{Buffer, DEFAULT_DEPTH_TARGET, DEFAULT_LOW_WATER};
 use ledger::{AssetRecord, Ledger, RecoveryReport};
@@ -42,7 +43,6 @@ pub const DEFAULT_STAGE5_LEDGER: &str =
     "ops/out/state/musikalisches/stage5_stream_sf2_combination_ledger.json";
 pub const DEFAULT_SOUNDSCAPE_PROFILE: &str =
     "src/musikalisches/runtime/config/stage5_default_soundscape_profile.json";
-pub const DEFAULT_SOUNDFONT: &str = "ops/assets/soundfonts/default-GM.sf2";
 pub const DEFAULT_LOOP_COUNT: u32 = 4;
 pub const DEFAULT_MAX_GENERATION_FAILURES: u32 = 3;
 pub const DEFAULT_MAX_BRIDGE_ATTEMPTS: u32 = 3;
@@ -74,6 +74,8 @@ pub struct WeaverConfig {
     pub ledger_path: PathBuf,
     pub stage5_ledger: PathBuf,
     pub soundfont: String,
+    /// Which soundfont candidate won: `explicit`, `env`, `repo_default` or `system`.
+    pub soundfont_source: String,
     pub soundscape_profile: String,
     pub loop_count: u32,
     pub buffer_depth: usize,
@@ -134,7 +136,8 @@ pub fn usage() -> String {
         "Adapter variables:",
         "  --work-id <id>                canonical work id (default mozart_dicegame_print_1790s)",
         "  --stage5-ledger <path>        existing stage5 combination ledger",
-        "  --soundfont <path>            SoundFont for stage5",
+        "  --soundfont <path>            SoundFont for stage5 (default: $MUSIKALISCHES_SOUNDFONT, then",
+        "                                ops/assets/soundfonts/default.sf2, then a system GM soundfont)",
         "  --soundscape-profile <path>   stage5 soundscape profile",
         "  --loop-count <n>              stage5 hold cycles (default 4)",
         "  --play-seconds <s>            simulated playback seconds per asset (fake bridge)",
@@ -199,7 +202,7 @@ pub fn parse_args(args: &[String]) -> Result<ParsedCommand> {
     let mut exit_report_path: Option<String> = None;
     let mut ledger_path: Option<String> = None;
     let mut stage5_ledger = DEFAULT_STAGE5_LEDGER.to_string();
-    let mut soundfont = DEFAULT_SOUNDFONT.to_string();
+    let mut soundfont: Option<String> = None;
     let mut soundscape_profile = DEFAULT_SOUNDSCAPE_PROFILE.to_string();
     let mut loop_count = DEFAULT_LOOP_COUNT;
     let mut buffer_depth = DEFAULT_DEPTH_TARGET;
@@ -235,7 +238,7 @@ pub fn parse_args(args: &[String]) -> Result<ParsedCommand> {
             }
             "--ledger" => ledger_path = Some(next_value(args, &mut index, "--ledger")?),
             "--stage5-ledger" => stage5_ledger = next_value(args, &mut index, "--stage5-ledger")?,
-            "--soundfont" => soundfont = next_value(args, &mut index, "--soundfont")?,
+            "--soundfont" => soundfont = Some(next_value(args, &mut index, "--soundfont")?),
             "--soundscape-profile" => {
                 soundscape_profile = next_value(args, &mut index, "--soundscape-profile")?
             }
@@ -344,6 +347,10 @@ pub fn parse_args(args: &[String]) -> Result<ParsedCommand> {
         .map(|raw| resolve_path(&repo_root, &raw))
         .unwrap_or_else(|| state_dir_path.join("bridge_journal.jsonl"));
 
+    // The repo bundles no SoundFont (`ops/assets/**` is gitignored), so resolve
+    // the same chain `make stage5-sf2` resolves instead of assuming a path.
+    let soundfont = soundfont::resolve_soundfont(&repo_root, soundfont.as_deref())?;
+
     Ok(ParsedCommand::Run(Box::new(WeaverConfig {
         work_id,
         repo_root: repo_root.clone(),
@@ -355,7 +362,8 @@ pub fn parse_args(args: &[String]) -> Result<ParsedCommand> {
         exit_report_path,
         ledger_path,
         stage5_ledger: resolve_path(&repo_root, &stage5_ledger),
-        soundfont: resolve_path(&repo_root, &soundfont).display().to_string(),
+        soundfont: soundfont.path.display().to_string(),
+        soundfont_source: soundfont.source,
         soundscape_profile: resolve_path(&repo_root, &soundscape_profile)
             .display()
             .to_string(),
@@ -514,6 +522,21 @@ fn generate_asset(
             );
         }
     }
+    // The Makefile runs the stub validator before the render because the render
+    // reads its report; keep the same order when the adapter defines the step.
+    if let Some(check_step) = adapter.run_optional_step(STEP_STAGE6_STUB_CHECK, &record_log_dir)? {
+        if !check_step.succeeded() {
+            return mark_generation_failure(
+                ledger,
+                &record_id,
+                STEP_STAGE6_STUB_CHECK,
+                &format!(
+                    "stage6 stub validation failed (exit {}, log {})",
+                    check_step.exit_code, check_step.log_path
+                ),
+            );
+        }
+    }
 
     let video_step = adapter.run_step(STEP_STAGE6_VIDEO, &record_log_dir)?;
     if !video_step.succeeded() {
@@ -526,6 +549,20 @@ fn generate_asset(
                 video_step.exit_code, video_step.timed_out, video_step.log_path
             ),
         );
+    }
+    // Same reason: the bridge builder requires the render validation report.
+    if let Some(check_step) = adapter.run_optional_step(STEP_STAGE6_VIDEO_CHECK, &record_log_dir)? {
+        if !check_step.succeeded() {
+            return mark_generation_failure(
+                ledger,
+                &record_id,
+                STEP_STAGE6_VIDEO_CHECK,
+                &format!(
+                    "stage6 render validation failed (exit {}, log {})",
+                    check_step.exit_code, check_step.log_path
+                ),
+            );
+        }
     }
 
     let required = config
@@ -765,6 +802,10 @@ pub fn run(config: &WeaverConfig) -> Result<RunOutcome> {
     if stale_temp_dirs > 0 {
         eprintln!("weaver: removed {stale_temp_dirs} incomplete temp publish dir(s)");
     }
+    eprintln!(
+        "weaver: stage5 soundfont {} (source: {})",
+        config.soundfont, config.soundfont_source
+    );
 
     let mut adapter = Adapter::load(&config.adapter_config)?;
     adapter.set_repo_root(&config.repo_root);
@@ -932,8 +973,25 @@ pub fn run_cli(args: Vec<String>) -> i32 {
 mod tests {
     use super::*;
 
+    /// A real (stub) file so soundfont resolution never depends on the host.
+    fn soundfont_stub() -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("weaver-sf2-stub-{}.sf2", std::process::id()));
+        if !path.exists() {
+            std::fs::write(&path, b"sf2").expect("write soundfont stub");
+        }
+        path
+    }
+
     fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|value| (*value).to_string()).collect()
+        let mut values = list
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect::<Vec<_>>();
+        if !values.iter().any(|value| value == "--soundfont") {
+            values.push("--soundfont".to_string());
+            values.push(soundfont_stub().display().to_string());
+        }
+        values
     }
 
     fn config_from(list: &[&str]) -> WeaverConfig {
@@ -959,6 +1017,19 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert!(config.adapter_config.ends_with(DEFAULT_ADAPTER_CONFIG));
+        assert_eq!(config.soundfont_source, "explicit");
+        assert!(config.soundfont.ends_with(".sf2"));
+    }
+
+    #[test]
+    fn soundfont_failures_are_config_errors_and_explicit_wins() {
+        // Explicit path that does not exist is a usage/config error, not a panic.
+        assert!(parse_args(&args(&["--soundfont", "/nonexistent/weaver.sf2"])).is_err());
+
+        let stub = soundfont_stub();
+        let config = config_from(&["--soundfont", stub.to_str().unwrap()]);
+        assert_eq!(config.soundfont_source, "explicit");
+        assert_eq!(config.soundfont, stub.display().to_string());
     }
 
     #[test]

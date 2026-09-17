@@ -77,6 +77,7 @@ reserved ──► rendering ──► published ──► consumed ──► ch
 - 必需 step：`stage5_audio`、`stage6_video`、`bridge_run`；可选 step：`stage6_stub`、`bridge_build`。
 - 占位符：`{work_id}`、`{repo_root}`、`{state_dir}`、`{buffer_dir}`、`{work_dir}`、`{stage5_ledger}`、`{soundfont}`、`{soundscape_profile}`、`{loop_count}`、`{play_seconds}`、`{bridge_journal}`、`{report_path}`、`{exit_report_path}`，以及每个资产的 `{record_id}`、`{audio_dir}`、`{stub_dir}`、`{video_dir}`、`{asset_dir}`、`{combination_id}`、`{bridge_dir}`。
 - 未知占位符 = 配置错误（直接失败，不会静默展开成空串）；`{a b}` 这类非标识符花括号原样透传。
+- `{soundfont}` 在启动时解析成绝对路径，优先级与 `make stage5-sf2` 完全一致：`--soundfont` → `$MUSIKALISCHES_SOUNDFONT` → `<repo_root>/ops/assets/soundfonts/default.sf2` → 系统候选（`/usr/share/sounds/sf2/FluidR3_GM.sf2`、`TimGM6mb.sf2`、`FluidR3Mono_GM.sf2`、`/usr/local/share/sounds/sf2/default.sf2`）。仓库本身**不携带** SoundFont（`ops/assets/**` 被 `.gitignore` 忽略），所以不要假定某个固定路径存在。全部候选都落空时，weaver 以 exit 2（`usage_error`）快速失败，并在错误里列出 `MUSIKALISCHES_SOUNDFONT`、repo 默认路径和全部系统候选。启动横幅会打印实际选中的路径与来源（`explicit` / `env` / `repo_default` / `system`）。
 - 每步 stdout/stderr 落到 `<state-dir>/logs/<record_id>/<step>.log`；`--step-timeout-seconds` 控制单步超时（0 关闭）。
 
 **换成 fake**：把 `bridge_run` 指向本地 fake bridge 即可，其余保持真实：
@@ -164,6 +165,7 @@ unset MUSIKALISCHES_RTMP_URL
 ## 7. 已知限制
 
 - 补充是**同步**的：refill 在消费循环里阻塞执行，没有独立 producer 线程；生成延迟过高时会直接体现在 `cannot_sustain_live` 判定里。
+- stage5 依赖一个 SoundFont：仓库不提供，必须通过 `--soundfont`、`MUSIKALISCHES_SOUNDFONT`、`ops/assets/soundfonts/default.sf2` 或系统 GM 音色之一满足（见 §3）。
 - 实时编码、音视频内部拼接、跨 asset 无缝过渡均未实现（首版按 issue #62 决策只做预生成缓冲池）。
 - 重试不复用失败尝试的中间产物，被放弃的组合会保留在 stage5 ledger 里但不会出现在直播中。
 - `--consume-count` 缺省表示常驻运行，目前不处理 SIGINT 的优雅收尾（下次启动由恢复逻辑兜底）。

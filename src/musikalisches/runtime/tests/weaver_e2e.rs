@@ -36,6 +36,9 @@ fn scratch(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("weaver-e2e-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).expect("create scratch dir");
+    // Hermetic stage5 soundfont: the repo bundles none (`ops/assets/**` is
+    // gitignored), and the fakes never read the file.
+    fs::write(root.join("dummy.sf2"), b"sf2").expect("write soundfont stub");
     root
 }
 
@@ -175,6 +178,8 @@ fn base_args(root: &Path, adapter: &Path) -> Vec<String> {
         &root.join("work").display().to_string(),
         "--stage5-ledger",
         &root.join("stage5_ledger.json").display().to_string(),
+        "--soundfont",
+        &root.join("dummy.sf2").display().to_string(),
     ]
     .iter()
     .map(|value| (*value).to_string())
@@ -547,6 +552,27 @@ fn bridge_failure_exits_5_with_its_own_class() {
         .as_str()
         .unwrap()
         .contains("bridge reconnect exhausted"));
+}
+
+/// A missing SoundFont is a usage/config error before any rendering starts.
+#[test]
+fn missing_soundfont_is_a_usage_error_not_a_render_failure() {
+    let root = scratch("no-soundfont");
+    let adapter = write_adapter(&root, "ok", 0.5, 0.0, 0.0, &[]);
+    let run = run_weaver(&with_flags(
+        &base_args(&root, &adapter),
+        &["--soundfont", "/nonexistent/weaver.sf2", "--once"],
+    ));
+    assert_eq!(run.code, 2, "{}", run.context());
+    assert!(
+        run.stderr.contains("soundfont path does not exist"),
+        "{}",
+        run.stderr
+    );
+    assert!(
+        !root.join("state").exists(),
+        "a config error must not create state"
+    );
 }
 
 /// Issue #62 decision 7: when generation cannot keep up, the report says so.

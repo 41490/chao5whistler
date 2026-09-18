@@ -622,6 +622,9 @@ def update_stage5_contracts(
     checks = validation_report.setdefault("checks", [])
     mix_bus = soundscape_selection["mix_bus"]
     expected_duration = selection["combination_duration_seconds"]
+    # Issue #71: tail is part of the delivered WAV; cycle duration stays unchanged.
+    render_tail_seconds = stream_loop_plan.get("render_tail_seconds", 0.0)
+    expected_duration += render_tail_seconds
     layer_kinds = [layer["layer_kind"] for layer in soundscape_selection["layers"]]
     checks.extend(
         [
@@ -647,6 +650,7 @@ def update_stage5_contracts(
                 "details": {
                     "actual_duration_seconds": final_audio_stats["duration_seconds"],
                     "expected_duration_seconds": expected_duration,
+                    "expected_tail_seconds": render_tail_seconds,
                 },
             },
             {

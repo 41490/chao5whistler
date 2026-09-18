@@ -7,6 +7,7 @@
       "wet": 0.22,
       "dry": 0.85,
       "decay_seconds": 1.6,
+      "render_tail_seconds": 2.0,
       "room_size": 0.45,
       "damping": 0.4
     },
@@ -20,7 +21,7 @@
       "dynamic_spread_gain_db_min": 1.5,
       "reverb_tail_dbfs_min": -45.0,
       "lufs_band": [-20.0, -18.0],
-      "lufs_band_basis": "premix_render_offline_audio"
+      "lufs_band_basis": "premix_render_offline_audio_note_region"
     }
   },
   "voice_groups": [

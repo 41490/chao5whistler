@@ -34,22 +34,12 @@ Exit status: 0 when every assertion passes, 1 otherwise. Failures are printed
 and (with ``--report``) written into the report JSON under
 ``failed_assertions``.
 
-Measurement notes (read before "fixing" the tail assertion)
------------------------------------------------------------
-* ``render-audio`` truncates the render at the last note-off, so the reverb tail
-  is cut off at the render boundary. For the demo-rolls artifacts there is no
-  analysis window after the last note-off at all. Assertion (c) therefore falls
-  back to the sparse release windows (windows with at most ``SPARSE_VOICE_LIMIT``
-  simultaneously sounding voices) -- the only region where a tail is not masked
-  by a still-sounding voice. The region actually used is reported as
-  ``tail_window_basis``.
-* ``finalize_audio_render`` peak-normalizes and applies ``master_trim_db``, and
-  the two profiles end up with different total gains. Comparing absolute tail
-  levels across renders would therefore measure the gain difference, not the
-  reverb. Assertion (c) compensates the renderer's own total gain, read from
-  ``artifact_summary.json`` (``audio.normalization_gain``), and requires the
-  enhanced side to still be ``REVERB_TAIL_EXCESS_DB_MIN`` louder than the dry
-  side at the same windows.
+Measurement notes (Issue #71)
+------------------------------
+* The renderer appends a configurable zero-input tail after the last note-off
+  before applying equal-length reverb. Assertion (c) measures window RMS dBFS
+  in that post-last-note-off region; dry participates only as the explicit
+  no-tail counter-example.
 """
 
 from __future__ import annotations
@@ -58,11 +48,10 @@ import argparse
 import hashlib
 import json
 import math
-import statistics
 import sys
 from pathlib import Path
 
-from loudness_meter import measure_wav
+from loudness_meter import measure_pcm, read_wav_pcm
 
 IDENTITY_ARTIFACTS = (
     "note_event_sequence.json",
@@ -84,14 +73,7 @@ REQUIRED_FILES = IDENTITY_ARTIFACTS + (
 # profile's EQ/pan/velocity changes are allowed to attenuate the main layer, but
 # by no more than ~2 dB (dry peak envelope 0.0553 -> enhanced 0.0647, i.e. 1.17x).
 MELODY_PEAK_RETENTION_MIN = 0.8
-# The enhanced render must be at least this much louder than the gain-compensated
-# dry render in the tail windows. Source: issue #63 ab-verify calibration on the
-# demo-rolls artifacts -- measured excess is ~2.8 dB in the sparse release
-# windows and 0.0 dB for the dry-vs-dry counter-example.
-REVERB_TAIL_EXCESS_DB_MIN = 1.0
-# A window is "sparse" (tail-observable) when at most this many notes sound.
-SPARSE_VOICE_LIMIT = 1
-MEASUREMENT_ID = "issue63_academic_ab_v1"
+MEASUREMENT_ID = "issue71_academic_ab_absolute_tail_v2"
 EXPECTATION_KEYS = (
     "dynamic_spread_gain_db_min",
     "reverb_tail_dbfs_min",
@@ -198,117 +180,41 @@ def check_dynamic_spread(
     }
 
 
-def active_voice_counts(windows: list[dict], note_events: list[dict]) -> list[int]:
-    counts: list[int] = []
-    for window in windows:
-        start = window["start_seconds"]
-        end = window["end_seconds"]
-        counts.append(
-            sum(
-                1
-                for event in note_events
-                if event["start_seconds"] < end and event["end_seconds"] > start
-            )
-        )
-    return counts
-
-
-def select_tail_windows(
-    windows: list[dict], note_events: list[dict], counts: list[int]
-) -> tuple[list[int], str, float]:
-    last_note_off = max(event["end_seconds"] for event in note_events)
-    after = [
-        index
-        for index, window in enumerate(windows)
-        if window["start_seconds"] >= last_note_off
-    ]
-    if after:
-        return after, "post_last_note_off", last_note_off
-    sparse = [index for index, count in enumerate(counts) if count <= SPARSE_VOICE_LIMIT]
-    return sparse, "sparse_release_windows", last_note_off
-
-
-def total_gain_db(summary: dict) -> float | None:
-    raw_gain = summary.get("audio", {}).get("normalization_gain")
-    try:
-        gain = float(raw_gain)
-    except (TypeError, ValueError):
-        return None
-    return 20.0 * math.log10(gain) if gain > 0.0 else None
-
-
 def check_reverb_tail(
-    dry_dir: Path,
-    enhanced_dir: Path,
-    dry_windows: list[dict],
     enhanced_windows: list[dict],
     note_events: list[dict],
     expectations: dict,
 ) -> dict:
-    counts = active_voice_counts(dry_windows, note_events)
-    indices, basis, last_note_off = select_tail_windows(dry_windows, note_events, counts)
+    last_note_off = max(event["end_seconds"] for event in note_events)
+    indices = [
+        index for index, window in enumerate(enhanced_windows)
+        if window["start_seconds"] >= last_note_off
+    ]
     floor = require_float(expectations, "reverb_tail_dbfs_min", "mix.ab_expectations")
-    dry_gain = total_gain_db(load_json(dry_dir / ARTIFACT_SUMMARY_FILE))
-    enhanced_gain = total_gain_db(load_json(enhanced_dir / ARTIFACT_SUMMARY_FILE))
     failures: list[str] = []
     result = {
         "passed": False,
         "failures": failures,
-        "tail_window_basis": basis,
+        "tail_window_basis": "post_last_note_off_rms",
         "tail_window_count": len(indices),
         "last_note_off_seconds": last_note_off,
         "required_reverb_tail_dbfs_min": floor,
-        "required_reverb_tail_excess_db_min": REVERB_TAIL_EXCESS_DB_MIN,
-        "sparse_voice_limit": SPARSE_VOICE_LIMIT,
-        "gain_compensation_db": None,
-        "reverb_tail_dbfs_dry": None,
         "reverb_tail_dbfs_enhanced": None,
-        "reverb_tail_excess_db": None,
-        "reverb_tail_dbfs_dry_envelope": None,
-        "reverb_tail_dbfs_enhanced_envelope": None,
     }
     if not indices:
-        failures.append("c: no analysis window qualifies as a reverb tail window")
+        failures.append("c: no observable tail region.")
         return result
-    if dry_gain is None or enhanced_gain is None:
-        failures.append(
-            "c: artifact_summary.json audio.normalization_gain is missing, "
-            "cannot compensate the render gain difference"
-        )
-        return result
-
-    gain_compensation = enhanced_gain - dry_gain
-    dry_tail = dbfs(statistics.median(dry_windows[i]["rms_amplitude"] for i in indices))
-    enhanced_tail = dbfs(
-        statistics.median(enhanced_windows[i]["rms_amplitude"] for i in indices)
-    )
-    excess = (
-        None if dry_tail is None or enhanced_tail is None else round(enhanced_tail - dry_tail - gain_compensation, 3)
-    )
+    enhanced_tail = dbfs(max(enhanced_windows[i]["rms_amplitude"] for i in indices))
     result.update(
         {
-            "gain_compensation_db": round(gain_compensation, 3),
-            "reverb_tail_dbfs_dry": dry_tail,
             "reverb_tail_dbfs_enhanced": enhanced_tail,
-            "reverb_tail_excess_db": excess,
-            "reverb_tail_dbfs_dry_envelope": dbfs(
-                statistics.median(dry_windows[i]["envelope_amplitude"] for i in indices)
-            ),
-            "reverb_tail_dbfs_enhanced_envelope": dbfs(
-                statistics.median(enhanced_windows[i]["envelope_amplitude"] for i in indices)
-            ),
+            "reverb_tail_measure": "maximum post-last-note-off window RMS dBFS",
         }
     )
     if enhanced_tail is None or enhanced_tail < floor:
         failures.append(
             f"c: enhanced tail {enhanced_tail} dBFS < required floor {floor} dBFS "
-            f"({basis}, {len(indices)} windows)"
-        )
-    if excess is None or excess < REVERB_TAIL_EXCESS_DB_MIN:
-        failures.append(
-            f"c: enhanced tail only {excess} dB above the gain-compensated dry tail "
-            f"(need {REVERB_TAIL_EXCESS_DB_MIN} dB); dry {dry_tail} dBFS, "
-            f"enhanced {enhanced_tail} dBFS, gain compensation {round(gain_compensation, 3)} dB"
+            f"(post-last-note-off, {len(indices)} windows)"
         )
     result["passed"] = not failures
     return result
@@ -373,13 +279,24 @@ def check_lufs_band(dry_measure: dict, enhanced_measure: dict, expectations: dic
     }
 
 
+def measure_note_active(path: Path, last_note_off: float) -> dict:
+    try:
+        audio = read_wav_pcm(path)
+        frame_count = int(last_note_off * audio["sample_rate"])
+        pcm = audio["pcm"][: frame_count * audio["channels"]]
+        return measure_pcm(pcm, sample_rate=audio["sample_rate"], channels=audio["channels"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise InputError(f"cannot measure note-active PCM {path}: {error}") from error
+
+
 def run_checks(dry_dir: Path, enhanced_dir: Path, profile: dict) -> dict:
     expectations = require_expectations(profile)
     dry_windows = load_json(dry_dir / ANALYSIS_FILE)["windows"]
     enhanced_windows = load_json(enhanced_dir / ANALYSIS_FILE)["windows"]
     note_events = load_json(enhanced_dir / NOTE_EVENT_FILE)["note_events"]
-    dry_measure = measure_wav(dry_dir / AUDIO_FILE)
-    enhanced_measure = measure_wav(enhanced_dir / AUDIO_FILE)
+    last_note_off = max(event["end_seconds"] for event in note_events)
+    dry_measure = measure_note_active(dry_dir / AUDIO_FILE, last_note_off)
+    enhanced_measure = measure_note_active(enhanced_dir / AUDIO_FILE, last_note_off)
 
     checks = {
         "a_sequence_identity": check_sequence_identity(dry_dir, enhanced_dir),
@@ -387,7 +304,7 @@ def run_checks(dry_dir: Path, enhanced_dir: Path, profile: dict) -> dict:
             dry_measure, enhanced_measure, expectations
         ),
         "c_reverb_tail": check_reverb_tail(
-            dry_dir, enhanced_dir, dry_windows, enhanced_windows, note_events, expectations
+            enhanced_windows, note_events, expectations
         ),
         "d_melody_unmasked": check_melody_unmasked(
             dry_windows, enhanced_windows, dry_measure, enhanced_measure
@@ -402,7 +319,8 @@ def run_checks(dry_dir: Path, enhanced_dir: Path, profile: dict) -> dict:
         "dry_dir": str(dry_dir),
         "enhanced_dir": str(enhanced_dir),
         "profile_id": profile.get("profile_id"),
-        "premix_dynamic_spread_basis": "render_audio_offline_audio_wav",
+        "premix_measure_basis": "note_active_region",
+        "premix_measure_duration_semantics": "duration_seconds is note-active region duration",
         "premix_loudness_dry": dry_measure,
         "premix_loudness_enhanced": enhanced_measure,
         "assertions": checks,

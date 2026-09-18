@@ -23,7 +23,7 @@ BS.1770 响度计量与门禁（loudness-mix lane）、A/B 机检（ab-verify la
 `skip_serializing_if` 保证既有 profile 产物逐字节不变（有单测覆盖）。
 
 ```text
-mix.reverb{enabled,wet,dry,decay_seconds,room_size,damping}
+mix.reverb{enabled,wet,dry,decay_seconds,room_size,damping,render_tail_seconds}
 mix.master_trim_db
 mix.dynamic{velocity_depth,phrase_period_quarters,beat_accent_pattern}
 mix.ab_expectations{dynamic_spread_gain_db_min,reverb_tail_dbfs_min,lufs_band,lufs_band_basis}
@@ -47,11 +47,13 @@ Freeverb 风格 Schroeder：4 个并行阻尼 comb（1116/1188/1277/1356 采样�
 `room_size` 与采样率缩放，feedback 由 `decay_seconds` 反推，clamp 0.98）+ 2 个
 allpass（556/441），干湿按 `dry`/`wet` 混合。纯算法，无 IR 资产、无新增 crate。
 
-取舍：**reverb 输出与输入等长，尾部被渲染边界截断**。`render-audio` 的总时长由
-note 序列决定（demo rolls = 12.0 s，最后一个 note_off 恰好落在 12.0 s），因此
-render 里不存在“最后一个 note_off 之后”的窗口，reverb 尾巴在物理上被切掉。
-这与 stage5 的循环 stream 语义一致（cycle 必须首尾相接），代价是离线 A/B 无法
-用“尾部绝对能量”做判定——见 §5 的替代判据。
+Issue #71 已采用渲染追加 tail：`apply_reverb` 仍保持等长，但调用前给 PCM
+追加 `round(render_tail_seconds * sample_rate)` 个零输入帧，只在 enabled 且 tail > 0
+时执行。尾巴只加在完整组合末尾，不改变 note/realization/cycle 时长。
+字段必须有限且非负，默认 0.0 且零值不序列化；默认与 dry 仍为 12.0 s。
+`AudioRenderSummary` 的 frames/duration 是实际 WAV 长度，分析窗口覆盖全部 PCM；
+`StreamLoopPlan.render_tail_seconds` 是下游尾长的权威来源，total_duration 仍指组合。
+单测覆盖零值逐字节序列化、禁用/零值不扩展与 WAV summary 自洽。
 
 ## 4. 响度计量与门禁来源
 
@@ -66,7 +68,7 @@ render 里不存在“最后一个 note_off 之后”的窗口，reverb 尾巴�
 - 门禁：`stage5_default_soundscape_profile.json` 的 `mix_bus_profile`
   （`target_lufs_min/max`、`true_peak_ceiling_dbtp`、`require_no_clipping`、
   `envelope_coupling`），由 `validate_m1_artifacts.py` 读回并断言，阈值不重复硬编码。
-- 计量对象：`offline_audio.wav`（render-audio premix，即 soundscape mix bus 之前）。
+- 计量对象：`offline_audio.wav` 的 note-active 区 `[0,last_note_off)`（render-audio premix，即 soundscape mix bus 之前）；尾区只由 c 判定。脚本报告的 `duration_seconds` 是该 note-active 区时长。
 
 ## 5. A/B 判定阈值与反例
 
@@ -75,17 +77,18 @@ render 里不存在“最后一个 note_off 之后”的窗口，reverb 尾巴�
 | id | 断言 | 阈值来源 |
 | --- | --- | --- |
 | a | `note_event_sequence.json` / `event_transition_sequence.json` / `realized_fragment_sequence.json` 两侧逐字节一致 | profile 不得改变 note/transition/realization 层 |
-| b | premix `dynamic_spread_db(enh) ≥ dynamic_spread_db(dry) + 1.5 dB` | `ab_expectations.dynamic_spread_gain_db_min` |
-| c | reverb 尾部存在，且增强侧在补偿渲染总增益后仍高出干侧 ≥ 1.0 dB | `reverb_tail_dbfs_min`（绝对地板）+ 脚本常数（见下） |
-| d | 主层 envelope 峰值保留 ≥ 0.8×，且 short-term 波动范围更宽 | 脚本常数 `MELODY_PEAK_RETENTION_MIN` |
-| e | premix `integrated_lufs(enh) ∈ lufs_band`，dry 只记录 | `ab_expectations.lufs_band` |
+| b | note-active premix `dynamic_spread_db(enh) ≥ dynamic_spread_db(dry) + 1.5 dB` | `ab_expectations.dynamic_spread_gain_db_min` |
+| c | enhanced 存在 `start_seconds >= last_note_off` 窗口，最大窗口 RMS dBFS ≥ −45；无尾区即 FAIL | `ab_expectations.reverb_tail_dbfs_min`，无 dry/增益补偿 |
+| d | 主层 envelope 峰值保留 ≥ 0.8×，且 note-active short-term 波动范围更宽 | 脚本常数 `MELODY_PEAK_RETENTION_MIN` |
+| e | note-active premix `integrated_lufs(enh) ∈ lufs_band`，不含尾部，dry 只记录 | `ab_expectations.lufs_band` |
 
 实测（demo rolls，44.1 kHz，FluidR3_GM）：
 
 ```text
-dry : integrated -22.944 LUFS, spread 3.765 dB, short-term 1.657 dB
-enh : integrated -22.137 LUFS, spread 6.392 dB, short-term 3.208 dB
-premix spread gain = 2.627 dB >= 1.5 dB
+dry : integrated -18.994 LUFS, spread 3.765 dB, short-term 1.657 dB
+enh : integrated -18.997 LUFS, spread 6.392 dB, short-term 3.208 dB
+premix spread gain = 2.627 dB >= 1.5 dB（note-active 区）
+尾区不参与 b/d/e；c 单独使用完整分析窗口判定绝对 dBFS 地板。
 ```
 
 `MELODY_PEAK_RETENTION_MIN = 0.8`：允许声部 EQ/pan/velocity 改动把主层压低
@@ -99,35 +102,30 @@ python3 src/musikalisches/tools/verify_academic_profile_ab.py \
   --profile src/musikalisches/runtime/config/stage5_academic_chapel_synth_profile.json
 ```
 
-结果：exit 1，失败 b（spread gain 0.0 < 1.5）、c（excess 0.0 < 1.0）、d
+结果：exit 1，失败 b（spread gain 0.0 < 1.5）、c（no observable tail region.）、d
 （short-term range 相等）。a、e 按设计仍通过——它们不是“增强存在性”的判据。
 
-### 5.1 断言 c 的偏差（重要）
+### 5.1 断言 c 的偏差：Issue #71 已解决
 
-任务书的字面判据是“最后一个 note_off 之后的窗口能量 ≥ `reverb_tail_dbfs_min`，
-dry 侧同一位置不得满足”。在 demo rolls 产物上该区域**为空**（§3 截断），
-字面判据不可满足，且 dry 侧“同一位置”也不存在，无法形成对照。实现改为：
+已删除稀疏窗口回退和 normalization gain 补偿，仅取增强侧最后 note_off 之后的
+完整窗口，使用最大窗口 RMS 的绝对 dBFS 判断尾巴是否存在，不要求衰减末端维持地板。
+无窗口明确报 `c: no observable tail region.`；dry 不参与补偿或同位置比较。
+chapel 选择 2.0 s：实测 50 个 40 ms 尾窗口，首窗 [12.0,12.04] s RMS
+−36.159 dBFS ≥ −45.0；末窗 [13.96,14.0] s RMS 0.000002（约 −114 dBFS），
+已充分衰减。WAV 为 617400 帧 / 14.0 s；dry 为 529200 帧 / 12.0 s，无尾窗。
+正例 a–e 全 PASS，dry/dry 反例 b/c/d FAIL。追加尾区使全 WAV 的 spread 增大，
+b 仍按原契约记录完整 premix WAV，不将其解释为纯演奏段动态增益。
 
-1. 优先取 `start_seconds >= last_note_off` 的窗口；为空时退回
-   **稀疏释放窗口**（同时发声数 ≤ 1 的窗口，68/300 个），这是唯一不被持续音
-   掩盖、能观察到尾部的区域。实际使用的区域记在 report 的 `tail_window_basis`。
-2. `finalize_audio_render` 会做峰值归一化并施加 `master_trim_db`，两侧总增益不同
-   （dry `normalization_gain` 1.0，chapel 0.944061 → −0.5 dB）。直接比较绝对
-   尾部能量测到的是增益差而非 reverb。因此断言 c 从 `artifact_summary.json` 读回
-   两侧 `audio.normalization_gain` 做补偿，再要求增强侧仍高出 ≥ 1.0 dB。
-3. 实测：稀疏窗口 dry −28.612 dBFS、enhanced −26.344 dBFS、补偿 −0.5 dB 后
-   excess = +2.768 dB；`reverb_tail_dbfs_min=-45.0` 的绝对地板同时成立。
-4. **未满足的部分**：字面要求的“dry 侧低于绝对地板”在稀疏窗口上不成立（两侧
-   都有持续音，dry 也在 −28.6 dBFS）。dry 侧的反证由补偿后的 excess 给出，
-   report 里以 `reverb_tail_excess_db` 记录，不伪装成绝对地板判定。
-   若将来渲染不再截断（例如渲染器追加 tail 长度），窗口选择会自动回到
-   `post_last_note_off`，绝对地板判据随即可用。
+stream 时长门禁读取 `stream_loop_plan.json.render_tail_seconds`，比较
+combination + tail，容差保持 ±0.01，并记录 expected_tail_seconds。
+`validate_m1_artifacts.py` 原时长比较均为组合对组合、WAV 对 WAV，无需放宽；
+其 setup 计数修正为 program-change + control-change，以接受 chapel CC7/10/91。
 
 ## 6. 已知偏差
 
 1. **`lufs_band` 校准到 premix 实测**：原声明带 `[-20,-18]` 在任何路径都不可达
    （混音总线还要再施加 `main_gain_db=-1` 并叠加 bed，只会更低），按实测收紧为
-   `[-24.0,-21.5]`，并显式标注 `lufs_band_basis=premix_render_offline_audio`。
+   `[-20.0,-18.0]`，并显式标注 `lufs_band_basis=premix_render_offline_audio_note_region`；b/d/e 均只量 note-active 区，不含尾部。
    仓内 −18..−20 LUFS 约定的落差由 per-registration trim / 响度归一化另行解决，
    不在本 lane 伪达标。**该偏差已由 issue #70 解决：见 §9。**
 2. **mix_bus `target_rms_min_dbfs` −28 → −30**：先存缺陷修正。原下限对
@@ -146,10 +144,20 @@ dry 侧同一位置不得满足”。在 demo rolls 产物上该区域**为空**
 - **恒定 bed 压缩动态**：bed 抬高相对门会吃掉 spread；若要保住动态，需要在
   envelope coupling 之外引入 per-layer 的相对门补偿（或对 bed 施加与 envelope
   反向的增益），否则 spread 类判据在 final mix 上永远偏悲观。
-- **渲染尾部**：给 `render-audio` 增加可选 tail（例如 `decay_seconds` 的 2–3 倍），
-  让 §5.1 的绝对尾部判据回到可用状态；代价是 stream cycle 需要显式裁掉尾部。
+- **渲染尾部：Issue #71 已采用方案 1**。完整组合末尾追加零输入并送入 reverb，
+  chapel 设置 `render_tail_seconds=2.0`；不采用仅分析器标注方案。
+  cycle 保持原语义，交付 WAV 包含 tail，门禁按组合 + tail 检查，不裁掉尾巴。
 
 ## 8. 复现命令
+
+Issue #71 验收：`/tmp/ab71-enh` / `/tmp/ab71-dry`；正例 report
+`/tmp/ab71-positive.json` 五项 PASS，反例 `/tmp/ab71-negative.json` b/c/d FAIL。
+`cargo test --manifest-path Cargo.toml`：73 passed（63 unit + 10 e2e）；
+`make -C src/musikalisches stage5-golden`：4/4。默认 LOOP_COUNT=16 stream/check
+通过，8467200 帧 / 192 s，−19.033 LUFS。chapel LOOP_COUNT=1 stream/check
+通过，`/tmp/ab71-stream-tail/m1_validation_report.json` 的时长门禁记录
+actual=expected=14.0、expected_tail_seconds=2.0，最终 −19.031 LUFS。
+默认 demo 与 b7f1ca90 独立构建产物目录 `diff -qr` 无差异（含 WAV/JSON）。
 
 ```bash
 cargo run -- render-audio --work mozart_dicegame_print_1790s --demo-rolls \

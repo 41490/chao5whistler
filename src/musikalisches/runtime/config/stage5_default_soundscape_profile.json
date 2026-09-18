@@ -40,6 +40,7 @@
     "target_rms_max_dbfs": -10.0,
     "target_lufs_min": -20.0,
     "target_lufs_max": -18.0,
+    "bed_offset_db": 0.787,
     "true_peak_ceiling_dbtp": -0.5,
     "require_no_clipping": true,
     "envelope_coupling": {

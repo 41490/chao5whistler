@@ -195,8 +195,9 @@ synth profile 顶层新增可选 `mix` 块，voice_group 新增可选 `velocity_
 - voice_group `eq{gain_db,tilt}` / `pan` / `gain_automation{depth_db,period_quarters}`：
   fallback 渲染路径的幅度 / 声像；SoundFont 路径以 CC7 / CC10 / CC91 下发
   （`apply_synth_event`）。
-- `mix.ab_expectations{dynamic_spread_gain_db_min,reverb_tail_dbfs_min,lufs_band}`：
-  供 A/B 校验 lane 读取的阈值，不在 Rust 侧执行门禁。
+- `mix.ab_expectations{dynamic_spread_gain_db_min,reverb_tail_dbfs_min,lufs_band,lufs_band_basis}`：
+  供 A/B 校验 lane 读取的阈值，不在 Rust 侧执行门禁。`lufs_band` 校准到 premix
+  实测（`lufs_band_basis=premix_render_offline_audio`），不是最终 stream 的总线目标。
 
 A/B 与回退：
 
@@ -215,8 +216,47 @@ cargo run -- render-audio \
   --output-dir /tmp/ab-dry
 ```
 
+A/B 机检（不渲染，只读两个已渲染目录）：
+
+```bash
+python3 src/musikalisches/tools/verify_academic_profile_ab.py \
+  --dry /tmp/ab-dry \
+  --enhanced /tmp/ab-enhanced \
+  --profile src/musikalisches/runtime/config/stage5_academic_chapel_synth_profile.json \
+  --report /tmp/ab-report.json
+```
+
+退出码 0 表示五条断言全过，非 0 时 report JSON 的 `failed_assertions` / `failures`
+列出具体失败项。断言：note/transition/realization 三层逐字节一致；premix
+`dynamic_spread_db` 增益 ≥ `ab_expectations.dynamic_spread_gain_db_min`；reverb
+尾部存在（补偿两侧渲染总增益后仍高出 dry ≥ 1 dB）；主层 envelope 峰值保留
+≥ 0.8× 且 short-term 波动范围更宽；premix `integrated_lufs` 落在 `lufs_band` 内。
+反例自检：把 dry 目录同时传给 `--enhanced`，退出码必须非 0。
+动态/混响断言只看 premix（render-audio 的 `offline_audio.wav`）；恒定 bed 会压缩
+混音后的 spread，final mix 只适用下面的 mix_bus 门禁字段。阈值来源、reverb 截断
+取舍与已知偏差见 `docs/plans/260917-issue63-academic-organ-mix-profile-plan.md`。
+
 stage5-sf2 / stage5-stream 同样支持 `SYNTH_PROFILE=` 覆盖；未指定时继续使用既有
 registration 池，schema 扩展不影响默认链路。
+
+### mix_bus 门禁字段
+
+`runtime/config/stage5_default_soundscape_profile.json` 的 `mix_bus_profile` 是
+soundscape 混音总线的门禁契约，由 `tools/validate_m1_artifacts.py` 读回后对
+`offline_audio.wav` 断言（阈值不在校验器里重复硬编码）：
+
+- `target_rms_min_dbfs` / `target_rms_max_dbfs`：总线 RMS 区间。下限由 −28 放宽到
+  **−30 dBFS**——原值对 ambient/drone 叠加后的总线不可达，属先存缺陷修正。
+- `target_lufs_min` / `target_lufs_max`：BS.1770-4 gated integrated 区间
+  （默认 −27.0 / −12.0），由 `tools/loudness_meter.py` 计量。
+- `true_peak_ceiling_dbtp`：采样峰值上限（默认 −0.5 dBTP）。
+- `require_no_clipping`：为真时，≥3 个连续满量程样本即判失败。
+- `envelope_coupling{enabled,depth_db}`：开启后 `build_stage5_unique_stream.py`
+  用 `analysis_window_sequence.json` 的 `envelope_amplitude` 逐帧调制 bed 增益
+  （最响窗保持基础增益，最轻窗最多衰减 `depth_db`）；默认关闭。
+
+回退：不带 `SOUNDSCAPE_PROFILE=` 即回到 `stage5_default_soundscape_profile.json`；
+不带 `SYNTH_PROFILE=` 即回到默认 registration 池（非 academic profile）。
 
 ## ops quickstart
 

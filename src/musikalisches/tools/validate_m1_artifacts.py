@@ -227,8 +227,11 @@ def main() -> int:
         errors.append("synth_event_sequence.json program_change_count must equal 2")
     if synth_event_payload.get("summary", {}).get("synth_event_count") != len(synth_events):
         errors.append("synth_event_sequence.json synth_event_count summary mismatch")
-    if len(synth_events) != len(note_events) * 2 + 2:
-        errors.append("synth_event_sequence.json must contain 2 setup events plus 2 synth events per note event")
+    control_changes = sum(event.get("midi_command") == "control_change" for event in synth_events)
+    if synth_event_payload.get("summary", {}).get("control_change_count", 0) != control_changes:
+        errors.append("synth_event_sequence.json control_change_count summary mismatch")
+    if len(synth_events) != len(note_events) * 2 + 2 + control_changes:
+        errors.append("synth_event_sequence.json must contain program/control setup plus 2 synth events per note event")
     if any(
         synth_events[index]["at_frame"] > synth_events[index + 1]["at_frame"]
         for index in range(len(synth_events) - 1)

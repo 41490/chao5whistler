@@ -12,6 +12,14 @@ path = "src/musikalisches/runtime/src/main.rs"
 name = "musikalisches-stage7-runtime"
 path = "src/musikalisches/runtime/src/stage7_runtime_main.rs"
 
+[[bin]]
+name = "musikalisches-weaver"
+path = "src/musikalisches/runtime/src/weaver_main.rs"
+
+[[test]]
+name = "weaver_e2e"
+path = "src/musikalisches/runtime/tests/weaver_e2e.rs"
+
 [lib]
 path = "src/musikalisches/runtime/src/lib.rs"
 

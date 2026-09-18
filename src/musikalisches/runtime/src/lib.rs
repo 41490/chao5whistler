@@ -10,6 +10,8 @@ use hound::{SampleFormat, WavSpec, WavWriter};
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
 use serde::{Deserialize, Serialize};
 
+pub mod weaver;
+
 pub const CANONICAL_WORK_ID: &str = "mozart_dicegame_print_1790s";
 pub const POSITION_COUNT: usize = 16;
 pub const DEFAULT_TEMPO_BPM: f64 = 120.0;

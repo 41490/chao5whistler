@@ -247,16 +247,22 @@ registration 池，schema 扩展不影响默认链路。
 soundscape 混音总线的门禁契约，由 `tools/validate_m1_artifacts.py` 读回后对
 `offline_audio.wav` 断言（阈值不在校验器里重复硬编码）：
 
-- `main_registration_profiles[].gain_db`：**per-registration 静态响度 trim**
-  （issue #70）。缺省 `0.0`，与 `mix_bus_profile.main_gain_db` 在 dB 域串联后施加
-  到 main organ 层；值写死在 profile 里，运行时不做自适应测量。实际生效的
-  `main_gain_db + gain_db`、`registration_trim_db` 会记录进
-  `soundscape_selection.json` 的 main 层条目与 `registration` 块。
+- `main_registration_profiles[].gain_db`：per-registration 静态响度 trim
+  （issue #70），issue #75 起**降级为回退常量**：仅当主层响度测量不可用
+  （如静默渲染）时才替代逐组合 trim。缺省 `0.0`。
+- `mix_bus_profile.bed_offset_db`：逐组合前馈标定常量（issue #75）。构建时用
+  `tools/loudness_meter.py` 量一次**未叠 bed、未过限幅器的主层渲染**，算出
+  `combination_trim_db = -19.0 - measured_main_lufs + bed_offset_db` 并**替换**
+  registration trim（仍是单增益级，无迭代收敛）；`bed_offset_db` 吸收混音链路
+  固定偏移（`main_gain_db` 串联与 bed 叠加净贡献），由实测标定。测量值、trim
+  与来源（`trim_source: measured|fallback`）记录进 `soundscape_selection.json`。
+  `--synth-profile` CLI 覆盖与默认池走同一集中 trim 解析，不再静默关闭标定。
 - `target_rms_min_dbfs` / `target_rms_max_dbfs`：总线 RMS 区间。issue #63 曾把下限
   由 −28 放宽到 −30 dBFS；issue #70 随 trim 标定把下限收回 **−28 dBFS**。
 - `target_lufs_min` / `target_lufs_max`：BS.1770-4 gated integrated 区间，issue #70
   收紧为 **−20.0 / −18.0 LUFS**（最终混音 WAV 交付面），由
-  `tools/loudness_meter.py` 计量。trim 已按 registration 标定到该带内。
+  `tools/loudness_meter.py` 计量。issue #75 起逐组合前馈 trim 把每个组合
+  标定到带心 −19.0 LUFS。
 - `true_peak_ceiling_dbtp`：采样峰值上限（默认 −0.5 dBTP）。
 - `require_no_clipping`：为真时，≥3 个连续满量程样本即判失败。
 - `envelope_coupling{enabled,depth_db}`：开启后 `build_stage5_unique_stream.py`

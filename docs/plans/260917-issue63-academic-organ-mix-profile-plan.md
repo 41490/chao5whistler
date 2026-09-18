@@ -251,3 +251,98 @@ e_lufs_band              PASS  (enhanced -18.997 in [-20.0,-18.0])
 (d) cargo test: 70 passed / 0 failed, exit 0；stage5-golden: 4/4
 (e) check-mana-grant-scope: exit 0
 ```
+
+## 10. issue #75 — 逐组合一次性前馈响度标定（方案 A）
+
+### 10.1 方案定稿
+
+CTO intake 定稿方案 A，解除 #70「不做实测归一化」限制，边界严格执行：
+
+- **测量对象**：渲染完成、叠加 bed 之前、未过限幅器的主层 `offline_audio.wav`
+  （Rust `render-audio` 输出）。施加点在 `apply_soundscape_mix` 读入主层 PCM 之后、
+  混音之前，直接调用 `tools/loudness_meter.py` 的 `measure_pcm`（复用 API，零实现拷贝）。
+- **一次性前馈**：`combination_trim_db = COMBINATION_TARGET_LUFS - measured_main_lufs + bed_offset_db`，
+  其中 `COMBINATION_TARGET_LUFS = -19.0`（`target_lufs_min/max` 带心中点，带门禁不动）。
+  `main_layer_gain_db = main_gain_db + combination_trim_db` —— **替换**（而非叠加）
+  registration 常量 trim，仍是单增益级；无迭代收敛；最终混音不再测量回改。
+- **回退**：`measured_main_lufs is None`（如全静默渲染）时 `trim_source="fallback"`，
+  退回 registration `gain_db` 常量（#74 语义，向后兼容）；CLI 覆盖路径在此分支额外
+  向 stderr 告警。`trim_source` / `measured_main_lufs` / `combination_trim_db` /
+  `bed_offset_db` 写入 `soundscape_selection.json`（main 层条目 + `mix_bus` 块）供审计。
+
+### 10.2 `bed_offset_db` 实测标定
+
+**语义**：设 K 为「混音链路固定偏移」—— `final = measured_main + combination_trim + K`，
+K 包含 `mix_bus_profile.main_gain_db = -1.0` 的串联、drone/ambient 叠加的净功率贡献、
+`post_mix_gain`（本工作点恒为 1.0）与 int16 量化。公式要求
+`bed_offset_db = -K̄`（注意**取负**：K 使 final 偏低，需在 trim 中补回）。
+
+**方法**：`bed_offset_db` 缺省 0.0（向后兼容），渲染 12 个 4-cycle 全新组合
+（4 并行 worker × 独立 ledger，3 registration 覆盖），逐样本计算
+`δ_i = final_integrated_lufs - (measured_main_lufs + combination_trim_db)`。
+
+**结果**：δ ∈ [-0.793, -0.781]，mean = **-0.787 dB**，stdev 0.0037
+（12/12 validator exit 0）。写入 `mix_bus_profile.bed_offset_db = 0.787`。
+
+**校准教训（如实记录）**：首轮标定曾把 δ 本身（-0.787）直接写入 profile，
+60 样本验证批次随之系统性落在 -20.53 LUFS（±0.01，全部越下限）。以单样本
+probe 定位：`post_mix_gain=1.0`、final peak 0.326 << ceiling 0.92，排除
+「ceiling clamp 激活的工作点」假设；真实主项是 `main_gain_db=-1.0` 串联偏移。
+修正为 `bed_offset_db = -δ = +0.787` 后单样本归位 -19.035，60 样本归位 -19.035 ± 0.01。
+
+### 10.3 分布前后对照
+
+**修复前**（#74 per-registration 静态 trim）：
+
+- issue #75 记录：81 个 4-cycle 样本出现 1 例 `church_reed_duo = -20.048 LUFS`
+  （越下限 0.048 dB，≈1.2%）；单 registration 内组合内容响度 spread ≈ 1.2–1.4 dB。
+- 本 lane 复现批次（独立 ledger、base 代码 `941d7c7`，4-cycle）：n=200，
+  唯一越带样本 min = **-20.122**（run #185，`church_reed_duo`，组合
+  `4,10,11,7,11,3,2,9,6,7,5,9,5,9,2,3`，越下限 0.122 dB），与 issue #75 记录的
+  -20.048 尾部同型（0.5% vs 1.2%，同量级）。
+
+**修复后**（逐组合前馈标定，`bed_offset_db=0.787`）：
+
+- **60 个全新组合**（4 独立 ledger × 15，与复现/校准批次组合零重叠，
+  3 registration 各 20）：
+  `integrated_lufs` min / max / mean = **-19.053 / -19.029 / -19.035**
+  （全带宽仅 0.024 dB），**100% 落 [-20.0, -18.0]**；`clipping_detected=false` ×60；
+  `true_peak_dbtp` max = -6.143 ≤ -0.5；`trim_source=measured` ×60；
+  逐样本 `validate_m1_artifacts.py` exit 0 ×60。
+- 官方链路 `LOOP_COUNT=16 make stage5-stream && stage5-stream-check`：exit 0，
+  final = **-19.037** LUFS。
+- **复现组合回归**：同一组合 `4,10,11,7,11,3,2,9,6,7,5,9,5,9,2,3`
+  （定点重渲染，fixed-rolls harness）：base 实现 -20.122 越带 → 新实现
+  **-19.038** 落带，`trim_source=measured`、validate exit 0。
+
+残差归零机理：静态 trim 只补偿 registration 均值，组合内容 spread（1.2–1.4 dB）
+原样漏进门禁带；前馈 trim 把**每个组合**的主层钉到 -19.0 + bed_offset，
+spread 被前馈抵消，仅剩链路偏移的逐组合微差（<0.05 dB）。
+
+### 10.4 CLI 覆盖边角定稿
+
+定稿选择：**集中 gain 解析（仍得到组合 trim）**。`--synth-profile` 覆盖与默认
+registration 池共用 `apply_soundscape_mix` 内的唯一 trim 解析点；测量可用时覆盖
+路径同样得到 `trim_source=measured` 的组合 trim，#70 时代「固定 `gain_db: 0.0`
+静默关闭标定」的行为不复存在。测量不可用时显式告警（stderr）+ `trim_source=fallback`
+留输出证据。拒绝「显式拒绝该参数」选项：`--synth-profile` 是 academic A/B 与
+weaver 适配层的合法入口，拒绝会破坏既有用法。
+
+**证据**：`--synth-profile stage5_default_synth_profile.json` 渲染样本 →
+`selection_source=cli_override`、`trim_source=measured`、`combination_trim_db=5.188`、
+final = **-19.047** LUFS 落带、`validate_m1_artifacts.py` exit 0、无 fallback 告警。
+
+### 10.5 issue #75 验收记录
+
+```text
+(a) cargo test: exit 0（0 failed）
+(b) make stage5-golden: 4/4 passed（demo / all_sevens / high_low / ascending_twice）
+(c) verify_academic_profile_ab.py: 正例 exit 0（5 断言 PASS）/ 反例 exit 1
+(d) LOOP_COUNT=16 stage5-stream && stage5-stream-check: exit 0，final -19.037 LUFS
+(e) check-mana-grant-scope --base origin/main（4 allow-path）: exit 0，
+    改动仅 src/musikalisches/{tools/build_stage5_unique_stream.py,
+    runtime/config/stage5_default_soundscape_profile.json, README.md}
+(f) 60 全新组合: 100% 落带（见 §10.3）
+(g) profile 键变更清单: mix_bus_profile 新增 bed_offset_db（唯一新键，
+    缺省 0.0 向后兼容）；其余键值未动；registration gain_db 保留为回退常量
+```

@@ -14,6 +14,8 @@ from array import array
 from datetime import datetime, timezone
 from pathlib import Path
 
+from loudness_meter import measure_pcm
+
 
 ROOT = Path(__file__).resolve().parents[3]
 RULES_PATH = (
@@ -33,6 +35,10 @@ SELECTION_MODE = "unique_random_persistent_ledger"
 LEDGER_STAGE = "stage5_unique_combination_ledger"
 SOUNDSCAPE_STAGE = "stage5_soundscape_selection"
 MIX_BUS_STAGE = "stage5_soundscape_mix_bus_v1"
+# Midpoint of the [-20.0, -18.0] LUFS delivery band (mix_bus_profile
+# target_lufs_min/max). One-shot feed-forward target for the per-combination
+# trim (issue #75); the band gates stay in the profile.
+COMBINATION_TARGET_LUFS = -19.0
 
 
 def load_json(path: Path) -> dict:
@@ -703,10 +709,32 @@ def apply_soundscape_mix(
 
     mix_bus_profile = soundscape_profile["mix_bus_profile"]
     main_gain_db = float(mix_bus_profile["main_gain_db"])
-    # Per-registration static loudness trim. Serial in dB with main_gain_db; the
-    # calibrated values live in the profile (no runtime adaptive measurement).
     registration_trim_db = float(registration_choice.get("gain_db", 0.0))
-    main_layer_gain_db = main_gain_db + registration_trim_db
+    bed_offset_db = float(mix_bus_profile.get("bed_offset_db", 0.0))
+    # One-shot feed-forward loudness calibration (issue #75): measure the bare
+    # main-layer render (no beds, pre-limiter) once, then REPLACE the static
+    # per-registration trim with a per-combination trim. Single gain stage, no
+    # iterative convergence; registration_trim_db stays as the fallback constant
+    # for when the measurement is unavailable (e.g. silent render).
+    main_loudness = measure_pcm(
+        main_audio["pcm"],
+        sample_rate=main_audio["sample_rate"],
+        channels=main_audio["channels"],
+    )
+    measured_main_lufs = main_loudness["integrated_lufs"]
+    if measured_main_lufs is not None:
+        combination_trim_db = COMBINATION_TARGET_LUFS - measured_main_lufs + bed_offset_db
+        trim_source = "measured"
+    else:
+        combination_trim_db = registration_trim_db
+        trim_source = "fallback"
+        if registration_choice.get("selection_source") == "cli_override":
+            print(
+                "warning: main-layer loudness measurement unavailable; "
+                "--synth-profile override falls back to the profile gain_db constant",
+                file=sys.stderr,
+            )
+    main_layer_gain_db = main_gain_db + combination_trim_db
     main_gain = db_to_amplitude(main_layer_gain_db)
     drone_gain = db_to_amplitude(float(mix_bus_profile["drone_gain_db"]))
     ambient_gain = db_to_amplitude(float(mix_bus_profile["ambient_gain_db"]))
@@ -748,6 +776,10 @@ def apply_soundscape_mix(
             },
             "main_gain_db": round6(main_gain_db),
             "registration_trim_db": round6(registration_trim_db),
+            "combination_trim_db": round6(combination_trim_db),
+            "trim_source": trim_source,
+            "measured_main_lufs": measured_main_lufs,
+            "bed_offset_db": round6(bed_offset_db),
             "source": "stage5_render_audio",
             "render_backend": selection["audio_render_backend"],
             "synth_profile_id": registration_choice["synth_profile_id"],
@@ -883,6 +915,11 @@ def apply_soundscape_mix(
             "target_rms_max_dbfs": target_rms_max,
             "target_lufs_min": target_lufs_min,
             "target_lufs_max": target_lufs_max,
+            "combination_target_lufs": COMBINATION_TARGET_LUFS,
+            "measured_main_lufs": measured_main_lufs,
+            "bed_offset_db": round6(bed_offset_db),
+            "combination_trim_db": round6(combination_trim_db),
+            "trim_source": trim_source,
             "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
             "require_no_clipping": require_no_clipping,
             "envelope_coupling": {

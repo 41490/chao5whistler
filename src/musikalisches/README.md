@@ -152,6 +152,9 @@ P2 只负责冻结素材池和 license manifest，不在这一阶段把这些层
   - `stage5_default_synth_profile.json`
   - `stage5_bright_chapel_synth_profile.json`
   - `stage5_processional_reeds_synth_profile.json`
+- 学术向 A/B 池（issue #63，需显式指定）：
+  - `stage5_academic_organ_dry_synth_profile.json`（显式 dry 基线，reverb 关、velocity 平）
+  - `stage5_academic_chapel_synth_profile.json`（短 chapel reverb + velocity 曲线 + 声部 EQ/pan + 微量 gain automation）
 - 默认会生成 `soundscape_selection.json`
 - 默认会把 `ambient + drone` 真正混入 stage5 的 `offline_audio.wav`
 
@@ -177,6 +180,83 @@ make -C src/musikalisches stage5-sf2 \
   LOOP_COUNT=16 \
   SOUNDSCAPE_PROFILE=/path/to/stage5_soundscape_profile.json
 ```
+
+## stage5 academic synth profile mix（issue #63）
+
+synth profile 顶层新增可选 `mix` 块，voice_group 新增可选 `velocity_curve` / `eq` /
+`pan` / `gain_automation`。**所有新字段缺省即旧行为**：不带 `mix` 的 profile（含
+默认 profile 与既有两个 registration 变体）反序列化、序列化与渲染结果都保持不变。
+
+- `mix.reverb{enabled,wet,dry,decay_seconds,room_size,damping}`：`finalize_audio_render`
+  内的纯算法 Schroeder reverb（comb + allpass，无 IR 资产、无新增 crate）。
+- `mix.master_trim_db`：归一化后的总线微调。
+- `mix.dynamic{velocity_depth,phrase_period_quarters,beat_accent_pattern}` 与
+  voice_group `velocity_curve`：逐 note_on 计算 velocity 写入 `data2`（`build_synth_event_sequence`）。
+- voice_group `eq{gain_db,tilt}` / `pan` / `gain_automation{depth_db,period_quarters}`：
+  fallback 渲染路径的幅度 / 声像；SoundFont 路径以 CC7 / CC10 / CC91 下发
+  （`apply_synth_event`）。
+- `mix.ab_expectations{dynamic_spread_gain_db_min,reverb_tail_dbfs_min,lufs_band,lufs_band_basis}`：
+  供 A/B 校验 lane 读取的阈值，不在 Rust 侧执行门禁。`lufs_band` 校准到 premix
+  实测（`lufs_band_basis=premix_render_offline_audio`），不是最终 stream 的总线目标。
+
+A/B 与回退：
+
+```bash
+cargo run -- render-audio \
+  --work mozart_dicegame_print_1790s \
+  --demo-rolls \
+  --synth-profile src/musikalisches/runtime/config/stage5_academic_chapel_synth_profile.json \
+  --output-dir /tmp/ab-enhanced
+
+# 回退到 dry 基线（或直接不带 --synth-profile 走默认 profile）
+cargo run -- render-audio \
+  --work mozart_dicegame_print_1790s \
+  --demo-rolls \
+  --synth-profile src/musikalisches/runtime/config/stage5_academic_organ_dry_synth_profile.json \
+  --output-dir /tmp/ab-dry
+```
+
+A/B 机检（不渲染，只读两个已渲染目录）：
+
+```bash
+python3 src/musikalisches/tools/verify_academic_profile_ab.py \
+  --dry /tmp/ab-dry \
+  --enhanced /tmp/ab-enhanced \
+  --profile src/musikalisches/runtime/config/stage5_academic_chapel_synth_profile.json \
+  --report /tmp/ab-report.json
+```
+
+退出码 0 表示五条断言全过，非 0 时 report JSON 的 `failed_assertions` / `failures`
+列出具体失败项。断言：note/transition/realization 三层逐字节一致；premix
+`dynamic_spread_db` 增益 ≥ `ab_expectations.dynamic_spread_gain_db_min`；reverb
+尾部存在（补偿两侧渲染总增益后仍高出 dry ≥ 1 dB）；主层 envelope 峰值保留
+≥ 0.8× 且 short-term 波动范围更宽；premix `integrated_lufs` 落在 `lufs_band` 内。
+反例自检：把 dry 目录同时传给 `--enhanced`，退出码必须非 0。
+动态/混响断言只看 premix（render-audio 的 `offline_audio.wav`）；恒定 bed 会压缩
+混音后的 spread，final mix 只适用下面的 mix_bus 门禁字段。阈值来源、reverb 截断
+取舍与已知偏差见 `docs/plans/260917-issue63-academic-organ-mix-profile-plan.md`。
+
+stage5-sf2 / stage5-stream 同样支持 `SYNTH_PROFILE=` 覆盖；未指定时继续使用既有
+registration 池，schema 扩展不影响默认链路。
+
+### mix_bus 门禁字段
+
+`runtime/config/stage5_default_soundscape_profile.json` 的 `mix_bus_profile` 是
+soundscape 混音总线的门禁契约，由 `tools/validate_m1_artifacts.py` 读回后对
+`offline_audio.wav` 断言（阈值不在校验器里重复硬编码）：
+
+- `target_rms_min_dbfs` / `target_rms_max_dbfs`：总线 RMS 区间。下限由 −28 放宽到
+  **−30 dBFS**——原值对 ambient/drone 叠加后的总线不可达，属先存缺陷修正。
+- `target_lufs_min` / `target_lufs_max`：BS.1770-4 gated integrated 区间
+  （默认 −27.0 / −12.0），由 `tools/loudness_meter.py` 计量。
+- `true_peak_ceiling_dbtp`：采样峰值上限（默认 −0.5 dBTP）。
+- `require_no_clipping`：为真时，≥3 个连续满量程样本即判失败。
+- `envelope_coupling{enabled,depth_db}`：开启后 `build_stage5_unique_stream.py`
+  用 `analysis_window_sequence.json` 的 `envelope_amplitude` 逐帧调制 bed 增益
+  （最响窗保持基础增益，最轻窗最多衰减 `depth_db`）；默认关闭。
+
+回退：不带 `SOUNDSCAPE_PROFILE=` 即回到 `stage5_default_soundscape_profile.json`；
+不带 `SYNTH_PROFILE=` 即回到默认 registration 池（非 academic profile）。
 
 ## ops quickstart
 

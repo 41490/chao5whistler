@@ -1,0 +1,35 @@
+{
+  "profile_id": "stage5_academic_organ_dry",
+  "description": "Explicit dry A/B baseline for the academic organ mix: identical routing to the default dual-voice organ family with reverb disabled, flat velocity and no EQ/pan automation.",
+  "mix": {
+    "reverb": {
+      "enabled": false,
+      "wet": 0.0,
+      "dry": 1.0,
+      "decay_seconds": 0.0,
+      "room_size": 0.0,
+      "damping": 0.0
+    },
+    "master_trim_db": 0.0
+  },
+  "voice_groups": [
+    {
+      "part_index": 1,
+      "channel": 0,
+      "program": 19,
+      "velocity": 92,
+      "base_amplitude": 0.12,
+      "left_gain": 0.72,
+      "right_gain": 0.46
+    },
+    {
+      "part_index": 2,
+      "channel": 1,
+      "program": 20,
+      "velocity": 84,
+      "base_amplitude": 0.1,
+      "left_gain": 0.46,
+      "right_gain": 0.72
+    }
+  ]
+}

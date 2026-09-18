@@ -129,7 +129,7 @@ dry 侧同一位置不得满足”。在 demo rolls 产物上该区域**为空**
    （混音总线还要再施加 `main_gain_db=-1` 并叠加 bed，只会更低），按实测收紧为
    `[-24.0,-21.5]`，并显式标注 `lufs_band_basis=premix_render_offline_audio`。
    仓内 −18..−20 LUFS 约定的落差由 per-registration trim / 响度归一化另行解决，
-   不在本 lane 伪达标。
+   不在本 lane 伪达标。**该偏差已由 issue #70 解决：见 §9。**
 2. **mix_bus `target_rms_min_dbfs` −28 → −30**：先存缺陷修正。原下限对
    ambient/drone 叠加后的总线不可达，会稳定误报；放宽到 −30 dBFS 让门禁恢复
    可满足性。这是一次性校正，不是新契约。
@@ -140,7 +140,7 @@ dry 侧同一位置不得满足”。在 demo rolls 产物上该区域**为空**
 ## 7. 后续建议
 
 - **per-registration trim**：把 dry/chapel 的 `master_trim_db` 从固定值改为按
-  registration 标定，消除 §6.1 的 −18..−20 LUFS 落差。
+  registration 标定，消除 §6.1 的 −18..−20 LUFS 落差。**已在 issue #70 落地，见 §9。**
 - **响度归一化 + 收紧阈值**：在 mix bus 之后做 integrated 归一化，再把
   `target_lufs_min/max` 收窄到 ±1 LU，让 `lufs_band` 成为真正的门禁而不是记录。
 - **恒定 bed 压缩动态**：bed 抬高相对门会吃掉 spread；若要保住动态，需要在
@@ -162,4 +162,92 @@ python3 src/musikalisches/tools/verify_academic_profile_ab.py \
   --dry /tmp/ab63-dry --enhanced /tmp/ab63-enh \
   --profile src/musikalisches/runtime/config/stage5_academic_chapel_synth_profile.json \
   --report /tmp/ab63-report.json
+```
+
+## 9. issue #70 — per-registration 静态 trim 与门禁收紧
+
+目标：把最终混音 WAV（交付面）的 integrated loudness 收进 **−18…−20 LUFS**，
+并把 `mix_bus_profile` 的响度门禁同步收紧。CTO 定稿：采用 **per-registration
+静态 trim**（不用实测 LUFS 归一化），trim 写成 profile 常量。
+
+### 9.1 trim 字段与施加点
+
+`stage5_default_soundscape_profile.json` 的 `main_registration_profiles[]` 新增
+可选 `gain_db`（缺省 `0.0`，向后兼容）。`build_stage5_unique_stream.py`：
+
+- `resolve_registration_choice` 把 `gain_db` 带进 `registration_choice`；CLI
+  `--synth-profile` 覆盖路径固定 `0.0`（覆盖 profile 时不做标定）。
+- `apply_soundscape_mix` 在 dB 域串联：
+  `main_layer_gain_db = main_gain_db + registration_trim_db`，再换算成线性增益乘进
+  main organ 层（bed 增益不变）。
+- 日志：`soundscape_selection.json` 的 main 层条目记录生效的 `gain_db`、
+  `main_gain_db`、`registration_trim_db`；`registration` 块记录 `gain_db`。
+
+### 9.2 trim 依据与实测分布
+
+标定流程（每 registration 以 `--synth-profile` 覆盖 + soundscape profile 渲染，
+`LOOP_COUNT=4`，用 `tools/loudness_meter.py` 量最终 `offline_audio.wav`）：
+
+```text
+registration              trim=0 实测      trim 终值   4-cycle 终值分布 (n)
+church_reed_duo           -23.448          4.83       [-19.813, -18.650] (11)
+bright_chapel_principal   -22.246          3.43       [-19.448, -18.479] (13)
+processional_reeds_pair   -24.575          6.36       [-19.900, -18.467] (12)
+```
+
+trim 取 `−19.0 − 该 registration 实测中心`，使分布中心落在 −19.0、两侧各留
+~1.0 dB。36 个 4-cycle 样本（3 个 registration）全部落 `[-20,-18]`，每
+registration spread ≤ 1.43 dB；16-cycle 样本与 4-cycle 相差 < 0.4 dB（长 loop
+只是重复同一 cycle，不改变内容响度）。
+
+已知残差：追加批次（另 45 个 4-cycle 样本）中出现 1 例 `church_reed_duo`
+= −20.048 LUFS（越下限 0.048 dB）。这是组合内容响度 spread（约 1.4 dB）与 2 dB
+门禁带叠加后的尾部，不是 trim 标定错误；静态 per-registration trim 无法逐组合
+补偿。该组合会被 `validate_m1_artifacts.py` 如实判失败，不做伪达标。
+
+### 9.3 门禁阈值前后对照
+
+| 字段 | issue #63 值 | issue #70 值 |
+| --- | --- | --- |
+| `target_lufs_min` | −27.0 | **−20.0** |
+| `target_lufs_max` | −12.0 | **−18.0** |
+| `target_rms_min_dbfs` | −30.0 | **−28.0**（收回 #63 的一次性放宽） |
+| `true_peak_ceiling_dbtp` | −0.5 | −0.5（不变） |
+| `require_no_clipping` | true | true（不变） |
+| `peak_ceiling_amplitude` | 0.92 | 0.92（不变） |
+
+### 9.4 academic profile 同步收紧
+
+- `stage5_academic_organ_dry_synth_profile.json`：`mix.master_trim_db` `0.0 → 3.95`
+  （premix integrated −22.944 → **−18.994**）。
+- `stage5_academic_chapel_synth_profile.json`：`mix.master_trim_db` `−0.5 → 2.64`
+  （premix −22.137 → **−18.997**）；`ab_expectations.lufs_band`
+  `[-24.0,-21.5] → [-20.0,-18.0]`（basis 仍为 `premix_render_offline_audio`）。
+
+抬 trim 后两侧 `normalization_gain` 均为 1.0（峰值 < 0.95，不再触发渲染器峰值
+归一化），A/B 五条断言全过：
+
+```text
+a_sequence_identity      PASS
+b_premix_dynamic_spread  PASS  (gain 2.627 dB >= 1.5)
+c_reverb_tail            PASS  (excess 2.768 dB, compensation -1.31 dB)
+d_melody_unmasked        PASS  (retention 1.066 >= 0.8; range 3.208 > 1.657)
+e_lufs_band              PASS  (enhanced -18.997 in [-20.0,-18.0])
+```
+
+反例（`--enhanced /tmp/i70-dry`）exit 1，失败 b/c/d（与 #63 一致）。
+
+### 9.5 issue #70 验收记录
+
+```text
+(a) 4-cycle, 3 个不同 combination 覆盖 3 registration（官方 stage5-stream + stage5-stream-check）:
+    church_reed_duo         -19.119 LUFS  tp -7.382 dBTP  clip False
+    processional_reeds_pair -18.086 LUFS  tp -6.715 dBTP  clip False
+    bright_chapel_principal -18.941 LUFS  tp -7.490 dBTP  clip False
+    其余 7 个已跑 combination 亦全部落带。
+(b) LOOP_COUNT=16 stage5-stream + stage5-stream-check: exit 0
+    church_reed_duo -19.465 LUFS  tp -7.278 dBTP  clip False
+(c) A/B 正例 exit 0；反例 exit 1
+(d) cargo test: 70 passed / 0 failed, exit 0；stage5-golden: 4/4
+(e) check-mana-grant-scope: exit 0
 ```

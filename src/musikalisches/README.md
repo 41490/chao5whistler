@@ -196,8 +196,10 @@ synth profile 顶层新增可选 `mix` 块，voice_group 新增可选 `velocity_
   fallback 渲染路径的幅度 / 声像；SoundFont 路径以 CC7 / CC10 / CC91 下发
   （`apply_synth_event`）。
 - `mix.ab_expectations{dynamic_spread_gain_db_min,reverb_tail_dbfs_min,lufs_band,lufs_band_basis}`：
-  供 A/B 校验 lane 读取的阈值，不在 Rust 侧执行门禁。`lufs_band` 校准到 premix
-  实测（`lufs_band_basis=premix_render_offline_audio`），不是最终 stream 的总线目标。
+  供 A/B 校验 lane 读取的阈值，不在 Rust 侧执行门禁。`lufs_band` 以 premix
+  实测为准（`lufs_band_basis=premix_render_offline_audio`）：issue #70 把 dry/chapel
+  的 `mix.master_trim_db` 抬到 premix integrated ≈ −19 LUFS 后，`lufs_band` 已同步
+  收紧为 `[-20.0, -18.0]`。
 
 A/B 与回退：
 
@@ -245,10 +247,16 @@ registration 池，schema 扩展不影响默认链路。
 soundscape 混音总线的门禁契约，由 `tools/validate_m1_artifacts.py` 读回后对
 `offline_audio.wav` 断言（阈值不在校验器里重复硬编码）：
 
-- `target_rms_min_dbfs` / `target_rms_max_dbfs`：总线 RMS 区间。下限由 −28 放宽到
-  **−30 dBFS**——原值对 ambient/drone 叠加后的总线不可达，属先存缺陷修正。
-- `target_lufs_min` / `target_lufs_max`：BS.1770-4 gated integrated 区间
-  （默认 −27.0 / −12.0），由 `tools/loudness_meter.py` 计量。
+- `main_registration_profiles[].gain_db`：**per-registration 静态响度 trim**
+  （issue #70）。缺省 `0.0`，与 `mix_bus_profile.main_gain_db` 在 dB 域串联后施加
+  到 main organ 层；值写死在 profile 里，运行时不做自适应测量。实际生效的
+  `main_gain_db + gain_db`、`registration_trim_db` 会记录进
+  `soundscape_selection.json` 的 main 层条目与 `registration` 块。
+- `target_rms_min_dbfs` / `target_rms_max_dbfs`：总线 RMS 区间。issue #63 曾把下限
+  由 −28 放宽到 −30 dBFS；issue #70 随 trim 标定把下限收回 **−28 dBFS**。
+- `target_lufs_min` / `target_lufs_max`：BS.1770-4 gated integrated 区间，issue #70
+  收紧为 **−20.0 / −18.0 LUFS**（最终混音 WAV 交付面），由
+  `tools/loudness_meter.py` 计量。trim 已按 registration 标定到该带内。
 - `true_peak_ceiling_dbtp`：采样峰值上限（默认 −0.5 dBTP）。
 - `require_no_clipping`：为真时，≥3 个连续满量程样本即判失败。
 - `envelope_coupling{enabled,depth_db}`：开启后 `build_stage5_unique_stream.py`

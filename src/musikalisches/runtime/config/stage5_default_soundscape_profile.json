@@ -11,17 +11,20 @@
     {
       "registration_id": "church_reed_duo",
       "label": "Church + Reed Duo",
-      "synth_profile_path": "src/musikalisches/runtime/config/stage5_default_synth_profile.json"
+      "synth_profile_path": "src/musikalisches/runtime/config/stage5_default_synth_profile.json",
+      "gain_db": 4.83
     },
     {
       "registration_id": "bright_chapel_principal",
       "label": "Bright Chapel Principal",
-      "synth_profile_path": "src/musikalisches/runtime/config/stage5_bright_chapel_synth_profile.json"
+      "synth_profile_path": "src/musikalisches/runtime/config/stage5_bright_chapel_synth_profile.json",
+      "gain_db": 3.43
     },
     {
       "registration_id": "processional_reeds_pair",
       "label": "Processional Reeds Pair",
-      "synth_profile_path": "src/musikalisches/runtime/config/stage5_processional_reeds_synth_profile.json"
+      "synth_profile_path": "src/musikalisches/runtime/config/stage5_processional_reeds_synth_profile.json",
+      "gain_db": 6.36
     }
   ],
   "mix_bus_profile": {
@@ -33,10 +36,10 @@
     "peak_ceiling_amplitude": 0.92,
     "target_peak_min_amplitude": 0.12,
     "target_peak_max_amplitude": 0.92,
-    "target_rms_min_dbfs": -30.0,
+    "target_rms_min_dbfs": -28.0,
     "target_rms_max_dbfs": -10.0,
-    "target_lufs_min": -27.0,
-    "target_lufs_max": -12.0,
+    "target_lufs_min": -20.0,
+    "target_lufs_max": -18.0,
     "true_peak_ceiling_dbtp": -0.5,
     "require_no_clipping": true,
     "envelope_coupling": {

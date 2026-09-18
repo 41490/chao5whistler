@@ -211,6 +211,8 @@ pub struct RenderRequest {
 pub struct SynthRoutingProfileFile {
     pub profile_id: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mix: Option<SynthMixProfile>,
     pub voice_groups: Vec<SynthRoutingRule>,
 }
 
@@ -220,7 +222,79 @@ pub struct SynthRoutingProfile {
     pub description: String,
     pub source: String,
     pub source_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mix: Option<SynthMixProfile>,
     pub voice_groups: Vec<SynthRoutingRule>,
+}
+
+/// Optional per-profile mix extensions. Absent (or all-default) = legacy behaviour:
+/// no reverb, unity master trim, flat dynamics, no A/B thresholds.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(default)]
+pub struct SynthMixProfile {
+    pub reverb: ReverbProfile,
+    pub master_trim_db: f64,
+    pub dynamic: DynamicProfile,
+    pub ab_expectations: AbExpectations,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct ReverbProfile {
+    pub enabled: bool,
+    pub wet: f64,
+    pub dry: f64,
+    pub decay_seconds: f64,
+    pub room_size: f64,
+    pub damping: f64,
+}
+
+impl Default for ReverbProfile {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            wet: 0.0,
+            dry: 1.0,
+            decay_seconds: 0.0,
+            room_size: 0.0,
+            damping: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(default)]
+pub struct DynamicProfile {
+    /// 0.0 = legacy flat velocity; 1.0 = full accent deviation.
+    pub velocity_depth: f64,
+    /// Optional slow phrase envelope period, in quarter notes. 0 disables it.
+    pub phrase_period_quarters: f64,
+    /// Beat-indexed velocity multipliers, applied modulo their length.
+    pub beat_accent_pattern: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(default)]
+pub struct AbExpectations {
+    pub dynamic_spread_gain_db_min: f64,
+    pub reverb_tail_dbfs_min: f64,
+    /// Inclusive [min, max] integrated-LUFS band; empty = unconstrained.
+    pub lufs_band: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(default)]
+pub struct VoiceEq {
+    pub gain_db: f64,
+    /// -1.0 = darker (low-harmonic tilt), +1.0 = brighter.
+    pub tilt: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(default)]
+pub struct GainAutomation {
+    pub depth_db: f64,
+    pub period_quarters: f64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -232,6 +306,14 @@ pub struct SynthRoutingRule {
     pub base_amplitude: f64,
     pub left_gain: f64,
     pub right_gain: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub velocity_curve: Option<Vec<f64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eq: Option<VoiceEq>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pan: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gain_automation: Option<GainAutomation>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -387,6 +469,7 @@ pub struct SynthEvent {
 pub struct SynthEventSummary {
     pub synth_event_count: usize,
     pub program_change_count: usize,
+    pub control_change_count: usize,
     pub note_on_count: usize,
     pub note_off_count: usize,
     pub voice_group_count: usize,
@@ -1632,12 +1715,34 @@ pub fn build_synth_event_sequence(
             at_seconds: 0.0,
             at_frame: 0,
         });
+        for (controller, value) in synth_control_changes(routing, synth_profile) {
+            synth_events.push(SynthEvent {
+                synth_event_index: 0,
+                source_kind: "channel_setup".to_string(),
+                transition_index: None,
+                note_event_index: None,
+                channel: routing.channel,
+                voice_group_id: voice_group.voice_group_id.clone(),
+                voice_group_label: voice_group.voice_group_label.clone(),
+                voice_group_kind: voice_group.voice_group_kind.clone(),
+                midi_command: "control_change".to_string(),
+                data1: controller,
+                data2: value,
+                at_quarter_length: 0.0,
+                at_seconds: 0.0,
+                at_frame: 0,
+            });
+        }
     }
 
     for transition in &transitions.transitions {
         let routing = synth_routing_rule_for_part(synth_profile, transition.part_index);
         let (midi_command, data1, data2) = match transition.transition_kind.as_str() {
-            "note_on" => ("note_on".to_string(), transition.midi, routing.velocity),
+            "note_on" => (
+                "note_on".to_string(),
+                transition.midi,
+                effective_velocity(routing, synth_profile, transition.at_quarter_length),
+            ),
             "note_off" => ("note_off".to_string(), transition.midi, 0),
             _ => ("unknown".to_string(), transition.midi, 0),
         };
@@ -1677,6 +1782,10 @@ pub fn build_synth_event_sequence(
         .iter()
         .filter(|event| event.midi_command == "program_change")
         .count();
+    let control_change_count = synth_events
+        .iter()
+        .filter(|event| event.midi_command == "control_change")
+        .count();
     let note_on_count = synth_events
         .iter()
         .filter(|event| event.midi_command == "note_on")
@@ -1701,8 +1810,12 @@ pub fn build_synth_event_sequence(
         voice_groups: transitions.voice_groups.clone(),
         synth_events,
         summary: SynthEventSummary {
-            synth_event_count: program_change_count + note_on_count + note_off_count,
+            synth_event_count: program_change_count
+                + control_change_count
+                + note_on_count
+                + note_off_count,
             program_change_count,
+            control_change_count,
             note_on_count,
             note_off_count,
             voice_group_count: transitions.voice_groups.len(),
@@ -1731,7 +1844,7 @@ pub fn render_wav(
     } else {
         render_fallback_pcm(sequence, config.sample_rate, synth_profile)
     };
-    finalize_audio_render(config, stream_plan, output_path, pcm)
+    finalize_audio_render(config, stream_plan, output_path, pcm, synth_profile)
 }
 
 fn render_fallback_pcm(
@@ -1758,15 +1871,37 @@ fn render_fallback_pcm(
         let release_frames = ((sample_rate as f64 * 0.02).round() as usize).max(1);
         let duration_frames = end_frame - start_frame;
 
+        let eq = routing.eq.as_ref();
+        let eq_gain = eq.map(|eq| db_to_amplitude(eq.gain_db)).unwrap_or(1.0);
+        let tilt = eq.map(|eq| eq.tilt.clamp(-1.0, 1.0)).unwrap_or(0.0);
+        let pan = routing.pan.unwrap_or(0.0).clamp(-1.0, 1.0);
+        let left_pan = 1.0 - pan.max(0.0);
+        let right_pan = 1.0 + pan.min(0.0);
+        let automation_gain = routing
+            .gain_automation
+            .as_ref()
+            .filter(|automation| automation.period_quarters > 0.0)
+            .map(|automation| {
+                let phase =
+                    2.0 * PI * event.start_quarter_length / automation.period_quarters;
+                db_to_amplitude(automation.depth_db * phase.sin())
+            })
+            .unwrap_or(1.0);
+        let amplitude = routing.base_amplitude * eq_gain * automation_gain;
+        let harmonic_2 = (0.35 * (1.0 + tilt * 0.5)).max(0.0);
+        let harmonic_3 = (0.15 * (1.0 + tilt)).max(0.0);
+
         for frame in start_frame..end_frame {
             let local = frame - start_frame;
             let time = local as f64 / sample_rate as f64;
             let phase = 2.0 * PI * event.frequency_hz * time;
             let envelope = envelope(local, duration_frames, attack_frames, release_frames);
-            let waveform = phase.sin() + 0.35 * (2.0 * phase).sin() + 0.15 * (3.0 * phase).sin();
-            let sample = (routing.base_amplitude * envelope * waveform) as f32;
-            left[frame] += sample * routing.left_gain as f32;
-            right[frame] += sample * routing.right_gain as f32;
+            let waveform = phase.sin()
+                + harmonic_2 * (2.0 * phase).sin()
+                + harmonic_3 * (3.0 * phase).sin();
+            let sample = (amplitude * envelope * waveform) as f32;
+            left[frame] += sample * (routing.left_gain * left_pan) as f32;
+            right[frame] += sample * (routing.right_gain * right_pan) as f32;
         }
     }
 
@@ -1834,15 +1969,27 @@ fn finalize_audio_render(
     stream_plan: &StreamLoopPlan,
     output_path: &Path,
     pcm: PcmRender,
+    synth_profile: &SynthRoutingProfile,
 ) -> Result<(AudioRenderSummary, AnalysisWindowSequence)> {
-    let peak = pcm
-        .left
+    let (left, right) = match synth_profile.mix.as_ref() {
+        Some(mix) if mix.reverb.enabled => {
+            apply_reverb(&pcm.left, &pcm.right, config.sample_rate, &mix.reverb)
+        }
+        _ => (pcm.left.clone(), pcm.right.clone()),
+    };
+    let peak = left
         .iter()
-        .chain(pcm.right.iter())
+        .chain(right.iter())
         .map(|sample| sample.abs())
         .fold(0.0_f32, f32::max);
     let normalization_gain = if peak > 0.95 { 0.95 / peak as f64 } else { 1.0 };
-    let (left, right) = normalize_stereo_samples(&pcm.left, &pcm.right, normalization_gain);
+    let master_gain = synth_profile
+        .mix
+        .as_ref()
+        .map(|mix| db_to_amplitude(mix.master_trim_db))
+        .unwrap_or(1.0);
+    let total_gain = normalization_gain * master_gain;
+    let (left, right) = normalize_stereo_samples(&left, &right, total_gain);
     write_stereo_wav_samples(output_path, config.sample_rate, &left, &right)?;
 
     let audio_summary = AudioRenderSummary {
@@ -1857,8 +2004,8 @@ fn finalize_audio_render(
         channels: 2,
         frames: left.len().min(right.len()) as u32,
         duration_seconds: round6(pcm.total_duration_seconds),
-        peak_amplitude: round6((peak as f64 * normalization_gain).min(1.0)),
-        normalization_gain: round6(normalization_gain),
+        peak_amplitude: round6((peak as f64 * total_gain).min(1.0)),
+        normalization_gain: round6(total_gain),
     };
     let analysis =
         build_analysis_window_sequence(config, stream_plan, &audio_summary, &left, &right);
@@ -1892,12 +2039,26 @@ pub fn resolve_synth_routing_profile(
         if rule.left_gain < 0.0 || rule.right_gain < 0.0 || rule.base_amplitude < 0.0 {
             bail!("synth profile gain values must be >= 0");
         }
+        if let Some(pan) = rule.pan {
+            if !(-1.0..=1.0).contains(&pan) {
+                bail!("synth profile pan must be within -1..1");
+            }
+        }
+    }
+    if let Some(mix) = payload.mix.as_ref() {
+        if !(0.0..=1.0).contains(&mix.reverb.wet) || !(0.0..=1.0).contains(&mix.reverb.dry) {
+            bail!("synth profile reverb wet/dry must be within 0..1");
+        }
+        if mix.dynamic.velocity_depth < 0.0 {
+            bail!("synth profile dynamic velocity_depth must be >= 0");
+        }
     }
     Ok(SynthRoutingProfile {
         profile_id: payload.profile_id,
         description: payload.description,
         source,
         source_path: Some(path.display().to_string()),
+        mix: payload.mix,
         voice_groups: payload.voice_groups,
     })
 }
@@ -2126,6 +2287,7 @@ pub fn expand_synth_event_sequence(
         summary: SynthEventSummary {
             synth_event_count: sequence.summary.synth_event_count * loop_count,
             program_change_count: sequence.summary.program_change_count * loop_count,
+            control_change_count: sequence.summary.control_change_count * loop_count,
             note_on_count: sequence.summary.note_on_count * loop_count,
             note_off_count: sequence.summary.note_off_count * loop_count,
             voice_group_count: sequence.summary.voice_group_count,
@@ -2325,6 +2487,7 @@ pub fn build_validation_report(
         && synth_events.summary.program_change_count == note_events.voice_groups.len()
         && synth_events.summary.synth_event_count
             == synth_events.summary.program_change_count
+                + synth_events.summary.control_change_count
                 + synth_events.summary.note_on_count
                 + synth_events.summary.note_off_count;
     let synth_profile_contract = synth_profile.voice_groups.len() == note_events.voice_groups.len()
@@ -2774,9 +2937,10 @@ fn transition_kind_rank(kind: &str) -> u8 {
 fn synth_event_rank(command: &str) -> u8 {
     match command {
         "program_change" => 0,
-        "note_off" => 1,
-        "note_on" => 2,
-        _ => 3,
+        "control_change" => 1,
+        "note_off" => 2,
+        "note_on" => 3,
+        _ => 4,
     }
 }
 
@@ -2800,17 +2964,172 @@ fn seconds_to_frame(seconds: f64, sample_rate: u32) -> usize {
     (seconds * sample_rate as f64).round() as usize
 }
 
+fn db_to_amplitude(db: f64) -> f64 {
+    10.0_f64.powf(db / 20.0)
+}
+
+/// Per-note velocity: legacy constant unless the profile opts into dynamics.
+fn effective_velocity(
+    routing: &SynthRoutingRule,
+    synth_profile: &SynthRoutingProfile,
+    at_quarter_length: f64,
+) -> u8 {
+    let Some(mix) = synth_profile.mix.as_ref() else {
+        return routing.velocity;
+    };
+    let depth = mix.dynamic.velocity_depth;
+    if depth <= 0.0 {
+        return routing.velocity;
+    }
+    let curve: &[f64] = routing
+        .velocity_curve
+        .as_deref()
+        .filter(|curve| !curve.is_empty())
+        .unwrap_or(&mix.dynamic.beat_accent_pattern);
+    if curve.is_empty() {
+        return routing.velocity;
+    }
+    let beat_index = at_quarter_length.floor().max(0.0) as usize;
+    let accent = curve[beat_index % curve.len()];
+    let mut factor = 1.0 + depth * (accent - 1.0);
+    if mix.dynamic.phrase_period_quarters > 0.0 {
+        let phase = 2.0 * PI * at_quarter_length / mix.dynamic.phrase_period_quarters;
+        factor *= 1.0 + depth * 0.15 * phase.sin();
+    }
+    (routing.velocity as f64 * factor).round().clamp(1.0, 127.0) as u8
+}
+
+/// Controller setup events (CC7 volume / CC10 pan / CC91 reverb send) derived
+/// from the profile so the SoundFont path honours the same mix decisions.
+fn synth_control_changes(
+    routing: &SynthRoutingRule,
+    synth_profile: &SynthRoutingProfile,
+) -> Vec<(u8, u8)> {
+    let mut changes = Vec::new();
+    if let Some(eq) = routing.eq.as_ref() {
+        if eq.gain_db.abs() > 1e-9 {
+            let value = (100.0 * db_to_amplitude(eq.gain_db)).round().clamp(0.0, 127.0) as u8;
+            changes.push((7, value));
+        }
+    }
+    if let Some(pan) = routing.pan {
+        let value = (((pan.clamp(-1.0, 1.0) + 1.0) * 0.5) * 127.0).round() as u8;
+        changes.push((10, value));
+    }
+    if let Some(mix) = synth_profile.mix.as_ref() {
+        if mix.reverb.enabled {
+            let value = (mix.reverb.wet.clamp(0.0, 1.0) * 127.0).round() as u8;
+            changes.push((91, value));
+        }
+    }
+    changes
+}
+
 fn apply_synth_event(synthesizer: &mut Synthesizer, event: &SynthEvent) {
     match event.midi_command.as_str() {
         "program_change" => {
             synthesizer.process_midi_message(event.channel as i32, 0xC0, event.data1 as i32, 0)
         }
+        "control_change" => synthesizer.process_midi_message(
+            event.channel as i32,
+            0xB0,
+            event.data1 as i32,
+            event.data2 as i32,
+        ),
         "note_on" => {
             synthesizer.note_on(event.channel as i32, event.data1 as i32, event.data2 as i32)
         }
         "note_off" => synthesizer.note_off(event.channel as i32, event.data1 as i32),
         _ => {}
     }
+}
+
+/// Freeverb-style Schroeder reverb: parallel damped comb filters feeding a
+/// serial allpass diffuser. Pure algorithm, no IR asset and no extra crate.
+struct CombFilter {
+    buffer: Vec<f64>,
+    cursor: usize,
+    feedback: f64,
+    damping: f64,
+    store: f64,
+}
+
+impl CombFilter {
+    fn new(length: usize, feedback: f64, damping: f64) -> Self {
+        Self {
+            buffer: vec![0.0; length.max(1)],
+            cursor: 0,
+            feedback,
+            damping,
+            store: 0.0,
+        }
+    }
+
+    fn process(&mut self, sample: f64) -> f64 {
+        let delayed = self.buffer[self.cursor];
+        self.store = delayed * (1.0 - self.damping) + self.store * self.damping;
+        self.buffer[self.cursor] = sample + self.store * self.feedback;
+        self.cursor = (self.cursor + 1) % self.buffer.len();
+        delayed
+    }
+}
+
+fn apply_reverb(
+    left: &[f32],
+    right: &[f32],
+    sample_rate: u32,
+    reverb: &ReverbProfile,
+) -> (Vec<f32>, Vec<f32>) {
+    if !reverb.enabled || reverb.wet <= 0.0 || left.is_empty() {
+        return (left.to_vec(), right.to_vec());
+    }
+    let decay = reverb.decay_seconds.max(0.05);
+    let room_scale = 0.6 + 0.8 * reverb.room_size.clamp(0.0, 1.0);
+    let damping = reverb.damping.clamp(0.0, 0.95);
+    let scale = sample_rate as f64 / 44_100.0;
+    let comb_delays = [1116.0_f64, 1188.0, 1277.0, 1356.0];
+    let allpass_delays = [556.0_f64, 441.0];
+    let mut combs: Vec<CombFilter> = comb_delays
+        .iter()
+        .map(|delay| {
+            let length = ((delay * room_scale * scale).round() as usize).max(1);
+            let delay_seconds = length as f64 / sample_rate as f64;
+            let feedback = 10.0_f64
+                .powf(-3.0 * delay_seconds / decay)
+                .clamp(0.0, 0.98);
+            CombFilter::new(length, feedback, damping)
+        })
+        .collect();
+    let mut allpasses: Vec<(Vec<f64>, usize)> = allpass_delays
+        .iter()
+        .map(|delay| {
+            let length = ((delay * room_scale * scale).round() as usize).max(1);
+            (vec![0.0_f64; length], 0usize)
+        })
+        .collect();
+
+    let dry_gain = reverb.dry.clamp(0.0, 1.0);
+    let wet_gain = reverb.wet.clamp(0.0, 1.0);
+    let mut out_left = Vec::with_capacity(left.len());
+    let mut out_right = Vec::with_capacity(right.len());
+    for (l, r) in left.iter().zip(right.iter()) {
+        let input = (*l as f64 + *r as f64) * 0.5;
+        let mut wet = 0.0;
+        for comb in combs.iter_mut() {
+            wet += comb.process(input);
+        }
+        wet /= combs.len() as f64;
+        for (buffer, cursor) in allpasses.iter_mut() {
+            let delayed = buffer[*cursor];
+            let output = -wet + delayed;
+            buffer[*cursor] = wet + delayed * 0.5;
+            *cursor = (*cursor + 1) % buffer.len();
+            wet = output;
+        }
+        out_left.push((dry_gain * *l as f64 + wet_gain * wet) as f32);
+        out_right.push((dry_gain * *r as f64 + wet_gain * wet) as f32);
+    }
+    (out_left, out_right)
 }
 
 fn normalize_stereo_samples(
@@ -3186,5 +3505,207 @@ mod tests {
             expanded_synth.total_duration_seconds,
             round6(synth.total_duration_seconds * 4.0)
         );
+    }
+
+    fn config_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src/musikalisches/runtime/config")
+            .join(name)
+    }
+
+    fn demo_pipeline(
+        profile: &SynthRoutingProfile,
+    ) -> (
+        RealizedFragmentSequence,
+        NoteEventSequence,
+        EventTransitionSequence,
+        SynthEventSequence,
+    ) {
+        let contracts = load_contracts(CANONICAL_WORK_ID).unwrap();
+        let soundfont_resolution = soundfont_resolution_fallback();
+        let realization = realize_sequence(&contracts, &DEMO_ROLLS, DEFAULT_TEMPO_BPM).unwrap();
+        let notes = build_note_event_sequence(
+            &contracts,
+            &realization,
+            &DEMO_ROLLS,
+            DEFAULT_TEMPO_BPM,
+            DEFAULT_SAMPLE_RATE,
+        )
+        .unwrap();
+        let transitions = build_event_transition_sequence(
+            &DEMO_ROLLS,
+            DEFAULT_TEMPO_BPM,
+            DEFAULT_SAMPLE_RATE,
+            &notes,
+        );
+        let synth = build_synth_event_sequence(
+            &DEMO_ROLLS,
+            DEFAULT_TEMPO_BPM,
+            DEFAULT_SAMPLE_RATE,
+            DEFAULT_LOOP_COUNT,
+            &soundfont_resolution,
+            profile,
+            &realization,
+            &transitions,
+        );
+        (realization, notes, transitions, synth)
+    }
+
+    fn note_on_velocities(events: &[SynthEvent], channel: u8) -> BTreeSet<u8> {
+        events
+            .iter()
+            .filter(|event| event.midi_command == "note_on" && event.channel == channel)
+            .map(|event| event.data2)
+            .collect()
+    }
+
+    #[test]
+    fn legacy_profiles_stay_backward_compatible() {
+        let default_profile = resolve_synth_routing_profile(None).unwrap();
+        assert!(default_profile.mix.is_none());
+        for name in [
+            "stage5_default_synth_profile.json",
+            "stage5_bright_chapel_synth_profile.json",
+            "stage5_processional_reeds_synth_profile.json",
+        ] {
+            let profile =
+                resolve_synth_routing_profile(Some(&config_path(name))).unwrap();
+            assert!(profile.mix.is_none(), "{name} must stay legacy");
+            for rule in &profile.voice_groups {
+                assert!(rule.velocity_curve.is_none());
+                assert!(rule.eq.is_none());
+                assert!(rule.pan.is_none());
+                assert!(rule.gain_automation.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn default_profile_serialization_omits_optional_mix_keys() {
+        let profile = resolve_synth_routing_profile(None).unwrap();
+        let json = serde_json::to_string(&profile).unwrap();
+        assert!(!json.contains("\"mix\""));
+        assert!(!json.contains("velocity_curve"));
+        assert!(!json.contains("control_change"));
+    }
+
+    #[test]
+    fn academic_profiles_only_change_the_synth_layer() {
+        let dry = resolve_synth_routing_profile(Some(&config_path(
+            "stage5_academic_organ_dry_synth_profile.json",
+        )))
+        .unwrap();
+        let chapel = resolve_synth_routing_profile(Some(&config_path(
+            "stage5_academic_chapel_synth_profile.json",
+        )))
+        .unwrap();
+        let (dry_realization, dry_notes, dry_transitions, dry_synth) = demo_pipeline(&dry);
+        let (chapel_realization, chapel_notes, chapel_transitions, chapel_synth) =
+            demo_pipeline(&chapel);
+
+        // Realization / note-event / transition layers are profile-independent.
+        assert_eq!(
+            serde_json::to_string(&dry_realization).unwrap(),
+            serde_json::to_string(&chapel_realization).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_string(&dry_notes).unwrap(),
+            serde_json::to_string(&chapel_notes).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_string(&dry_transitions).unwrap(),
+            serde_json::to_string(&chapel_transitions).unwrap()
+        );
+
+        // The synth layer does change: dry stays flat, chapel carries beat dynamics.
+        assert_eq!(note_on_velocities(&dry_synth.synth_events, 0).len(), 1);
+        assert!(note_on_velocities(&chapel_synth.synth_events, 0).len() > 1);
+        assert!(note_on_velocities(&chapel_synth.synth_events, 1).len() > 1);
+        assert_eq!(
+            dry_synth.summary.note_on_count,
+            chapel_synth.summary.note_on_count
+        );
+    }
+
+    #[test]
+    fn velocity_curve_is_applied_per_note_event() {
+        let chapel = resolve_synth_routing_profile(Some(&config_path(
+            "stage5_academic_chapel_synth_profile.json",
+        )))
+        .unwrap();
+        let (_, _, _, synth) = demo_pipeline(&chapel);
+        let velocities: Vec<u8> = synth
+            .synth_events
+            .iter()
+            .filter(|event| event.midi_command == "note_on")
+            .map(|event| event.data2)
+            .collect();
+        assert!(!velocities.is_empty());
+        assert!(velocities.iter().all(|value| (1..=127).contains(value)));
+        assert!(velocities.iter().collect::<BTreeSet<_>>().len() > 1);
+    }
+
+    #[test]
+    fn mix_profile_emits_control_change_setup_events() {
+        let dry = resolve_synth_routing_profile(Some(&config_path(
+            "stage5_academic_organ_dry_synth_profile.json",
+        )))
+        .unwrap();
+        let chapel = resolve_synth_routing_profile(Some(&config_path(
+            "stage5_academic_chapel_synth_profile.json",
+        )))
+        .unwrap();
+        let (_, _, _, dry_synth) = demo_pipeline(&dry);
+        let (_, _, _, chapel_synth) = demo_pipeline(&chapel);
+
+        assert_eq!(dry_synth.summary.control_change_count, 0);
+        assert_eq!(
+            dry_synth.summary.synth_event_count,
+            dry_synth.synth_events.len()
+        );
+        let controllers: BTreeSet<u8> = chapel_synth
+            .synth_events
+            .iter()
+            .filter(|event| event.midi_command == "control_change")
+            .map(|event| event.data1)
+            .collect();
+        assert!(controllers.contains(&7));
+        assert!(controllers.contains(&10));
+        assert!(controllers.contains(&91));
+        assert_eq!(
+            chapel_synth.summary.synth_event_count,
+            chapel_synth.synth_events.len()
+        );
+    }
+
+    #[test]
+    fn reverb_tail_carries_energy_and_disabled_reverb_is_untouched() {
+        let sample_rate = 8_000u32;
+        let mut left = vec![0.0f32; sample_rate as usize];
+        let mut right = vec![0.0f32; sample_rate as usize];
+        left[0] = 1.0;
+        right[0] = 1.0;
+        let reverb = ReverbProfile {
+            enabled: true,
+            wet: 0.5,
+            dry: 0.7,
+            decay_seconds: 1.2,
+            room_size: 0.4,
+            damping: 0.3,
+        };
+        let (reverbed_left, reverbed_right) = apply_reverb(&left, &right, sample_rate, &reverb);
+        assert_eq!(reverbed_left.len(), left.len());
+        assert_eq!(reverbed_right.len(), right.len());
+        let late_energy: f64 = reverbed_left
+            .iter()
+            .skip(200)
+            .map(|sample| (*sample as f64).powi(2))
+            .sum();
+        assert!(late_energy > 0.0, "reverb must ring after the impulse");
+
+        let disabled = ReverbProfile::default();
+        let (dry_left, dry_right) = apply_reverb(&left, &right, sample_rate, &disabled);
+        assert_eq!(dry_left, left);
+        assert_eq!(dry_right, right);
     }
 }

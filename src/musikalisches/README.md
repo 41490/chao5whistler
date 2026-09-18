@@ -152,6 +152,9 @@ P2 只负责冻结素材池和 license manifest，不在这一阶段把这些层
   - `stage5_default_synth_profile.json`
   - `stage5_bright_chapel_synth_profile.json`
   - `stage5_processional_reeds_synth_profile.json`
+- 学术向 A/B 池（issue #63，需显式指定）：
+  - `stage5_academic_organ_dry_synth_profile.json`（显式 dry 基线，reverb 关、velocity 平）
+  - `stage5_academic_chapel_synth_profile.json`（短 chapel reverb + velocity 曲线 + 声部 EQ/pan + 微量 gain automation）
 - 默认会生成 `soundscape_selection.json`
 - 默认会把 `ambient + drone` 真正混入 stage5 的 `offline_audio.wav`
 
@@ -177,6 +180,43 @@ make -C src/musikalisches stage5-sf2 \
   LOOP_COUNT=16 \
   SOUNDSCAPE_PROFILE=/path/to/stage5_soundscape_profile.json
 ```
+
+## stage5 academic synth profile mix（issue #63）
+
+synth profile 顶层新增可选 `mix` 块，voice_group 新增可选 `velocity_curve` / `eq` /
+`pan` / `gain_automation`。**所有新字段缺省即旧行为**：不带 `mix` 的 profile（含
+默认 profile 与既有两个 registration 变体）反序列化、序列化与渲染结果都保持不变。
+
+- `mix.reverb{enabled,wet,dry,decay_seconds,room_size,damping}`：`finalize_audio_render`
+  内的纯算法 Schroeder reverb（comb + allpass，无 IR 资产、无新增 crate）。
+- `mix.master_trim_db`：归一化后的总线微调。
+- `mix.dynamic{velocity_depth,phrase_period_quarters,beat_accent_pattern}` 与
+  voice_group `velocity_curve`：逐 note_on 计算 velocity 写入 `data2`（`build_synth_event_sequence`）。
+- voice_group `eq{gain_db,tilt}` / `pan` / `gain_automation{depth_db,period_quarters}`：
+  fallback 渲染路径的幅度 / 声像；SoundFont 路径以 CC7 / CC10 / CC91 下发
+  （`apply_synth_event`）。
+- `mix.ab_expectations{dynamic_spread_gain_db_min,reverb_tail_dbfs_min,lufs_band}`：
+  供 A/B 校验 lane 读取的阈值，不在 Rust 侧执行门禁。
+
+A/B 与回退：
+
+```bash
+cargo run -- render-audio \
+  --work mozart_dicegame_print_1790s \
+  --demo-rolls \
+  --synth-profile src/musikalisches/runtime/config/stage5_academic_chapel_synth_profile.json \
+  --output-dir /tmp/ab-enhanced
+
+# 回退到 dry 基线（或直接不带 --synth-profile 走默认 profile）
+cargo run -- render-audio \
+  --work mozart_dicegame_print_1790s \
+  --demo-rolls \
+  --synth-profile src/musikalisches/runtime/config/stage5_academic_organ_dry_synth_profile.json \
+  --output-dir /tmp/ab-dry
+```
+
+stage5-sf2 / stage5-stream 同样支持 `SYNTH_PROFILE=` 覆盖；未指定时继续使用既有
+registration 池，schema 扩展不影响默认链路。
 
 ## ops quickstart
 

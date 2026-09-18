@@ -7,6 +7,7 @@
 - 默认 adapter：`src/musikalisches/runtime/config/weaver_default_adapter.json`
 - dry-run adapter（无 key）：`src/musikalisches/runtime/config/weaver_dry_run_adapter.json`
 - 本地 fake bridge：`src/musikalisches/tools/fake_weaver_bridge.py`
+- 当前门禁的 keyless 失败率与 9 组合分布证据：[Issue #73 审计](260918-issue73-weaver-failure-rate-audit.md)（main `b088def9`，mix fail=0/9，代码及阈值零改动）。
 
 ## 1. 架构
 

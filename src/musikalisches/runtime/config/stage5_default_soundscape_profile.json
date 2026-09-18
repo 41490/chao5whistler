@@ -44,7 +44,7 @@
     "true_peak_ceiling_dbtp": -0.5,
     "require_no_clipping": true,
     "envelope_coupling": {
-      "enabled": false,
+      "enabled": true,
       "depth_db": 6.0
     }
   }

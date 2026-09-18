@@ -354,3 +354,160 @@ final = **-19.047** LUFS 落带、`validate_m1_artifacts.py` exit 0、无 fallba
 (g) profile 键变更清单: mix_bus_profile 新增 bed_offset_db（唯一新键，
     缺省 0.0 向后兼容）；其余键值未动；registration gain_db 保留为回退常量
 ```
+
+## 11. issue #72 — 同组合 envelope coupling 对照与默认决策
+
+### 11.1 实验边界
+
+本 lane 工作目录 `/opt/src/41490/chao5whistler-72-envelope-coupling`，
+基线 `a1a6efee`。仅首次抽取 combination；纯主层与 on 复用相同 rolls、
+registration、44.1 kHz、120 BPM、40 ms 分析窗、4 cycles / 48 s。
+独立 ledger `/tmp/mana72-ledger.json` 仅有一条记录，仓内默认 ledger 未使用。
+
+```json
+{
+  "combination_id": "4,4,2,11,11,8,6,6,10,2,4,3,7,5,11,9",
+  "rolls": [4,4,2,11,11,8,6,6,10,2,4,3,7,5,11,9],
+  "registration_id": "church_reed_duo",
+  "synth_profile_id": "stage5_default_dual_voice_organ_family",
+  "main_layer_gain_db": 4.71,
+  "main_envelope_peak": 0.051795
+}
+```
+
+纯主层是 runtime 原始 premix，不再叠 bed 或施加 mix_bus trim；off/on
+都从该主层混音，主层增益一致。纯主层 LUFS 不作为交付带门禁。
+三个目录的 `analysis_window_sequence.json` 相同（混音保留主层分析），
+峰值均为 0.051795，不能将它误解为混音后重测的 envelope。
+on/off 的 `selected_asset_ids` 相同，on 不是在 off WAV 上重复叠加。
+
+### 11.2 命令与原始摘要
+
+首次命令在默认仍为 off 时运行，exit 0；之后未再运行随机构建器做三组比较：
+
+```bash
+python3 src/musikalisches/tools/build_stage5_unique_stream.py \
+  --work-id mozart_dicegame_print_1790s --loop-count 4 \
+  --ledger-path /tmp/mana72-ledger.json --output-dir /tmp/mana72-off \
+  --soundscape-profile src/musikalisches/runtime/config/stage5_default_soundscape_profile.json
+cargo run -- render-audio --work mozart_dicegame_print_1790s \
+  --rolls 4,4,2,11,11,8,6,6,10,2,4,3,7,5,11,9 --loop-count 4 \
+  --analysis-window-ms 40 --tempo-bpm 120 --sample-rate 44100 \
+  --synth-profile src/musikalisches/runtime/config/stage5_default_synth_profile.json \
+  --output-dir /tmp/mana72-main
+```
+
+重混使用以下 API 调用（exit 0）。临时 profile 仅将 enabled 从 false 改 true，
+其余字段不变；复现历史 off 时应使用 `a1a6efee` 的 profile，当前默认已改 on。
+`render-audio` 本身不叠 soundscape，因此纯主层无需构建器的 `--no-soundscape`。
+
+```python
+# PYTHONPATH=src/musikalisches/tools python3
+from pathlib import Path
+import shutil
+import build_stage5_unique_stream as b
+
+off, main, on = map(Path, ('/tmp/mana72-off', '/tmp/mana72-main', '/tmp/mana72-on'))
+selection = b.load_json(off / b.SELECTION_FILE)
+registration = b.load_json(off / b.SOUNDSCAPE_SELECTION_FILE)['registration']
+assert selection['rolls'] == [4,4,2,11,11,8,6,6,10,2,4,3,7,5,11,9]
+assert (off / 'analysis_window_sequence.json').read_bytes() == (main / 'analysis_window_sequence.json').read_bytes()
+b.augment_selection_artifact(main, selection)
+shutil.copytree(main, on)
+profile = b.load_json(b.DEFAULT_SOUNDSCAPE_PROFILE)
+assert profile['mix_bus_profile']['envelope_coupling'] == {'enabled': False, 'depth_db': 6.0}
+profile['mix_bus_profile']['envelope_coupling']['enabled'] = True
+profile_path = Path('/tmp/mana72-on-profile.json')
+b.write_json(profile_path, profile)
+b.apply_soundscape_mix(artifact_dir=on, selection=selection,
+    soundscape_profile=b.load_soundscape_profile(profile_path), registration_choice=registration)
+assert b.load_json(on / b.SOUNDSCAPE_SELECTION_FILE)['selected_asset_ids'] == b.load_json(off / b.SOUNDSCAPE_SELECTION_FILE)['selected_asset_ids']
+```
+
+三条 CLI 各 exit 0，计量对象均为完整 `offline_audio.wav`：
+
+```bash
+python3 src/musikalisches/tools/loudness_meter.py /tmp/mana72-main/offline_audio.wav
+python3 src/musikalisches/tools/loudness_meter.py /tmp/mana72-off/offline_audio.wav
+python3 src/musikalisches/tools/loudness_meter.py /tmp/mana72-on/offline_audio.wav
+```
+
+| 组 | integrated LUFS | spread dB | short-term min / max LUFS | true peak dBTP | clipping |
+| --- | ---: | ---: | --- | ---: | --- |
+| 纯主层 | -23.923 | 6.814 | -25.404 / -23.027 | -11.658 | false |
+| off | -19.030 | 6.041 | -20.354 / -18.202 | -6.819 | false |
+| on, depth=6 | -19.102 | 6.544 | -20.504 / -18.241 | -6.824 | false |
+
+CLI JSON 原始字段摘要（表格之外的共同字段及增益摘要）：
+
+```json
+{
+  "common_meter_fields": {
+    "measurement": "bs1770_4_kweighting_stdlib_v1",
+    "sample_rate": 44100, "channels": 2, "frames": 2116800,
+    "duration_seconds": 48.0, "block_count": 477, "gated_block_count": 477,
+    "short_term_window_count": 451, "longest_clip_run_samples": 0,
+    "clipped_sample_count": 0
+  },
+  "off_gain_db_summary": {
+    "drone": {"min_db": -15.0, "max_db": -15.0, "mean_db": -15.0},
+    "ambient": {"min_db": -20.0, "max_db": -20.0, "mean_db": -20.0}
+  },
+  "on_gain_db_summary": {
+    "drone": {"min_db": -20.467709, "max_db": -15.0, "mean_db": -17.287577},
+    "ambient": {"min_db": -25.467709, "max_db": -20.0, "mean_db": -22.287577}
+  }
+}
+```
+
+### 11.3 决策
+
+**默认开启，depth_db 保持 6.0。** 按 brief 的 recommended 规则自决：
+`6.544 >= 6.041`、`-19.102 ∈ [-20,-18]`、`clipping_detected=false`，全部满足。
+耦合赚回 0.503 dB，即恒定 bed 损失 0.773 dB 的约 65.1%；仍比纯主层低
+0.270 dB，不声称完全恢复。只改默认 enabled，不改 trim、bed 资产或实现。
+这是一组固定 combination 的实证，不推广为所有组合 spread 必然改善；
+另用官方 16-cycle 链路验证当前默认可交付，不把其不同组合当 A/B 数据。
+计量器的 true_peak 是采样峰值估计，不声称测得过采样 inter-sample peak。
+
+### 11.4 验收
+
+均在本 worktree 执行。A/B dry/enhanced 按 README 单独渲染 demo rolls，
+不与上述 coupling 三组混用。
+
+```bash
+cargo test --manifest-path Cargo.toml
+cargo run -- render-audio --work mozart_dicegame_print_1790s --demo-rolls \
+  --synth-profile src/musikalisches/runtime/config/stage5_academic_organ_dry_synth_profile.json \
+  --output-dir /tmp/mana72-ab-dry
+cargo run -- render-audio --work mozart_dicegame_print_1790s --demo-rolls \
+  --synth-profile src/musikalisches/runtime/config/stage5_academic_chapel_synth_profile.json \
+  --output-dir /tmp/mana72-ab-enhanced
+python3 src/musikalisches/tools/verify_academic_profile_ab.py \
+  --dry /tmp/mana72-ab-dry --enhanced /tmp/mana72-ab-enhanced \
+  --profile src/musikalisches/runtime/config/stage5_academic_chapel_synth_profile.json \
+  --report /tmp/mana72-ab-positive.json
+python3 src/musikalisches/tools/verify_academic_profile_ab.py \
+  --dry /tmp/mana72-ab-dry --enhanced /tmp/mana72-ab-dry \
+  --profile src/musikalisches/runtime/config/stage5_academic_chapel_synth_profile.json \
+  --report /tmp/mana72-ab-negative.json
+STAGE5_LEDGER_PATH=/tmp/mana72-stream-ledger.json LOOP_COUNT=16 \
+  make -C src/musikalisches stage5-stream && make -C src/musikalisches stage5-stream-check
+python3 ops/scripts/check-mana-grant-scope.py --base origin/main \
+  --allow-path src/musikalisches/ --allow-path docs/plans/ \
+  --allow-path Cargo.toml --allow-path Cargo.lock
+```
+
+| 验收 | exit | 关键输出 |
+| --- | ---: | --- |
+| cargo test | 0 | 63 unit + 10 e2e passed，0 failed |
+| dry / enhanced 渲染 | 0 / 0 | 两目录成功输出 WAV、分析与事件 JSON |
+| A/B 正例 | 0 | a/b/c/d/e 全 PASS |
+| A/B 反例 | 1（预期） | b: 0.0 < 1.5；c: no observable tail region；d: 1.657 不大于 1.657 |
+| 16-cycle stream / check | 0 / 0 | M1 passed；8467200 frames；-19.123 LUFS；5.280 dB spread；-7.034 dBTP；clip false |
+| grant scope | 0 | 仅授权路径，见本地提交差异 |
+
+16-cycle 独立 ledger 为 `/tmp/mana72-stream-ledger.json`，组合
+`10,3,4,10,9,10,8,11,6,6,12,6,10,10,2,4`，Processional Reeds Pair。
+Git worktree 不支持 `jj git init --colocate`；改用 `jj git init --git-repo .`
+初始化本目录 jj，以指定 bookmark 本地提交，不 push。

@@ -267,7 +267,9 @@ soundscape 混音总线的门禁契约，由 `tools/validate_m1_artifacts.py` �
 - `require_no_clipping`：为真时，≥3 个连续满量程样本即判失败。
 - `envelope_coupling{enabled,depth_db}`：开启后 `build_stage5_unique_stream.py`
   用 `analysis_window_sequence.json` 的 `envelope_amplitude` 逐帧调制 bed 增益
-  （最响窗保持基础增益，最轻窗最多衰减 `depth_db`）；默认关闭。
+  （最响窗保持基础增益，最轻窗最多衰减 `depth_db`）；issue #72 起默认开启，
+  `depth_db=6.0`。同组合实测 spread 从 6.041 增至 6.544 dB，最终
+  −19.102 LUFS、无削顶；三组对照与默认决策见上述 plan 的 §11。
 
 回退：不带 `SOUNDSCAPE_PROFILE=` 即回到 `stage5_default_soundscape_profile.json`；
 不带 `SYNTH_PROFILE=` 即回到默认 registration 池（非 academic profile）。

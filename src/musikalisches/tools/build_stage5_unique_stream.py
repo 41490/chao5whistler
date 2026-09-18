@@ -395,23 +395,28 @@ def mix_asset_into(
     target_frame_count: int,
     target_sample_rate: int,
     gain: float,
+    gain_envelope: array | None = None,
 ) -> None:
     if asset_frame_count <= 0:
         raise SystemExit("soundscape asset frame_count must be > 0")
     if asset_sample_rate <= 0 or target_sample_rate <= 0:
         raise SystemExit("sample_rate must be > 0 for soundscape mixing")
+    if gain_envelope is not None and len(gain_envelope) != target_frame_count:
+        raise SystemExit("soundscape gain_envelope length must match target_frame_count")
 
     if asset_sample_rate == target_sample_rate:
         for frame_index in range(target_frame_count):
+            frame_gain = gain if gain_envelope is None else gain_envelope[frame_index]
             source_frame = frame_index % asset_frame_count
             target_base = frame_index * 2
             source_base = source_frame * 2
-            mixed[target_base] += (asset_pcm[source_base] / 32767.0) * gain
-            mixed[target_base + 1] += (asset_pcm[source_base + 1] / 32767.0) * gain
+            mixed[target_base] += (asset_pcm[source_base] / 32767.0) * frame_gain
+            mixed[target_base + 1] += (asset_pcm[source_base + 1] / 32767.0) * frame_gain
         return
 
     ratio = asset_sample_rate / float(target_sample_rate)
     for frame_index in range(target_frame_count):
+        frame_gain = gain if gain_envelope is None else gain_envelope[frame_index]
         source_position = (frame_index * ratio) % asset_frame_count
         source_floor = int(source_position)
         source_frac = source_position - source_floor
@@ -427,8 +432,69 @@ def mix_asset_into(
             (asset_pcm[floor_base + 1] / 32767.0) * (1.0 - source_frac)
             + (asset_pcm[next_base + 1] / 32767.0) * source_frac
         )
-        mixed[target_base] += left * gain
-        mixed[target_base + 1] += right * gain
+        mixed[target_base] += left * frame_gain
+        mixed[target_base + 1] += right * frame_gain
+
+
+def load_analysis_windows(artifact_dir: Path) -> list[dict]:
+    analysis_path = artifact_dir / "analysis_window_sequence.json"
+    if not analysis_path.exists():
+        return []
+    return load_json(analysis_path).get("windows", [])
+
+
+def envelope_coupled_frame_gains(
+    *,
+    windows: list[dict],
+    frame_count: int,
+    base_gain_db: float,
+    depth_db: float,
+) -> tuple[array, dict]:
+    """Map the analysis-window envelope onto per-frame bed layer gains.
+
+    The loudest analysis window keeps the layer at ``base_gain_db``; quieter
+    windows duck it by up to ``depth_db``. The gain therefore tracks the main
+    performance envelope while the profile's ``depth_db`` bounds how far the
+    beds may move.
+    """
+    peak_envelope = max(
+        (float(window.get("envelope_amplitude", 0.0)) for window in windows),
+        default=0.0,
+    )
+    base_gain = db_to_amplitude(base_gain_db)
+    gains = array("f", bytes(4 * frame_count))
+    covered_until = 0
+    covered_frames = 0
+    weighted_gain_db = 0.0
+    min_gain_db: float | None = None
+    max_gain_db: float | None = None
+    for window in windows:
+        start = max(0, min(frame_count, int(window.get("start_frame", 0))))
+        end = max(start, min(frame_count, int(window.get("end_frame", start))))
+        envelope = float(window.get("envelope_amplitude", 0.0))
+        normalized = envelope / peak_envelope if peak_envelope > 0.0 else 0.0
+        gain_db = base_gain_db + depth_db * (normalized - 1.0)
+        gain = db_to_amplitude(gain_db)
+        for index in range(covered_until, start):
+            gains[index] = base_gain
+        for index in range(start, end):
+            gains[index] = gain
+        covered_until = max(covered_until, end)
+        span = end - start
+        if span > 0:
+            weighted_gain_db += gain_db * span
+            covered_frames += span
+            min_gain_db = gain_db if min_gain_db is None else min(min_gain_db, gain_db)
+            max_gain_db = gain_db if max_gain_db is None else max(max_gain_db, gain_db)
+    for index in range(covered_until, frame_count):
+        gains[index] = base_gain
+    return gains, {
+        "min_db": round6(min_gain_db if min_gain_db is not None else base_gain_db),
+        "max_db": round6(max_gain_db if max_gain_db is not None else base_gain_db),
+        "mean_db": round6(weighted_gain_db / covered_frames)
+        if covered_frames
+        else round6(base_gain_db),
+    }
 
 
 def write_mix_to_pcm(mixed: array) -> array:
@@ -643,16 +709,37 @@ def apply_soundscape_mix(
     target_peak_max = float(mix_bus_profile["target_peak_max_amplitude"])
     target_rms_min = float(mix_bus_profile["target_rms_min_dbfs"])
     target_rms_max = float(mix_bus_profile["target_rms_max_dbfs"])
+    target_lufs_min = float(mix_bus_profile.get("target_lufs_min", -70.0))
+    target_lufs_max = float(mix_bus_profile.get("target_lufs_max", 0.0))
+    true_peak_ceiling_dbtp = float(mix_bus_profile.get("true_peak_ceiling_dbtp", 0.0))
+    require_no_clipping = bool(mix_bus_profile.get("require_no_clipping", False))
+
+    envelope_coupling = mix_bus_profile.get("envelope_coupling") or {}
+    coupling_enabled = bool(envelope_coupling.get("enabled", False))
+    coupling_depth_db = float(envelope_coupling.get("depth_db", 0.0))
+    if coupling_enabled and coupling_depth_db < 0.0:
+        raise SystemExit("mix_bus_profile.envelope_coupling.depth_db must be >= 0")
+    analysis_windows = load_analysis_windows(artifact_dir) if coupling_enabled else []
+    if coupling_enabled and not analysis_windows:
+        raise SystemExit(
+            "envelope_coupling is enabled but analysis_window_sequence.json exposes no windows"
+        )
 
     mixed = array("f", ((sample / 32767.0) * main_gain for sample in main_audio["pcm"]))
     main_audio_stats = compute_audio_stats_from_pcm(main_audio["pcm"], sample_rate=target_sample_rate)
 
+    main_gain_db = float(mix_bus_profile["main_gain_db"])
     layer_entries: list[dict] = [
         {
             "layer_id": "main_organ",
             "layer_kind": "main",
             "label": registration_choice["label"],
-            "gain_db": float(mix_bus_profile["main_gain_db"]),
+            "gain_db": main_gain_db,
+            "gain_db_summary": {
+                "min_db": round6(main_gain_db),
+                "max_db": round6(main_gain_db),
+                "mean_db": round6(main_gain_db),
+            },
             "source": "stage5_render_audio",
             "render_backend": selection["audio_render_backend"],
             "synth_profile_id": registration_choice["synth_profile_id"],
@@ -672,6 +759,20 @@ def apply_soundscape_mix(
             layer_kind=layer_kind,
         )
         asset_audio = read_wav_pcm(Path(asset_manifest["resolved_asset_path"]))
+        if coupling_enabled:
+            gain_envelope, gain_db_summary = envelope_coupled_frame_gains(
+                windows=analysis_windows,
+                frame_count=target_frame_count,
+                base_gain_db=gain_db,
+                depth_db=coupling_depth_db,
+            )
+        else:
+            gain_envelope = None
+            gain_db_summary = {
+                "min_db": round6(gain_db),
+                "max_db": round6(gain_db),
+                "mean_db": round6(gain_db),
+            }
         mix_asset_into(
             mixed,
             asset_pcm=asset_audio["pcm"],
@@ -680,6 +781,7 @@ def apply_soundscape_mix(
             target_frame_count=target_frame_count,
             target_sample_rate=target_sample_rate,
             gain=gain,
+            gain_envelope=gain_envelope,
         )
         selected_asset_ids[layer_kind] = asset_manifest["asset_id"]
         layer_entries.append(
@@ -696,6 +798,11 @@ def apply_soundscape_mix(
                 "loop_duration_seconds": asset_manifest["loop_duration_seconds"],
                 "loudness_target_dbfs": asset_manifest["loudness_target_dbfs"],
                 "gain_db": gain_db,
+                "gain_db_summary": gain_db_summary,
+                "envelope_coupling": {
+                    "enabled": coupling_enabled,
+                    "depth_db": round6(coupling_depth_db),
+                },
                 "duration_seconds": final_duration_seconds,
             }
         )
@@ -765,6 +872,14 @@ def apply_soundscape_mix(
             "target_peak_max_amplitude": target_peak_max,
             "target_rms_min_dbfs": target_rms_min,
             "target_rms_max_dbfs": target_rms_max,
+            "target_lufs_min": target_lufs_min,
+            "target_lufs_max": target_lufs_max,
+            "true_peak_ceiling_dbtp": true_peak_ceiling_dbtp,
+            "require_no_clipping": require_no_clipping,
+            "envelope_coupling": {
+                "enabled": coupling_enabled,
+                "depth_db": round6(coupling_depth_db),
+            },
             "output_frames": final_audio_stats["frames"],
             "output_duration_seconds": final_audio_stats["duration_seconds"],
             "peak_amplitude": final_audio_stats["peak_amplitude"],

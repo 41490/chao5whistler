@@ -10,6 +10,8 @@ import wave
 from array import array
 from pathlib import Path
 
+from loudness_meter import measure_wav
+
 
 REQUIRED_FILES = {
     "render_request.json",
@@ -286,6 +288,23 @@ def main() -> int:
     if audio_frames != wav_stats["frames"]:
         errors.append("m1_validation_report.json audio_frames does not match offline_audio.wav")
 
+    # BS.1770 loudness/clipping measurement; the mix-bus gate thresholds are
+    # asserted below once soundscape_selection.json is in scope.
+    loudness = measure_wav(wav_path)
+    report_summary = report_payload.setdefault("summary", {})
+    report_summary["integrated_lufs"] = loudness["integrated_lufs"]
+    report_summary["lufs_short_term_min"] = loudness["lufs_short_term_min"]
+    report_summary["lufs_short_term_max"] = loudness["lufs_short_term_max"]
+    report_summary["true_peak_dbtp"] = loudness["true_peak_dbtp"]
+    report_summary["clipping_detected"] = loudness["clipping_detected"]
+    report_summary["dynamic_spread_db"] = loudness["dynamic_spread_db"]
+    report_summary["loudness_measurement"] = loudness["measurement"]
+    report_payload["loudness"] = loudness
+    (artifact_dir / "m1_validation_report.json").write_text(
+        json.dumps(report_payload, ensure_ascii=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     if summary_payload.get("note_event_count") != len(note_events):
         errors.append("artifact_summary.json note_event_count mismatch")
     if summary_payload.get("event_transition_count") != len(transitions):
@@ -413,6 +432,26 @@ def main() -> int:
         ):
             errors.append("soundscape_selection.json RMS guardrail does not contain offline_audio.wav rms_dbfs")
 
+        target_lufs_min = float(mix_bus.get("target_lufs_min", -70.0))
+        target_lufs_max = float(mix_bus.get("target_lufs_max", 0.0))
+        if loudness["integrated_lufs"] is None:
+            errors.append("offline_audio.wav integrated loudness could not be measured")
+        elif not (target_lufs_min <= loudness["integrated_lufs"] <= target_lufs_max):
+            errors.append(
+                "offline_audio.wav integrated_lufs "
+                f"{loudness['integrated_lufs']} is outside [{target_lufs_min}, {target_lufs_max}]"
+            )
+        true_peak_ceiling = float(mix_bus.get("true_peak_ceiling_dbtp", 0.0))
+        if loudness["true_peak_dbtp"] is None or loudness["true_peak_dbtp"] > true_peak_ceiling:
+            errors.append(
+                f"offline_audio.wav true_peak_dbtp {loudness['true_peak_dbtp']} exceeds {true_peak_ceiling}"
+            )
+        if mix_bus.get("require_no_clipping") and loudness["clipping_detected"]:
+            errors.append(
+                "offline_audio.wav contains hard clipping: "
+                f"longest_clip_run_samples={loudness['longest_clip_run_samples']}"
+            )
+
         soundscape_summary = summary_payload.get("soundscape", {})
         if soundscape_summary.get("profile_id") != soundscape_payload.get("soundscape_profile_id"):
             errors.append("artifact_summary.json soundscape.profile_id mismatch")
@@ -469,6 +508,12 @@ def main() -> int:
     print(f"analysis_window_count: {len(analysis_windows)}")
     print(f"audio_frames: {wav_stats['frames']}")
     print(f"audio_file: {wav_path}")
+    print(f"integrated_lufs: {loudness['integrated_lufs']}")
+    print(f"lufs_short_term_min: {loudness['lufs_short_term_min']}")
+    print(f"lufs_short_term_max: {loudness['lufs_short_term_max']}")
+    print(f"true_peak_dbtp: {loudness['true_peak_dbtp']}")
+    print(f"clipping_detected: {loudness['clipping_detected']}")
+    print(f"dynamic_spread_db: {loudness['dynamic_spread_db']}")
     if selection_payload is not None:
         print(f"combination_id: {selection_payload['combination_id']}")
         print(f"played_unique_count: {selection_payload['played_unique_count']}")

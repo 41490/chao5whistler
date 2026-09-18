@@ -277,6 +277,7 @@ def resolve_registration_choice(
             "selection_source": "cli_override",
             "synth_profile_path": str(synth_profile_path),
             "synth_profile_id": synth_profile.get("profile_id") or synth_profile_path.stem,
+            "gain_db": 0.0,
         }
 
     if soundscape_profile is None:
@@ -297,6 +298,7 @@ def resolve_registration_choice(
         "selection_source": soundscape_profile.get("selection_mode", "deterministic"),
         "synth_profile_path": str(synth_profile_path),
         "synth_profile_id": synth_profile.get("profile_id") or synth_profile_path.stem,
+        "gain_db": float(registration.get("gain_db", 0.0)),
     }
 
 
@@ -700,7 +702,12 @@ def apply_soundscape_mix(
     final_duration_seconds = round6(target_frame_count / target_sample_rate)
 
     mix_bus_profile = soundscape_profile["mix_bus_profile"]
-    main_gain = db_to_amplitude(float(mix_bus_profile["main_gain_db"]))
+    main_gain_db = float(mix_bus_profile["main_gain_db"])
+    # Per-registration static loudness trim. Serial in dB with main_gain_db; the
+    # calibrated values live in the profile (no runtime adaptive measurement).
+    registration_trim_db = float(registration_choice.get("gain_db", 0.0))
+    main_layer_gain_db = main_gain_db + registration_trim_db
+    main_gain = db_to_amplitude(main_layer_gain_db)
     drone_gain = db_to_amplitude(float(mix_bus_profile["drone_gain_db"]))
     ambient_gain = db_to_amplitude(float(mix_bus_profile["ambient_gain_db"]))
     master_gain = db_to_amplitude(float(mix_bus_profile.get("master_gain_db", 0.0)))
@@ -728,18 +735,19 @@ def apply_soundscape_mix(
     mixed = array("f", ((sample / 32767.0) * main_gain for sample in main_audio["pcm"]))
     main_audio_stats = compute_audio_stats_from_pcm(main_audio["pcm"], sample_rate=target_sample_rate)
 
-    main_gain_db = float(mix_bus_profile["main_gain_db"])
     layer_entries: list[dict] = [
         {
             "layer_id": "main_organ",
             "layer_kind": "main",
             "label": registration_choice["label"],
-            "gain_db": main_gain_db,
+            "gain_db": round6(main_layer_gain_db),
             "gain_db_summary": {
-                "min_db": round6(main_gain_db),
-                "max_db": round6(main_gain_db),
-                "mean_db": round6(main_gain_db),
+                "min_db": round6(main_layer_gain_db),
+                "max_db": round6(main_layer_gain_db),
+                "mean_db": round6(main_layer_gain_db),
             },
+            "main_gain_db": round6(main_gain_db),
+            "registration_trim_db": round6(registration_trim_db),
             "source": "stage5_render_audio",
             "render_backend": selection["audio_render_backend"],
             "synth_profile_id": registration_choice["synth_profile_id"],
@@ -857,6 +865,7 @@ def apply_soundscape_mix(
             "selection_source": registration_choice["selection_source"],
             "synth_profile_id": registration_choice["synth_profile_id"],
             "synth_profile_path": registration_choice["synth_profile_path"],
+            "gain_db": round6(registration_trim_db),
         },
         "layers": layer_entries,
         "mix_bus": {

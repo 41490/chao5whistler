@@ -19,7 +19,8 @@
     "ab_expectations": {
       "dynamic_spread_gain_db_min": 1.5,
       "reverb_tail_dbfs_min": -45.0,
-      "lufs_band": [-20.0, -18.0]
+      "lufs_band": [-24.0, -21.5],
+      "lufs_band_basis": "premix_render_offline_audio"
     }
   },
   "voice_groups": [

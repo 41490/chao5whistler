@@ -170,6 +170,7 @@ impl Adapter {
         std::fs::create_dir_all(log_dir)
             .with_context(|| format!("create log dir {}", log_dir.display()))?;
         let log_path = log_dir.join(format!("{step}.log"));
+        archive_previous_log(log_dir, step, &log_path);
         let log_handle = File::create(&log_path)
             .with_context(|| format!("create step log {}", log_path.display()))?;
         let log_clone = log_handle
@@ -214,6 +215,26 @@ impl Adapter {
             duration_seconds: jsonio::round6(started.elapsed().as_secs_f64()),
             log_path: log_path.display().to_string(),
         })
+    }
+}
+
+/// Keep the previous attempt's step log instead of truncating it.
+///
+/// A retried record reuses the same log path, so the current attempt's log is
+/// renamed to `<step>.attempt-<n>.log` (n counting from 1) first. Best effort:
+/// a failed rename must never fail the step.
+fn archive_previous_log(log_dir: &Path, step: &str, log_path: &Path) {
+    if !log_path.is_file() {
+        return;
+    }
+    let mut attempt = 1_u32;
+    loop {
+        let candidate = log_dir.join(format!("{step}.attempt-{attempt}.log"));
+        if !candidate.exists() {
+            let _ = std::fs::rename(log_path, &candidate);
+            return;
+        }
+        attempt += 1;
     }
 }
 

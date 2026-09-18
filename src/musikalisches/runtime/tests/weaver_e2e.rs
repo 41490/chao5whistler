@@ -192,6 +192,23 @@ fn with_flags(base: &[String], extra: &[&str]) -> Vec<String> {
     args
 }
 
+/// Point the stage5 step at a fake that fails its first `fail_first` attempts.
+fn with_stage5_failures(adapter: &Path, root: &Path, fail_first: u32) -> PathBuf {
+    let mut config = read_json(adapter);
+    let args = config["steps"]["stage5_audio"]["args"]
+        .as_array_mut()
+        .expect("stage5 args");
+    args.push(json!("--fail-first"));
+    args.push(json!(fail_first.to_string()));
+    args.push(json!("--fail-state"));
+    args.push(json!(
+        root.join("stage5_fail_state.txt").display().to_string()
+    ));
+    let path = root.join("adapter-flaky.json");
+    fs::write(&path, format!("{config}\n")).expect("write flaky adapter config");
+    path
+}
+
 fn read_json(path: &Path) -> Value {
     let raw = fs::read_to_string(path).unwrap_or_else(|error| {
         panic!("read {}: {error}", path.display());
@@ -201,11 +218,14 @@ fn read_json(path: &Path) -> Value {
 
 #[derive(Debug, Deserialize)]
 struct LedgerRecord {
+    record_id: String,
     state: String,
     #[serde(default)]
     combination_id: Option<String>,
     #[serde(default)]
     asset_dir: Option<String>,
+    #[serde(default)]
+    attempts: u32,
     #[serde(default)]
     bridge_attempts: u32,
     #[serde(default)]
@@ -612,4 +632,94 @@ fn slow_generation_marks_cannot_sustain_live() {
         "the verdict must be visible on stderr: {}",
         run.stderr
     );
+}
+
+/// Fix A: a retried record must keep every attempt's step log.
+#[test]
+fn retry_archives_previous_step_logs_instead_of_truncating_them() {
+    let root = scratch("attempt-logs");
+    let adapter = write_adapter(&root, "flaky", 0.5, 0.0, 0.5, &[]);
+    let adapter = with_stage5_failures(&adapter, &root, 2);
+    let run = run_weaver(&with_flags(
+        &base_args(&root, &adapter),
+        &[
+            "--consume-count",
+            "1",
+            "--buffer-depth",
+            "1",
+            "--low-water",
+            "1",
+            "--max-generation-failures",
+            "3",
+        ],
+    ));
+    assert_eq!(run.code, 0, "{}", run.context());
+
+    let ledger = ledger(&root);
+    let consumed = ledger.of_state("checkpointed");
+    assert_eq!(consumed.len(), 1, "the retried record must end consumed");
+    let record = consumed[0];
+    assert_eq!(record.attempts, 3, "two failures then a success");
+
+    // The three attempts are three files: the archived failures plus the
+    // current attempt. Truncating on retry would leave only the last one.
+    let log_dir = root.join("state/logs").join(&record.record_id);
+    for name in [
+        "stage5_audio.attempt-1.log",
+        "stage5_audio.attempt-2.log",
+        "stage5_audio.log",
+    ] {
+        let path = log_dir.join(name);
+        assert!(path.is_file(), "missing {name} in {}", log_dir.display());
+        assert!(
+            fs::metadata(&path).expect("stat log").len() > 0,
+            "archived log must not be empty: {}",
+            path.display()
+        );
+    }
+    let stage5_logs = fs::read_dir(&log_dir)
+        .expect("read log dir")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("stage5_audio"))
+        .count();
+    assert_eq!(stage5_logs, 3, "one log file per attempt, no strays");
+}
+
+/// Fix B: a bounded run must not generate anything after the target is met.
+#[test]
+fn bounded_run_stops_generating_once_the_target_is_met() {
+    let root = scratch("bounded");
+    let adapter = write_adapter(&root, "ok", 0.5, 0.0, 0.5, &[]);
+    let run = run_weaver(&with_flags(
+        &base_args(&root, &adapter),
+        &[
+            "--consume-count",
+            "2",
+            "--buffer-depth",
+            "3",
+            "--low-water",
+            "2",
+        ],
+    ));
+    assert_eq!(run.code, 0, "{}", run.context());
+
+    // Three to fill the pool plus one to top it up after the first consume.
+    // Refilling again after the second consume would leave a fifth asset that
+    // nothing ever plays.
+    let ledger = ledger(&root);
+    assert_eq!(ledger.of_state("checkpointed").len(), 2);
+    assert_eq!(ledger.of_state("published").len(), 2);
+    assert_eq!(
+        ledger.records.len(),
+        4,
+        "no record may be reserved after the target is met"
+    );
+    assert!(ledger.of_state("reserved").is_empty());
+    assert!(ledger.of_state("rendering").is_empty());
+
+    let report = throughput_report(&root);
+    assert_eq!(report["consumed_assets"], 2);
+    assert_eq!(report["generated_assets"], 4);
+    assert_eq!(exit_report(&root)["exit_class"], "ok");
+    assert_eq!(exit_report(&root)["exit_code"], 0);
 }

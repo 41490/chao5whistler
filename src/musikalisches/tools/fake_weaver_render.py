@@ -173,7 +173,34 @@ def main() -> int:
         default=0.0,
         help="artificial render latency, used to force a cannot-sustain-live verdict",
     )
+    parser.add_argument(
+        "--fail-first",
+        type=int,
+        default=0,
+        help="fail the first N invocations, counted in --fail-state (retry-log test hook)",
+    )
+    parser.add_argument(
+        "--fail-state",
+        default="",
+        help="counter file used by --fail-first",
+    )
     args = parser.parse_args()
+
+    if args.fail_first > 0:
+        if not args.fail_state:
+            print("--fail-state is required with --fail-first", file=sys.stderr)
+            return 2
+        state_path = Path(args.fail_state)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            seen = int(state_path.read_text().strip())
+        except (OSError, ValueError):
+            seen = 0
+        seen += 1
+        state_path.write_text(f"{seen}\n")
+        if seen <= args.fail_first:
+            print(f"fake {args.stage} failure {seen}/{args.fail_first}", file=sys.stderr)
+            return 1
 
     if args.sleep_seconds > 0:
         time.sleep(args.sleep_seconds)

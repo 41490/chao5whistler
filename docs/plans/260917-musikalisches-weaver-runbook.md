@@ -79,6 +79,7 @@ reserved ──► rendering ──► published ──► consumed ──► ch
 - 未知占位符 = 配置错误（直接失败，不会静默展开成空串）；`{a b}` 这类非标识符花括号原样透传。
 - `{soundfont}` 在启动时解析成绝对路径，优先级与 `make stage5-sf2` 完全一致：`--soundfont` → `$MUSIKALISCHES_SOUNDFONT` → `<repo_root>/ops/assets/soundfonts/default.sf2` → 系统候选（`/usr/share/sounds/sf2/FluidR3_GM.sf2`、`TimGM6mb.sf2`、`FluidR3Mono_GM.sf2`、`/usr/local/share/sounds/sf2/default.sf2`）。仓库本身**不携带** SoundFont（`ops/assets/**` 被 `.gitignore` 忽略），所以不要假定某个固定路径存在。全部候选都落空时，weaver 以 exit 2（`usage_error`）快速失败，并在错误里列出 `MUSIKALISCHES_SOUNDFONT`、repo 默认路径和全部系统候选。启动横幅会打印实际选中的路径与来源（`explicit` / `env` / `repo_default` / `system`）。
 - 每步 stdout/stderr 落到 `<state-dir>/logs/<record_id>/<step>.log`；`--step-timeout-seconds` 控制单步超时（0 关闭）。
+- 同一 record 重试时**不会**覆盖上一次的日志：写新日志前先把已存在的 `<step>.log` 归档为 `<step>.attempt-<n>.log`（n 从 1 开始，即被归档那次的尝试序号）。`attempts=3` 的 record 最终留下 `<step>.attempt-1.log`、`<step>.attempt-2.log`、`<step>.log` 三份，首次失败的原因不会丢失。归档是尽力而为：rename 失败不影响该 step 的退出码与 exit_class。
 
 **换成 fake**：把 `bridge_run` 指向本地 fake bridge 即可，其余保持真实：
 
@@ -105,6 +106,8 @@ cargo run --bin musikalisches-weaver -- \
 | 5 | `bridge_failure` | 连续 `--max-bridge-attempts` 次桥接失败 | exit report + bridge step 日志 |
 
 三类关键失败各自独立，不会互相掩盖：生成失败不会动已 `consumed` 的记录；桥接失败只增加 `bridge_attempts`，资产保持 `published`（不丢）；缓冲耗尽只在确实没有可用资产且无法补充时发生。
+
+有界运行（`--once` 或 `--consume-count n`）在达标那一刻**立即停止生成**：第 `n` 个资产 checkpoint 之后不再补池，因此不会渲染永远不会被消费的资产，吞吐报告与退出报告随即落盘。常驻模式（无 `--consume-count`）不受影响，仍按 low-water 补池。
 
 `weaver_exit_report.json` 每次运行都会写，含 `exit_class`、`exit_code`、`message`、`failed_records` 明细。
 

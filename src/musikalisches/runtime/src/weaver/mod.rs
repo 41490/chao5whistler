@@ -875,6 +875,14 @@ pub fn run(config: &WeaverConfig) -> Result<RunOutcome> {
             }
         }
 
+        // A bounded run stops generating the moment the target is met: the
+        // refill below would only render an asset nothing will ever consume.
+        if let Some(target) = config.consume_count {
+            if state.consumed_assets >= target {
+                break;
+            }
+        }
+
         let depth = ledger.depth();
         buffer.observe(depth);
         if buffer.needs_refill(depth) {

@@ -1,9 +1,10 @@
 use std::env;
 use std::fs;
-use std::io::{ErrorKind, Read};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -315,7 +316,93 @@ fn write_report_and_log(
     Ok(report)
 }
 
-fn run_command(args: &[String], timeout_seconds: Option<f64>) -> Result<ProcessOutput> {
+/// Drain the child's stderr continuously on a dedicated thread.
+///
+/// Long-running ffmpeg attempts emit `\r`-separated progress updates at a
+/// steady rate; without a concurrent reader the OS pipe buffer fills within
+/// minutes and the encoder blocks on its next stderr write, silently stalling
+/// the stream. The reader therefore always runs, even when no live log is
+/// requested. Complete `\n` lines are redacted and appended to the attempt log
+/// (and kept in memory for classification); `\r` progress segments are
+/// redacted and rewritten to a fixed one-line sidecar so the attempt log and
+/// process memory stay bounded for multi-hour soaks.
+fn drain_stderr(
+    stderr: impl Read + Send + 'static,
+    collected: Arc<Mutex<String>>,
+    redact_pairs: Arc<Vec<(String, String)>>,
+    live_log: Option<PathBuf>,
+    progress_log: Option<PathBuf>,
+) {
+    let mut reader = stderr;
+    let mut log_handle = match &live_log {
+        Some(path) => match fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            Ok(handle) => Some(handle),
+            Err(_) => None,
+        },
+        None => None,
+    };
+    let mut chunk = [0u8; 4096];
+    let mut line: Vec<u8> = Vec::new();
+    let redact = |text: &str| -> String {
+        let mut redacted = text.to_string();
+        for (value, marker) in redact_pairs.iter() {
+            if !value.is_empty() {
+                redacted = redacted.replace(value.as_str(), marker);
+            }
+        }
+        redacted
+    };
+    let mut collect = |redacted: &str| {
+        if let Some(handle) = log_handle.as_mut() {
+            let _ = writeln!(handle, "{redacted}");
+        }
+        let mut guard = collected.lock().expect("stderr collector poisoned");
+        guard.push_str(redacted);
+        guard.push('\n');
+    };
+    loop {
+        let read = match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(ref error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        };
+        for &byte in &chunk[..read] {
+            match byte {
+                b'\n' => {
+                    let text = String::from_utf8_lossy(&line).to_string();
+                    line.clear();
+                    collect(&redact(&text));
+                }
+                b'\r' => {
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let text = String::from_utf8_lossy(&line).to_string();
+                    line.clear();
+                    if let Some(path) = &progress_log {
+                        let _ = fs::write(path, format!("{}\n", redact(&text)));
+                    }
+                }
+                _ => line.push(byte),
+            }
+        }
+    }
+    if !line.is_empty() {
+        collect(&redact(&String::from_utf8_lossy(&line)));
+    }
+}
+
+fn run_command(
+    args: &[String],
+    timeout_seconds: Option<f64>,
+    redact_vars: &[String],
+    live_log: Option<&Path>,
+) -> Result<ProcessOutput> {
     let mut command = Command::new(
         args.first()
             .ok_or_else(|| anyhow!("cannot run an empty command"))?,
@@ -327,36 +414,60 @@ fn run_command(args: &[String], timeout_seconds: Option<f64>) -> Result<ProcessO
     let start = Instant::now();
     let mut timed_out = false;
 
-    loop {
-        if let Some(status) = child.try_wait().with_context(|| format!("wait for {}", args[0]))? {
-            let mut stderr = String::new();
-            if let Some(mut handle) = child.stderr.take() {
-                handle.read_to_string(&mut stderr)?;
-            }
-            return Ok(ProcessOutput {
-                exit_code: status.code().unwrap_or(1),
+    let redact_pairs: Arc<Vec<(String, String)>> = Arc::new(
+        redact_vars
+            .iter()
+            .filter_map(|name| env::var(name).ok().map(|value| (value, name.clone())))
+            .map(|(value, name)| (value, format!("<redacted:{name}>")))
+            .collect(),
+    );
+    let collected: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let reader_handle = if let Some(stderr) = child.stderr.take() {
+        let collected_for_thread = Arc::clone(&collected);
+        let redact_pairs_for_thread = Arc::clone(&redact_pairs);
+        let live_log_owned = live_log.map(Path::to_path_buf);
+        let progress_log = live_log_owned
+            .as_ref()
+            .map(|path| path.with_file_name("stage7_bridge_live_progress.txt"));
+        Some(thread::spawn(move || {
+            drain_stderr(
                 stderr,
-                timed_out,
-            });
+                collected_for_thread,
+                redact_pairs_for_thread,
+                live_log_owned,
+                progress_log,
+            );
+        }))
+    } else {
+        None
+    };
+
+    let exit_code = loop {
+        if let Some(status) = child.try_wait().with_context(|| format!("wait for {}", args[0]))? {
+            break status.code().unwrap_or(1);
         }
         if let Some(limit) = timeout_seconds {
             if start.elapsed().as_secs_f64() >= limit {
                 timed_out = true;
                 let _ = child.kill();
                 let status = child.wait()?;
-                let mut stderr = String::new();
-                if let Some(mut handle) = child.stderr.take() {
-                    handle.read_to_string(&mut stderr)?;
-                }
-                return Ok(ProcessOutput {
-                    exit_code: status.code().unwrap_or(124),
-                    stderr,
-                    timed_out,
-                });
+                break status.code().unwrap_or(124);
             }
         }
         thread::sleep(Duration::from_millis(100));
+    };
+    if let Some(handle) = reader_handle {
+        let _ = handle.join();
     }
+    let stderr = match Arc::try_unwrap(collected) {
+        Ok(guard) => guard.into_inner().expect("stderr collector poisoned"),
+        Err(arc) => arc.lock().expect("stderr collector poisoned").clone(),
+    };
+    Ok(ProcessOutput {
+        exit_code,
+        stderr,
+        timed_out,
+    })
 }
 
 fn resolve_protocol_support(ffmpeg_bin: &str, protocol: &str) -> Result<(bool, String)> {
@@ -402,7 +513,7 @@ fn probe_tcp_connectivity(host: &str, port: u16, timeout_seconds: f64) -> Result
         }
     }
     let error = last_error
-        .unwrap_or_else(|| std::io::Error::new(ErrorKind::Other, "no socket addresses resolved"));
+        .unwrap_or_else(|| std::io::Error::other("no socket addresses resolved"));
     Err(anyhow!(error).context(format!("unable to reach {host}:{port}")))
 }
 
@@ -911,7 +1022,7 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
         .get("publish_probe_timeout_seconds")
         .and_then(Value::as_f64)
         .ok_or_else(|| anyhow!("preflight missing publish_probe_timeout_seconds"))?;
-    let probe_output = run_command(&publish_probe_args, Some(probe_timeout))?;
+    let probe_output = run_command(&publish_probe_args, Some(probe_timeout), &[], None)?;
     let mut probe_checks = preflight_checks.clone();
     probe_checks.push(json!({
         "check_id": "publish_probe",
@@ -1034,7 +1145,7 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
             log_dir.join(build_attempt_file_name(attempt_report_pattern, attempt_index));
         let mut command_args = runtime_args.clone();
         command_args.push(target_url.clone());
-        let run_output = run_command(&command_args, remaining)?;
+        let run_output = run_command(&command_args, remaining, &redact_env_vars, Some(&attempt_log_path))?;
         let attempt_finished_at = utc_now();
         let run_exit_code = if run_output.timed_out { 124 } else { run_output.exit_code };
         let attempt_report = write_report_and_log(

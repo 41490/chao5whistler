@@ -244,12 +244,13 @@ def resolve_expected_soundscape(
             errors.append(
                 "stage6 soundscape_badges total hold cycles mismatch soundscape_selection.json"
             )
-        if not isinstance(hold_progress.get("current_cycle_index"), int) or hold_progress.get("current_cycle_index") <= 0:
+        current_cycle = hold_progress.get("current_cycle_index")
+        if not isinstance(current_cycle, int) or current_cycle <= 0:
             errors.append("stage6 soundscape_badges current hold cycle must be a positive integer")
-        elif isinstance(hold_progress.get("total_cycles"), int) and hold_progress.get("current_cycle_index") > hold_progress.get(
-            "total_cycles"
-        ):
-            errors.append("stage6 soundscape_badges current hold cycle exceeds total cycles")
+        else:
+            total_cycles = hold_progress.get("total_cycles")
+            if isinstance(total_cycles, int) and current_cycle > total_cycles:
+                errors.append("stage6 soundscape_badges current hold cycle exceeds total cycles")
     if stage6_scene.get("input_summary", {}).get("soundscape_selection_file") != selection_file:
         errors.append("stage6 input_summary soundscape_selection_file mismatch")
 
@@ -451,9 +452,12 @@ def probe_media(path: Path) -> dict | None:
 def build_probe_summary(probe: dict | None) -> dict | None:
     if not isinstance(probe, dict) or probe.get("status") != "ok":
         return None
-    keyframes = probe.get("keyframes") if isinstance(probe.get("keyframes"), dict) else {}
-    container = probe.get("container") if isinstance(probe.get("container"), dict) else {}
-    streams = probe.get("streams") if isinstance(probe.get("streams"), list) else []
+    keyframes_raw = probe.get("keyframes")
+    keyframes = keyframes_raw if isinstance(keyframes_raw, dict) else {}
+    container_raw = probe.get("container")
+    container = container_raw if isinstance(container_raw, dict) else {}
+    streams_raw = probe.get("streams")
+    streams = streams_raw if isinstance(streams_raw, list) else []
     video_stream = next(
         (
             stream
@@ -546,9 +550,8 @@ def validate_soak_plan_payload(payload: object) -> list[str]:
     source_duration_seconds = payload.get("source_duration_seconds")
     if not isinstance(source_duration_seconds, (int, float)) or source_duration_seconds <= 0:
         errors.append("soak plan source_duration_seconds must be positive")
-    if not isinstance(payload.get("expected_source_loop_iterations"), int) or payload.get(
-        "expected_source_loop_iterations"
-    ) <= 0:
+    expected_iterations = payload.get("expected_source_loop_iterations")
+    if not isinstance(expected_iterations, int) or expected_iterations <= 0:
         errors.append("soak plan expected_source_loop_iterations must be a positive integer")
     drift_budget = payload.get("drift_budget")
     if not isinstance(drift_budget, dict):
@@ -579,9 +582,8 @@ def validate_soak_plan_payload(payload: object) -> list[str]:
             errors.append("soak plan reconnect_policy.retryable_classes must be a list")
         if not isinstance(reconnect_policy.get("non_retryable_classes"), list):
             errors.append("soak plan reconnect_policy.non_retryable_classes must be a list")
-        if not isinstance(reconnect_policy.get("max_consecutive_retryable_failures"), int) or reconnect_policy.get(
-            "max_consecutive_retryable_failures"
-        ) <= 0:
+        max_consecutive = reconnect_policy.get("max_consecutive_retryable_failures")
+        if not isinstance(max_consecutive, int) or max_consecutive <= 0:
             errors.append(
                 "soak plan reconnect_policy.max_consecutive_retryable_failures must be a positive integer"
             )
@@ -628,6 +630,21 @@ def main() -> int:
     soak_plan = load_json(artifact_dir / "stage7_soak_plan.json")
     run_script = (artifact_dir / "run_stage7_stream_bridge.sh").read_text(encoding="utf-8")
     checks: list[dict] = []
+
+    bash_syntax = subprocess.run(
+        ["bash", "-n", str(artifact_dir / "run_stage7_stream_bridge.sh")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    build_check(
+        "entry_script_bash_syntax",
+        bash_syntax.returncode == 0,
+        {
+            "script_file": "run_stage7_stream_bridge.sh",
+            "bash_n_stderr": bash_syntax.stderr.strip() or None,
+        },
+    )
 
     profile_errors = validate_bridge_profile_payload(profile, allow_output_metadata=True)
     failure_taxonomy_errors = validate_failure_taxonomy_payload(failure_taxonomy)
@@ -918,6 +935,20 @@ def main() -> int:
             },
         )
     )
+    smoke_video_stream_count = smoke_probe.get("video_stream_count") if isinstance(smoke_probe, dict) else None
+    smoke_audio_stream_count = smoke_probe.get("audio_stream_count") if isinstance(smoke_probe, dict) else None
+    source_video_stream_count = (
+        source_probe_summary.get("video_stream_count") if source_probe_summary is not None else None
+    )
+    source_audio_stream_count = (
+        source_probe_summary.get("audio_stream_count") if source_probe_summary is not None else None
+    )
+    expected_video_stream_delta = bridge_consistency.get("expected_stream_delta", {}).get(
+        "video_stream_count"
+    )
+    expected_audio_stream_delta = bridge_consistency.get("expected_stream_delta", {}).get(
+        "audio_stream_count"
+    )
     checks.append(
         build_check(
             "bridge_consistency",
@@ -966,10 +997,14 @@ def main() -> int:
                     source_probe_summary.get("keyframe_interval_frames"),
                     expected_bridge_tolerance["keyframe_interval_frames"],
                 )
-                and smoke_probe.get("video_stream_count") - source_probe_summary.get("video_stream_count")
-                == bridge_consistency.get("expected_stream_delta", {}).get("video_stream_count")
-                and smoke_probe.get("audio_stream_count") - source_probe_summary.get("audio_stream_count")
-                == bridge_consistency.get("expected_stream_delta", {}).get("audio_stream_count")
+                and isinstance(smoke_video_stream_count, int)
+                and isinstance(source_video_stream_count, int)
+                and smoke_video_stream_count - source_video_stream_count
+                == expected_video_stream_delta
+                and isinstance(smoke_audio_stream_count, int)
+                and isinstance(source_audio_stream_count, int)
+                and smoke_audio_stream_count - source_audio_stream_count
+                == expected_audio_stream_delta
             ),
             {
                 "source_video_path": str(source_video_path),

@@ -653,7 +653,13 @@ def build_failure_taxonomy(url_env_var: str) -> dict:
                 "class_id": "interrupted",
                 "description": "operator interrupt or termination signal",
                 "retryable": False,
-                "match_any": [],
+                # ffmpeg catches SIGINT/SIGTERM and exits 255 after printing
+                # "Exiting normally, received signal <n>."; the trailing period
+                # anchors the match so signal 2x/15x never false-positives.
+                "match_any": [
+                    "exiting normally, received signal 2.",
+                    "exiting normally, received signal 15.",
+                ],
                 "match_exit_codes": [130, 143],
             },
             {
@@ -842,16 +848,17 @@ def build_runtime_script(
         "",
         f'PYTHON_BIN="${{PYTHON:-python3}}"',
         f'RUNNER={shlex.quote(str(runtime_tool_path))}',
-        'if [[ -n "${RUST_RUNTIME_BIN}" ]]; then',
-        '  CMD=("${RUST_RUNTIME_BIN}"',
-        'else',
-        '  CMD=("${PYTHON_BIN}" "${RUNNER}"',
-        'fi',
+        'COMMON_ARGS=(',
         '  --artifact-dir "${SCRIPT_DIR}"',
         f'  --stream-url-env {env_var}',
         '  --loop-mode "${LOOP_MODE}"',
         '  --max-runtime-seconds "${MAX_RUNTIME_SECONDS:-0}"',
         ')',
+        'if [[ -n "${RUST_RUNTIME_BIN}" ]]; then',
+        '  CMD=("${RUST_RUNTIME_BIN}" "${COMMON_ARGS[@]}")',
+        'else',
+        '  CMD=("${PYTHON_BIN}" "${RUNNER}" "${COMMON_ARGS[@]}")',
+        'fi',
         "",
         'if [[ -n "${RUST_RUNTIME_BIN}" ]]; then',
         f'  printf "%s\\n" "stage7 wrapper runtime: rust ({runtime_bin_env}=${{RUST_RUNTIME_BIN}})" >&2',

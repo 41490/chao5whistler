@@ -335,14 +335,11 @@ fn drain_stderr(
 ) {
     let mut reader = stderr;
     let mut log_handle = match &live_log {
-        Some(path) => match fs::OpenOptions::new()
+        Some(path) => fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(path)
-        {
-            Ok(handle) => Some(handle),
-            Err(_) => None,
-        },
+            .ok(),
         None => None,
     };
     let mut chunk = [0u8; 4096];
@@ -410,7 +407,9 @@ fn run_command(
     command.args(&args[1..]);
     command.stdout(Stdio::null());
     command.stderr(Stdio::piped());
-    let mut child = command.spawn().with_context(|| format!("spawn {}", args[0]))?;
+    let mut child = command
+        .spawn()
+        .with_context(|| format!("spawn {}", args[0]))?;
     let start = Instant::now();
     let mut timed_out = false;
 
@@ -443,7 +442,10 @@ fn run_command(
     };
 
     let exit_code = loop {
-        if let Some(status) = child.try_wait().with_context(|| format!("wait for {}", args[0]))? {
+        if let Some(status) = child
+            .try_wait()
+            .with_context(|| format!("wait for {}", args[0]))?
+        {
             break status.code().unwrap_or(1);
         }
         if let Some(limit) = timeout_seconds {
@@ -485,7 +487,9 @@ fn resolve_protocol_support(ffmpeg_bin: &str, protocol: &str) -> Result<(bool, S
         format!("{stdout}\n{stderr}")
     };
     let supported = output.status.success()
-        && combined.lines().any(|line| line.trim().eq_ignore_ascii_case(protocol));
+        && combined
+            .lines()
+            .any(|line| line.trim().eq_ignore_ascii_case(protocol));
     Ok((supported, combined.trim().to_string()))
 }
 
@@ -512,8 +516,7 @@ fn probe_tcp_connectivity(host: &str, port: u16, timeout_seconds: f64) -> Result
             Err(error) => last_error = Some(error),
         }
     }
-    let error = last_error
-        .unwrap_or_else(|| std::io::Error::other("no socket addresses resolved"));
+    let error = last_error.unwrap_or_else(|| std::io::Error::other("no socket addresses resolved"));
     Err(anyhow!(error).context(format!("unable to reach {host}:{port}")))
 }
 
@@ -703,13 +706,24 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
         .cloned()
         .ok_or_else(|| anyhow!("manifest missing runtime_executor"))?;
     let log_dir = artifact_dir.join(required_string(&runtime_observability, "log_dir")?);
-    fs::create_dir_all(&log_dir).with_context(|| format!("create log dir {}", log_dir.display()))?;
+    fs::create_dir_all(&log_dir)
+        .with_context(|| format!("create log dir {}", log_dir.display()))?;
 
     let latest_log_path = log_dir.join(required_string(&runtime_observability, "stderr_log_file")?);
-    let exit_report_path = log_dir.join(required_string(&runtime_observability, "exit_report_file")?);
-    let preflight_log_path = log_dir.join(required_string(&runtime_observability, "preflight_log_file")?);
-    let preflight_report_path = log_dir.join(required_string(&runtime_observability, "preflight_report_file")?);
-    let runtime_report_path = log_dir.join(required_string(&runtime_observability, "runtime_report_file")?);
+    let exit_report_path =
+        log_dir.join(required_string(&runtime_observability, "exit_report_file")?);
+    let preflight_log_path = log_dir.join(required_string(
+        &runtime_observability,
+        "preflight_log_file",
+    )?);
+    let preflight_report_path = log_dir.join(required_string(
+        &runtime_observability,
+        "preflight_report_file",
+    )?);
+    let runtime_report_path = log_dir.join(required_string(
+        &runtime_observability,
+        "runtime_report_file",
+    )?);
     let attempt_log_pattern = required_string(&runtime_observability, "attempt_log_pattern")?;
     let attempt_report_pattern = required_string(&runtime_observability, "attempt_report_pattern")?;
     let redact_env_vars = runtime_observability
@@ -732,7 +746,8 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("profile missing ingest.protocol"))?;
     let target = sanitize_target(&target_url)?;
-    let parsed_target = Url::parse(&target_url).with_context(|| "invalid target url".to_string())?;
+    let parsed_target =
+        Url::parse(&target_url).with_context(|| "invalid target url".to_string())?;
     let expected_port = target
         .get("port")
         .and_then(Value::as_u64)
@@ -809,7 +824,9 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
     }));
     if !supported {
         let preflight_report = write_report_and_log(
-            &format!("protocol not found: required {protocol} output support missing\n{protocol_output}"),
+            &format!(
+                "protocol not found: required {protocol} output support missing\n{protocol_output}"
+            ),
             1,
             &taxonomy,
             &cli.loop_mode,
@@ -995,7 +1012,9 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
         )?;
         emit_preflight_failure_summary(
             "tcp_connectivity",
-            &format!("preflight failed at tcp_connectivity; unable to reach {host}:{expected_port}"),
+            &format!(
+                "preflight failed at tcp_connectivity; unable to reach {host}:{expected_port}"
+            ),
             &preflight_report_path,
             &preflight_log_path,
             &runtime_report_path,
@@ -1016,8 +1035,10 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
     }));
 
     let publish_probe_args = build_publish_probe_args(ffmpeg_bin, &target_url);
-    let publish_probe_redacted_shell =
-        shell_join(&build_publish_probe_args(ffmpeg_bin, &format!("${{{url_env_var}}}")));
+    let publish_probe_redacted_shell = shell_join(&build_publish_probe_args(
+        ffmpeg_bin,
+        &format!("${{{url_env_var}}}"),
+    ));
     let probe_timeout = preflight_contract
         .get("publish_probe_timeout_seconds")
         .and_then(Value::as_f64)
@@ -1034,7 +1055,11 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
     }));
     let probe_report = write_report_and_log(
         &probe_output.stderr,
-        if probe_output.timed_out { 124 } else { probe_output.exit_code },
+        if probe_output.timed_out {
+            124
+        } else {
+            probe_output.exit_code
+        },
         &taxonomy,
         &cli.loop_mode,
         cli.max_runtime_seconds.unwrap_or(0.0),
@@ -1081,7 +1106,10 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
                     .get("exit_class_id")
                     .and_then(Value::as_str)
                     .unwrap_or("unknown_failure"),
-                probe_report.get("exit_code").and_then(Value::as_i64).unwrap_or(1),
+                probe_report
+                    .get("exit_code")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(1),
             ),
             &preflight_report_path,
             &preflight_log_path,
@@ -1141,13 +1169,24 @@ fn run_runtime(cli: &CliArgs) -> Result<i32> {
         let attempt_started_at = utc_now();
         let attempt_log_path =
             log_dir.join(build_attempt_file_name(attempt_log_pattern, attempt_index));
-        let attempt_report_path =
-            log_dir.join(build_attempt_file_name(attempt_report_pattern, attempt_index));
+        let attempt_report_path = log_dir.join(build_attempt_file_name(
+            attempt_report_pattern,
+            attempt_index,
+        ));
         let mut command_args = runtime_args.clone();
         command_args.push(target_url.clone());
-        let run_output = run_command(&command_args, remaining, &redact_env_vars, Some(&attempt_log_path))?;
+        let run_output = run_command(
+            &command_args,
+            remaining,
+            &redact_env_vars,
+            Some(&attempt_log_path),
+        )?;
         let attempt_finished_at = utc_now();
-        let run_exit_code = if run_output.timed_out { 124 } else { run_output.exit_code };
+        let run_exit_code = if run_output.timed_out {
+            124
+        } else {
+            run_output.exit_code
+        };
         let attempt_report = write_report_and_log(
             &run_output.stderr,
             run_exit_code,

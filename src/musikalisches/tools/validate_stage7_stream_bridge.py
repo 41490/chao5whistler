@@ -1106,10 +1106,12 @@ def main() -> int:
             },
         )
     )
+    secrets_embedded = manifest.get("live_command", {}).get("secrets_embedded")
     checks.append(
         build_check(
             "live_command_redaction",
-            manifest.get("live_command", {}).get("secrets_embedded") is False
+            isinstance(secrets_embedded, bool)
+            and not secrets_embedded
             and args_payload.get("url_env_var") == profile.get("ingest", {}).get("stream_url_env")
             and "${" + profile.get("ingest", {}).get("stream_url_env", "") + "}" in args_payload.get(
                 "live_redacted_shell", ""

@@ -571,3 +571,19 @@ cargo run -- verify-golden \
   --work mozart_dicegame_print_1790s \
   --output-dir ops/out/golden-check
 ```
+
+## Issue #65: Lofi-Longhouse Style Profile
+
+Independent, optional ambient style profile for lofi-longhouse style. It must NOT modify any existing academic default profile.
+
+- `src/musikalisches/runtime/config/stage5_lofi_longhouse_synth_profile.json` — synth profile with explicit rhythm, drums, harmony pad, effects chain, loudness ceiling/peak limits.
+- `src/musikalisches/runtime/config/stage5_lofi_longhouse_soundscape_profile.json` — soundscape profile with all derived style layers marked as `derived_style_layer: true` and individually muteable.
+- `src/musikalisches/runtime/config/stage6_lofi_longhouse_scene_profile.json` — scene profile reusing structural events (downbeat/bar/fragment/transition) with slow static background mode.
+- `src/musikalisches/tools/lofi_longhouse_manifest.py` — procedural asset generator producing assets + manifests.
+- `src/musikalisches/tools/validate_lofi_longhouse_profile.py` — validator confirming profile isolation and manifest field completeness.
+- `src/musikalisches/tools/lofi_longhouse_render_ab.py` — offline A/B render tool producing audio report + visual preview with `profile_id` and `style=lofi-longhouse`.
+- `src/musikalisches/Makefile` — `stage5-lofi-longhouse`, `stage5-lofi-longhouse-check`, `stage5-lofi-longhouse-render` targets.
+- `docs/plans/260918-issue65-lofi-longhouse-plan.md` — plan document describing non-target exclusions and A/B comparison.
+
+Asset manifest must include `asset_id`, `source_url`, `license`, `attribution_required`, `loop_duration_seconds`, `loudness_target_dbfs`, `sha256`.
+At least one 16-cycle offline render with audio report + visual preview; preview metadata includes `profile_id` and `style=lofi-longhouse`.

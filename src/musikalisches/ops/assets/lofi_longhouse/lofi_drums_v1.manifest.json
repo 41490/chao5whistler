@@ -1,0 +1,22 @@
+{
+  "asset_id": "lofi_drums_v1",
+  "label": "Lofi Drums V1",
+  "description": "Procedural derived-style layer for lofi-longhouse (Issue #65); not a pure score restoration.",
+  "asset_path": "src/musikalisches/ops/assets/lofi_longhouse/lofi_drums_v1.wav",
+  "asset_format": "wav",
+  "layer_kind": "derived_style_layer",
+  "derived_style_layer": true,
+  "source_url": "https://github.com/41490/chao5whistler/blob/main/src/musikalisches/tools/lofi_longhouse_manifest.py",
+  "license": {
+    "spdx": "CC0-1.0",
+    "policy_class": "CC0"
+  },
+  "attribution_required": false,
+  "loop_duration_seconds": 16.0,
+  "loudness_target_dbfs": -20.0,
+  "sha256": "3be10b3889da250a40be6d77ba57105d967b04295cec71892fde6cafd5378a74",
+  "generator": {
+    "path": "src/musikalisches/tools/lofi_longhouse_manifest.py",
+    "method": "procedural_tone_16s"
+  }
+}

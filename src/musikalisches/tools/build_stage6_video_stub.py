@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import argparse
 import hashlib
 import json
@@ -14,6 +15,8 @@ try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ should provide tomllib
     tomllib = None
+
+from stage6_events import validate_contract, response_policy
 
 from stage6_scene_profile import (
     DEFAULT_SCENE_PROFILE_PATH,
@@ -34,7 +37,10 @@ ROOT_PATH = Path(__file__).resolve().parents[3]
 
 
 def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f'{path.name}: {error}') from error
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -125,7 +131,7 @@ def resolve_title_text(
 
 
 def format_count(value: int | None) -> str:
-    return f"{int(value or 0):,}"
+    return f"{value or 0:,}"
 
 
 def stable_index(seed_text: str, size: int) -> int:
@@ -275,6 +281,9 @@ def build_fragment_timeline(realized_fragments: dict, cycles: list[dict]) -> lis
 
     timeline: list[dict] = []
     for cycle in cycles:
+        cycle_realization = realized_fragments.get('cycle_realizations', {}).get(str(cycle['cycle_index']), realized_fragments)
+        fragments = cycle_realization['fragments']
+        base_duration = cycle_realization['summary']['total_duration_seconds']
         cycle_duration = cycle.get("end_seconds", 0.0) - cycle.get("start_seconds", 0.0)
         if not math.isclose(cycle_duration, base_duration, rel_tol=0.0, abs_tol=1e-6):
             raise SystemExit(
@@ -328,8 +337,8 @@ def build_selector_label_sprites(
             area["label_min_font_size_px"],
             area["label_max_font_size_px"],
         )
-        label_width = int(round(cell_width - area["label_padding_px"] * 2))
-        label_height = int(round(max(cell_height * 0.58, font_size * 1.8)))
+        label_width = round(cell_width - area["label_padding_px"] * 2)
+        label_height = round(max(cell_height * 0.58, font_size * 1.8))
         x = area["x"] + column * cell_width + area["label_padding_px"] + jitter_x
         y = area["y"] + row * cell_height + area["label_padding_px"] + jitter_y
         x = min(max(x, area["x"]), area["x"] + area["width"] - max(1, label_width))
@@ -441,7 +450,7 @@ def resolve_scene_profile(
             "scene profile validation failed:\n- " + "\n- ".join(input_errors)
         )
 
-    resolved = json.loads(json.dumps(profile))
+    resolved = deepcopy(profile)
     resolved["canvas"]["width"] = width_override or resolved["canvas"]["width"]
     resolved["canvas"]["height"] = height_override or resolved["canvas"]["height"]
     resolved["canvas"]["fps"] = fps_override or resolved["canvas"]["fps"]
@@ -806,6 +815,8 @@ def main() -> int:
         "--text-config",
         help="optional TOML file overriding stage6 text_overrides title source",
     )
+    parser.add_argument('--events', help='versioned structural event contract JSON')
+    parser.add_argument('--disable-events', action='store_true')
     parser.add_argument("--width", type=int, help="override profile canvas width")
     parser.add_argument("--height", type=int, help="override profile canvas height")
     parser.add_argument("--fps", type=int, help="override profile frame rate")
@@ -970,6 +981,20 @@ def main() -> int:
         },
     }
 
+    event_path = Path(args.events) if args.events else source_dir / 'structural_events.json'
+    events = validate_contract(load_json(event_path)) if event_path.exists() else None
+    if args.events and not event_path.exists():
+        raise ValueError('structural_events: explicitly requested input is missing')
+    active_events = events if not args.disable_events and events and events['events'] else None
+    scene['events_fallback'] = active_events is None
+    scene['event_response'] = response_policy(scene_profile)
+    if active_events is not None:
+        scene['structural_events'] = active_events
+        if active_events['render_duration_seconds'] != scene['summary']['total_duration_seconds']:
+            raise ValueError('structural_events.render_duration_seconds: scene duration mismatch')
+    for lane in lanes:
+        lane['voice_group'] = f"part-{lane['part_index']}"
+
     manifest = {
         "stage": "stage6_video_stub",
         "description": "Analyzer-to-video stub derived from stage5 runtime artifacts.",
@@ -979,6 +1004,8 @@ def main() -> int:
         "visual_scene_profile_source": scene_profile["source"],
         "visual_scene_profile_path": scene_profile["source_path"],
         "input_files": sorted(REQUIRED_INPUT_FILES),
+        "events_fallback": scene["events_fallback"],
+        "event_count": len(active_events["events"]) if active_events else 0,
         "artifacts": {
             "visual_scene_profile_file": "visual_scene_profile.json",
             "scene_file": "video_stub_scene.json",

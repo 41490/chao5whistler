@@ -5,18 +5,17 @@
 
 ## 1. 当前结论
 
-- stage 6 不再只停在 stub
-- 现在已补 `scene JSON -> offline frame sequence -> mp4 preview` 骨架
-- 这条链路只消费 stage 6 stub scene，不反向依赖 stage 5 合成细节，也不进入 stage 7 RTMP bridge
-- `2026-03-22` 起，默认运维规格收敛为 `1280x720 @ 30fps`
+- stage 6 不再只停在 stub 与 envelope-only
+- 具备 `scene JSON (with structural events) -> offline frame sequence -> mp4 preview` 完整链路
+- 这条链路消费 stage 6 stub scene / events，保持低刺激结构提示（downbeat pulse, bar accent, fragment / combination card updates, voice lane highlight）
+- 默认运维规格收敛为 `1280x720 @ 30fps`，并支持 short-safe 9:16 safe 区域裁切
 - 当前 stage 6 preview mp4 编码路径收敛为 `H.264 / libx264 / ultrafast`
 
 结论:
 
-- `render-video` 的最小 contract 已具备
-- 当前实现重点是离线 frame contract 与本地 mp4 预览
+- `render-video` 支持确定性事件驱动与 fallback 机制
+- 当前实现覆盖离线 frame contract、本地 1280x720 mp4 预览与 9:16 safe 视图验收
 - 仍未进入直播桥接、推流恢复、长稳运维
-
 ## 2. 推荐命令
 
 先确保 stage 6 stub 已通过：
@@ -48,8 +47,14 @@ make -C src/musikalisches stage6-video-render-check
 ```bash
 make -C src/musikalisches stage6-video-render-sf2
 make -C src/musikalisches stage6-video-render-check-sf2
-```
 
+结构事件专用验收 target：
+
+```bash
+make -C src/musikalisches stage6-events-check
+make -C src/musikalisches stage6-events-render-check
+make -C src/musikalisches stage6-events-acceptance
+```
 如需切到变体 profile，可先重建 stub：
 
 ```bash

@@ -20,6 +20,16 @@
     "text_overrides"
   ],
   "properties": {
+    "event_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min_interval_seconds": {"type": "number", "minimum": 0.000001, "default": 0.25},
+        "energy_threshold": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.05},
+        "attack_seconds": {"type": "number", "minimum": 0.000001, "default": 0.12},
+        "release_seconds": {"type": "number", "minimum": 0.000001, "default": 0.4}
+      }
+    },
     "profile_id": {
       "type": "string",
       "minLength": 1

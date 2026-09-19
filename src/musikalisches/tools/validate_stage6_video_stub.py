@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from stage6_events import validate_contract
 from stage6_scene_profile import (
     SCENE_PROFILE_SCHEMA_PATH,
     validate_scene_profile_payload,
@@ -21,7 +22,10 @@ REQUIRED_FILES = {
 
 
 def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f'{path.name}: {error}') from error
 
 
 def rect_within_canvas(rect: dict, canvas: dict) -> bool:
@@ -105,6 +109,11 @@ def main() -> int:
     scene_profile = load_json(artifact_dir / "visual_scene_profile.json")
     manifest = load_json(artifact_dir / "video_stub_manifest.json")
     scene = load_json(artifact_dir / "video_stub_scene.json")
+    if 'structural_events' in scene:
+        try:
+            validate_contract(scene['structural_events'])
+        except ValueError as error:
+            return fail([str(error)])
     preview_text = (artifact_dir / "video_stub_preview.svg").read_text(encoding="utf-8")
 
     keyframes = scene.get("keyframes", [])
@@ -360,10 +369,10 @@ def main() -> int:
             and all(
                 rect_within_canvas(
                     {
-                        "x": int(sprite.get("x", 0)),
-                        "y": int(sprite.get("y", 0)),
-                        "width": int(sprite.get("width", 0)),
-                        "height": int(sprite.get("height", 0)),
+                        "x": round(sprite.get("x", 0)),
+                        "y": round(sprite.get("y", 0)),
+                        "width": round(sprite.get("width", 0)),
+                        "height": round(sprite.get("height", 0)),
                     },
                     canvas,
                 )

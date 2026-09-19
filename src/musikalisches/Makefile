@@ -526,3 +526,20 @@ stage6-events-acceptance:
 .PHONY: clean-out
 clean-out:
 	rm -rf $(DEMO_OUT) $(STREAM_DEMO_OUT) $(STREAM_SF2_OUT) $(GOLDEN_OUT) $(VIDEO_STUB_OUT) $(VIDEO_STUB_SF2_OUT) $(VIDEO_RENDER_OUT) $(VIDEO_RENDER_SF2_OUT) $(STREAM_BRIDGE_OUT) $(FFMPEG_TOOLCHAIN_OUT)
+
+## Issue #65 lofi-longhouse targets
+.PHONY: stage5-lofi-longhouse stage5-lofi-longhouse-check stage5-lofi-longhouse-render
+stage5-lofi-longhouse:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/build_stage5_unique_stream.py \
+		--work-id $(WORK_ID) \
+		--loop-count 16 \
+		--analysis-window-ms 40 \
+		--soundscape-profile src/musikalisches/runtime/config/stage5_lofi_longhouse_soundscape_profile.json \
+		--synth-profile src/musikalisches/runtime/config/stage5_lofi_longhouse_synth_profile.json \
+		--output-dir $(STREAM_DEMO_OUT)/lofi-longhouse
+
+stage5-lofi-longhouse-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_lofi_longhouse_profile.py --allow-path $(STREAM_DEMO_OUT)/lofi-longhouse
+
+stage5-lofi-longhouse-render:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/lofi_longhouse_render_ab.py --work-id $(WORK_ID) --loop-count 16 --output-dir $(STREAM_DEMO_OUT)/lofi-longhouse-render --synth-profile src/musikalisches/runtime/config/stage5_lofi_longhouse_synth_profile.json --soundscape-profile src/musikalisches/runtime/config/stage5_lofi_longhouse_soundscape_profile.json --scene-profile src/musikalisches/runtime/config/stage6_lofi_longhouse_scene_profile.json

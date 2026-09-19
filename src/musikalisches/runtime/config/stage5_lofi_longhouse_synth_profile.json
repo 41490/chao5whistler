@@ -1,0 +1,13 @@
+{
+  "profile_id": "stage5_lofi_longhouse_synth_v1",
+  "description": "Optional derived ambient arrangement; not a pure score restoration. Style layers are rendered by render_lofi_longhouse_ab.py, not the academic runtime.",
+  "style": "lofi-longhouse",
+  "voice_groups": [
+    {"part_index": 1, "channel": 0, "program": 19, "velocity": 82, "base_amplitude": 0.12, "left_gain": 0.72, "right_gain": 0.46},
+    {"part_index": 2, "channel": 1, "program": 20, "velocity": 76, "base_amplitude": 0.1, "left_gain": 0.46, "right_gain": 0.72}
+  ],
+  "rhythm": {"tempo_bpm": 84, "beats_per_bar": 3, "subdivisions": 2, "swing": 0.12},
+  "drums": {"kick_hz": 58, "kick_decay_seconds": 0.18, "snare_decay_seconds": 0.09, "hat_decay_seconds": 0.025, "seed": 65},
+  "harmony_pad": {"midi_notes": [48, 55, 60, 64], "attack_seconds": 0.8, "release_seconds": 1.2},
+  "effects_chain": {"lowpass_hz": 2600, "delay_seconds": 0.357142857, "delay_gain": 0.2}
+}

@@ -1,0 +1,135 @@
+{
+  "profile_id": "stage6_lofi_longhouse_slow_static",
+  "description": "Optional lofi-longhouse visual profile: slow static background with discrete structural event response (downbeat/bar/fragment/transition). Independent from the default dual-orbit profile.",
+  "style": "lofi-longhouse",
+  "canvas": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30
+  },
+  "palette": {
+    "palette_id": "lofi_warm_brown",
+    "background_color": "#2a241e",
+    "panel_color": "#3a3228",
+    "grid_color": "#5c5144",
+    "text_color": "#d8c7a8",
+    "accent_sequence": ["warm_orange", "muted_olive", "soft_pink", "cream"],
+    "colors": {
+      "base03": "#2a241e",
+      "base02": "#3a3228",
+      "base01": "#5c5144",
+      "base00": "#7a6b58",
+      "base0": "#9a8a70",
+      "base1": "#b8a888",
+      "warm_orange": "#c98a4a",
+      "muted_olive": "#8a8a5c",
+      "soft_pink": "#d48a8a",
+      "cream": "#e8d8b8"
+    }
+  },
+  "motion": {
+    "mode": "slow_static_drift",
+    "clock_source": "analysis_window_sequence.clock_seconds",
+    "keyframe_source": "one_keyframe_per_analysis_window",
+    "rotation_degrees_per_second": 1.5,
+    "base_scale": 0.6,
+    "envelope_scale_range": 0.25,
+    "grid_alpha_base": 0.04,
+    "grid_alpha_range": 0.06,
+    "lane_center_y_ratio": 0.46,
+    "lane_bias_y_range_ratio": 0.04,
+    "lane_energy_base": 0.4,
+    "lane_energy_scale": 0.3,
+    "lane_wave_height_px": 6.0,
+    "lane_orbit_px": 18.0,
+    "lane_orbit_wave_px": 3.0,
+    "base_radius_px": 64.0,
+    "radius_range_px": 70.0,
+    "base_opacity": 0.18,
+    "opacity_range": 0.22,
+    "base_stroke_width_px": 1.5,
+    "stroke_width_range_px": 3.0
+  },
+  "event_response": {
+    "min_interval_seconds": 0.3,
+    "energy_threshold": 0.05,
+    "attack_seconds": 0.12,
+    "release_seconds": 0.4
+  },
+  "title_area": {
+    "x": 438,
+    "y": 44,
+    "width": 405,
+    "height": 104,
+    "max_lines": 2,
+    "layout_strategy": "explicit_newlines_centered",
+    "text_align": "center",
+    "base_font_size_px": 28,
+    "line_gap_px": 8
+  },
+  "soundscape_badges": {
+    "x": 438,
+    "y": 566,
+    "width": 405,
+    "height": 64,
+    "badge_gap_px": 6,
+    "font_size_px": 14
+  },
+  "footer_progress_area": {
+    "x": 438,
+    "y": 648,
+    "width": 405,
+    "height": 40,
+    "format_template": "{played_unique_count} / {total_combinations}",
+    "text_align": "center",
+    "font_size_px": 18
+  },
+  "selector_label_sprites": {
+    "x": 438,
+    "y": 174,
+    "width": 405,
+    "height": 360,
+    "random_seed_source": "selection.combination_id",
+    "label_min_font_size_px": 16,
+    "label_max_font_size_px": 22,
+    "label_padding_px": 10,
+    "idle_drift_px": 4,
+    "idle_rotation_degrees": 2,
+    "active_bounce_y_px": 8,
+    "active_scale_multiplier": 1.04
+  },
+  "spectrum_trails": {
+    "x": 438,
+    "y": 160,
+    "width": 405,
+    "height": 396,
+    "trail_count": 3,
+    "envelope_floor": 0.12,
+    "envelope_ceiling": 0.96,
+    "stroke_min_width_px": 1.0,
+    "stroke_max_width_px": 3.0,
+    "alpha_base": 0.08,
+    "alpha_range": 0.15
+  },
+  "short_safe_layout": {
+    "x": 438,
+    "y": 0,
+    "width": 405,
+    "height": 720,
+    "target_aspect_ratio": "9:16"
+  },
+  "text_overrides": {
+    "default_toml_path": "src/musikalisches/runtime/config/stage6_default_text_overrides.toml",
+    "toml_section": "stage6.text_overrides",
+    "title_key": "title",
+    "newline_mode": "escaped_or_literal_newline",
+    "horizontal_alignment": "center",
+    "max_title_lines": 2
+  },
+  "preview": {
+    "sampled_window_limit": 180,
+    "title": "musikalisches stage6 lofi-longhouse preview",
+    "geometry_label": "slow static drift geometry",
+    "envelope_label": "sampled analyzer envelope over time"
+  }
+}

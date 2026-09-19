@@ -210,21 +210,15 @@ make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-soak-check
 ```
 
-然后设置环境变量并启动：
+然后设置环境变量并启动。真实 URL 只通过环境变量注入，不要写进仓库文件：
 
 ```bash
-export MUSIKALISCHES_RTMP_URL='rtmps://a.rtmp.youtube.com/live2/brqs-rf5v-pr2e-kb0z-7swa'
+export MUSIKALISCHES_RTMP_URL='rtmps://a.rtmp.youtube.com/live2/<stream-key>'
 export MUSIKALISCHES_STAGE7_LOOP_MODE=infinite
-export MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=120
 ops/out/stream-bridge/run_stage7_stream_bridge.sh
 ```
 
-```bash
-export MUSIKALISCHES_RTMP_URL='rtmps://...<real-ingest>...'
-export MUSIKALISCHES_STAGE7_LOOP_MODE=infinite
-export MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=120
-ops/out/stream-bridge/run_stage7_stream_bridge.sh
-```
+如果只做短时受控预检，可临时加 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=120`；正式直播不要设置（见下面预算语义）。
 
 常用可选变量：
 
@@ -249,6 +243,76 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 - `publish_probe`
 
 只有 preflight 通过后，才应该进入正式长时直播或 stage8 soak。
+
+### 6.1 人工启动直播运行手册（真实 URL）
+
+前置条件：上面的 stage7 校验链全部 passed，且手里有可撤销的真实 stream key。
+
+**第一步：注入 secret（仓库外，600 权限）**
+
+真实 URL 不得写入仓库文件、不得出现在 shell 历史之外的其他文件。约定存放在 `~/.stage8_ingest.env`：
+
+```bash
+umask 077
+printf "%s\n" "MUSIKALISCHES_RTMP_URL='rtmps://a.rtmp.youtube.com/live2/<stream-key>'" \
+  > ~/.stage8_ingest.env
+chmod 600 ~/.stage8_ingest.env
+```
+
+runtime 内建 redaction：URL 值在所有日志/报告中会被替换为 `<redacted:MUSIKALISCHES_RTMP_URL>`，已由 stage8 验收实测验证。
+
+**第二步：启动**
+
+```bash
+cd /opt/src/41490/chao5whistler
+set -a; source ~/.stage8_ingest.env; set +a
+export MUSIKALISCHES_STAGE7_LOOP_MODE=infinite
+ops/out/stream-bridge/run_stage7_stream_bridge.sh        # 前台
+
+# 或后台保活：
+nohup ops/out/stream-bridge/run_stage7_stream_bridge.sh \
+  > ops/out/stream-bridge/logs/stage8_soak_console.log 2>&1 &
+echo $! > ops/out/stream-bridge/logs/stage8_soak.pid
+```
+
+**第三步：运行中观察**
+
+```bash
+# 实时推流进度（每 0.5s 更新的单行 sidecar）
+tail -f ops/out/stream-bridge/logs/stage7_bridge_live_progress.txt
+
+# 尝试次数 / 退出分类
+sed -n '1,220p' ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json
+```
+
+正常状态：sidecar 的 `time=` 与墙钟同步推进（1x），`fps≈30`，无重试记录。
+
+**第四步：停止**
+
+- 前台：`Ctrl-C`
+- 后台：`kill -INT "$(cat ops/out/stream-bridge/logs/stage8_soak.pid)"`
+
+SIGINT 会优雅退出并分类为 `interrupted`（不会误重试），exit report 可审计。
+
+**约束与语义**
+
+- **同一 stream key 同时只能有一个发布者**：重复启动会被平台拒绝或顶掉现有流；启动前先确认没有残留 ffmpeg（`pgrep -f ops/bin/ffmpeg`）。
+- 正式直播**不要设置** `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS`；它是整体 wrapper 预算，到点受控退出（`runtime_limit_reached`）属预期而非故障。
+- 每次启动都会自动执行 4 项 preflight；失败时控制台首行给出 `preflight failed: <check_id>`，首查 `logs/stage7_bridge_preflight_report.json`。
+- 若事件侧排障需要重启推流，重启后 YouTube 侧预览可能需要 10–30s 恢复。
+
+### 6.2 YouTube 后台一直显示“直播准备中”的排障
+
+仓库侧已实测排除媒体层问题（stage8 验收证据，2026-09-19）：跨 192s 循环边界的本地 FLV 捕获中，视频 6000 包 / 音频 8615 包 DTS 全程单调，192.02s 恰为关键帧，编码参数为 YouTube 标准配置（H.264 720p30 CFR + AAC 128k 44.1kHz stereo，GOP 2s，无 B 帧）。
+
+若 ffmpeg 侧 sidecar 正常推进但后台长时间停在“准备中”，按以下顺序在 YouTube Studio 排查：
+
+1. **看“直播控制室”的流健康面板**：
+   - 显示“极佳/良好”且码率约 4100 kbps → 数据已到达，只是广播未开始：点击**开始直播**或开启**自动开始**。
+   - 显示“无数据” → 平台没有在解码这个事件的数据，进入下一步。
+2. **核对 stream key 是否与所看事件一致**：直播控制室事件页显示的默认流密钥必须与 `MUSIKALISCHES_RTMP_URL` 中的 key 完全一致。历史上仓库文档曾泄漏过另一个 key（已在 260319 前移除，但 git 历史仍可见，应到 YouTube Studio 轮换），以 issue #66 评论提供的 key 为准。
+3. **确认频道直播权限**：新频道需完成 24h 激活；未激活时后台会有资格提示。
+4. 以上都正常仍无预览时，抓取本地证据后到 issue #66 附上：`logs/stage7_bridge_runtime_report.json`、sidecar 快照、流健康面板截图。
 
 ## 7. 运行中和结束后看哪些日志
 

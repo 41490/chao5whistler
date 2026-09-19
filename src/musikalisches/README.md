@@ -1,4 +1,5 @@
 # chao5whistler/src/musikalisches
+>
 > 莫扎特印刷骰子游戏实现入口
 
 ## current frozen target
@@ -36,7 +37,9 @@
 - `render-audio` 已可在提供 `--soundfont` 时走 `rustysynth` 真实合成；未提供时按 `--soundfont` > `MUSIKALISCHES_SOUNDFONT` > repo/system default 的顺序发现，找不到才回退到内置 deterministic fallback
 - stage 5 已补 `loop_count` 连续播放骨架、`synth_profile` 路由配置、以及统一 analyzer 时钟输出，便于进入视频/直播链路前先做人工检验
 - stage 6 已补 analyzer -> video stub 预演入口，可把 stage 5 分析输出转成视觉 stub 契约与静态预览
-- stage 6 已进入 `render-video` skeleton，可把 stub scene 进一步冻结为离线 frame contract 和本地 mp4 preview
+- stage 6 结构事件层已冻结为 version-1 contract：`fragment_boundary` / `combination_transition` / `bar` / `downbeat` 均由 realized fragments、冻结 measures、tempo 与 note-event activity proxy 生成；不从 FFT/envelope 猜结构。
+- stage 6 renderer 已消费结构事件，按 `(type, voice_group)` 去抖并以 bounded attack/release response 驱动画面；缺失、关闭或空事件自动回退到 envelope-only，损坏 contract fail closed。
+- issue #64 验收入口：`make -C src/musikalisches stage6-events-check`、`stage6-events-render-check`、`stage6-events-acceptance`。验收会生成独立 `ops/out/issue64-events-*` 目录，包含横屏 MP4、432x768 竖屏 MP4、poster 与关键帧样本。
 - stage 6 已把默认 visual scene profile 收敛到 repo 配置文件，并补了 2 个可版本化 profile 变体以及单独的 SF2 visual smoke path
 - stage 6 scene contract 已升级到 P3：`title_area` / `footer_progress_area` / `selector_label_sprites` / `spectrum_trails` / `short_safe_layout` / `text_overrides` 均进入 schema 与 stub scene
 - stage 6 标题文案已改为从 `.toml` 注入；默认走 `src/musikalisches/runtime/config/stage6_default_text_overrides.toml`，支持 `\n` 换行并按中心对齐解析

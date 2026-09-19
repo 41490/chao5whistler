@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TypeGuard
+from stage6_events import response_policy
 import json
 import re
 from pathlib import Path
@@ -147,18 +149,21 @@ HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f'{path.name}: {error}') from error
 
 
-def _is_nonempty_string(value: object) -> bool:
+def _is_nonempty_string(value: object) -> TypeGuard[str]:
     return isinstance(value, str) and value.strip() != ""
 
 
-def _is_number(value: object) -> bool:
+def _is_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _is_integer(value: object) -> bool:
+def _is_integer(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
@@ -221,9 +226,14 @@ def validate_scene_profile_payload(
             profile,
             label="scene profile",
             required=TOP_LEVEL_REQUIRED_KEYS,
-            optional=TOP_LEVEL_OPTIONAL_KEYS if allow_output_metadata else set(),
+            optional=(TOP_LEVEL_OPTIONAL_KEYS if allow_output_metadata else set()) | {'event_response'},
         )
     )
+
+    try:
+        response_policy(profile)
+    except (ValueError, TypeError) as error:
+        errors.append(f'event_response: {error}')
 
     profile_id = profile.get("profile_id")
     if not _is_nonempty_string(profile_id):

@@ -515,6 +515,14 @@ weaver-report:
 weaver-runbook-show:
 	@printf '%s\n' $(ROOT)/docs/plans/260917-musikalisches-weaver-runbook.md
 
+.PHONY: stage6-events-check stage6-events-render-check stage6-events-acceptance
+stage6-events-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/check_stage6_events.py l1
+stage6-events-render-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/check_stage6_events.py l2
+stage6-events-acceptance:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/check_stage6_events.py l3
+
 .PHONY: clean-out
 clean-out:
 	rm -rf $(DEMO_OUT) $(STREAM_DEMO_OUT) $(STREAM_SF2_OUT) $(GOLDEN_OUT) $(VIDEO_STUB_OUT) $(VIDEO_STUB_SF2_OUT) $(VIDEO_RENDER_OUT) $(VIDEO_RENDER_SF2_OUT) $(STREAM_BRIDGE_OUT) $(FFMPEG_TOOLCHAIN_OUT)

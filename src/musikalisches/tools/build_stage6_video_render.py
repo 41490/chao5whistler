@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from stage6_events import validate_contract, response_policy, responses, state_at
 from stage6_scene_profile import validate_scene_profile_payload
 
 
@@ -98,7 +99,7 @@ def lerp(left: float, right: float, ratio: float) -> float:
 
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:
-    return tuple(int(value[index : index + 2], 16) for index in (1, 3, 5))
+    return (int(value[1:3], 16), int(value[3:5], 16), int(value[5:7], 16))
 
 
 FONT_5X7 = {
@@ -525,6 +526,13 @@ def draw_selector_overlay(
     panel_rgb = hex_to_rgb(scene["palette"]["panel_color"])
     safe_layout = scene["short_safe_layout"]
     for sprite in selector_block.get("sprites", []):
+        combination = frame.get('structural_response', {}).get('combination_id')
+        if combination:
+            values = combination.split(',')
+            position = sprite['position_index'] - 1
+            if 0 <= position < len(values):
+                sprite = sprite.copy()
+                sprite['text'] = f"{sprite['text'].split('=')[0].strip()} = {values[position]}"
         active_windows = sprite.get("active_windows", [])
         active_window = next(
             (window for window in active_windows if is_window_active(window, frame["clock_seconds"])),
@@ -670,6 +678,11 @@ def draw_spectrum_overlay(
 
 
 def build_frame_sequence(scene: dict) -> dict:
+    contract = scene.get('structural_events')
+    if contract is not None:
+        validate_contract(contract)
+    policy = response_policy({'event_response': scene.get('event_response', {})})
+    accepted = responses(contract, policy) if contract else []
     keyframes = scene.get("keyframes", [])
     if not keyframes:
         raise SystemExit("video stub scene must contain at least one keyframe")
@@ -811,6 +824,10 @@ def build_frame_sequence(scene: dict) -> dict:
                 "voice_pulses": voice_pulses,
             }
         )
+
+    if contract and contract['events']:
+        for frame in frames:
+            frame['structural_response'] = state_at(contract, accepted, frame['clock_seconds'], policy)
 
     return {
         "stage": "stage6_video_render",
@@ -1002,7 +1019,34 @@ def render_frame_bytes(scene: dict, frame: dict, base_canvas: bytearray) -> byte
         scene,
     )
 
+    draw_structure_overlay(buffer, width, height, scene, frame)
     return bytes(buffer)
+
+
+def draw_structure_overlay(buffer, width, height, scene, frame):
+    state = frame.get('structural_response')
+    if not state:
+        return
+    safe = scene['short_safe_layout']
+    x, y = safe['x'] + 12, 142
+    color = hex_to_rgb(scene['palette']['colors']['cyan'])
+    alternate = hex_to_rgb(scene['palette']['colors']['blue'])
+    r, g, b = (int(lerp(a, b, state['bar'])) for a, b in zip(color, alternate))
+    color = (r, g, b)
+    label = state['fragment_label'] or ''
+    draw_text(buffer, width, height, label, x, y, 1, color, 0.7)
+    # A compact identity fits inside the existing safe region; full ID stays in contract.
+    identity = hashlib.sha256((state['combination_id'] or '').encode()).hexdigest()[:8].upper()
+    draw_text(buffer, width, height, 'COMBO ' + identity, x + 140, y, 1, color, 0.65 + state['transition'])
+    draw_circle_stroke(buffer, width, height, x + 112, y + 3,
+                       int(4 + state['downbeat'] * 24), 1, color, 0.25 + state['intensity'])
+    for index, lane in enumerate(scene['lane_layout']):
+        group = lane.get('voice_group', f"part-{lane['part_index']}")
+        strength = state['voices'].get(group, 0)
+        lx = x + index * 170
+        draw_text(buffer, width, height, group.upper(), lx, 540, 1, color, 0.6)
+        fill_rect(buffer, width, height, lx, 552, 90, 3,
+                  hex_to_rgb(lane['accent_color']), 0.15 + strength)
 
 
 def blend_pixel(
@@ -1263,7 +1307,7 @@ def probe_mp4(ffprobe_bin: str | None, output_path: Path) -> dict | None:
             "last_timestamp_seconds": timestamps[-1] if timestamps else None,
             "max_interval_seconds": max_interval_seconds,
             "max_interval_frames": (
-                int(round(max_interval_seconds * parse_rate(primary_video_stream.get("avg_frame_rate"))))
+                int(round(max_interval_seconds * (parse_rate(primary_video_stream.get("avg_frame_rate")) or 0)))
                 if max_interval_seconds is not None
                 and parse_rate(primary_video_stream.get("avg_frame_rate")) is not None
                 else None
@@ -1421,7 +1465,7 @@ def main() -> int:
     mp4_probe = None
     if mp4_requested and not ffmpeg_path:
         mp4_reason = f"ffmpeg binary not found: {args.ffmpeg_bin}"
-    elif mp4_requested:
+    elif mp4_requested and ffmpeg_path:
         encode_mp4(
             ffmpeg_path,
             mp4_path,

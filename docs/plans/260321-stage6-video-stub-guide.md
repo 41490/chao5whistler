@@ -5,19 +5,18 @@
 
 ## 1. 当前结论
 
-- 现阶段还没有正式 `render-video`
-- 但 stage 5 已经具备:
+- stage 6 已具备离线 structural events 层与 `render-video`
+- stage 5 具备:
   - `analysis_window_sequence.json`
   - `stream_loop_plan.json`
   - `synth_routing_profile.json`
-- 因此先补一条 analyzer -> video stub 预演链路，用来冻结“视觉只消费分析层”的入口
+  - `realized_fragment_sequence.json`
+- 视觉层包含 analyzer envelope 连续运动与确定性结构事件（downbeat, bar, fragment_boundary, combination_transition）
 
 结论:
 
-- stage 6 现在可以先验证视觉契约
-- 还不引入 FFmpeg 或真实视频编码
-- 先把 palette / motion / cycle 边界 / lane 布局导出成可检查产物
-
+- stage 6 视觉契约支持事件驱动与 envelope-only 回退
+- palette / motion / cycle 边界 / lane 布局 / 结构提示导出成可检查产物
 ## 2. 推荐命令
 
 先确保已有 stage 5 stream artifact:
@@ -49,8 +48,14 @@ make -C src/musikalisches stage6-video-check
 ```bash
 make -C src/musikalisches stage6-video-stub-sf2
 make -C src/musikalisches stage6-video-check-sf2
-```
 
+如需执行结构事件门禁:
+
+```bash
+make -C src/musikalisches stage6-events-check
+make -C src/musikalisches stage6-events-render-check
+make -C src/musikalisches stage6-events-acceptance
+```
 如需改输入目录:
 
 ```bash

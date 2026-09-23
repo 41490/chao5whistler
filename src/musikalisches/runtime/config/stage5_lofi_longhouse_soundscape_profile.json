@@ -1,0 +1,81 @@
+{
+  "profile_id": "stage5_lofi_longhouse_soundscape_v1",
+  "description": "Optional derived ambient soundscape for lofi-longhouse style; independent from default academic soundscape. All derived style layers individually muteable.",
+  "selection_mode": "deterministic_combination_hash_v1",
+  "asset_pack_manifest_path": "ops/assets/soundscapes/manifests/soundscape_asset_pack_v1.json",
+  "required_layer_kinds": [
+    "ambient",
+    "drone",
+    "derived_style_layer"
+  ],
+  "main_registration_profiles": [
+    {
+      "registration_id": "lofi_longhouse",
+      "label": "Lofi Longhouse Derived",
+      "synth_profile_path": "src/musikalisches/runtime/config/stage5_lofi_longhouse_synth_profile.json",
+      "gain_db": 0.0,
+      "derived_style_layer": true
+    }
+  ],
+  "derived_layers": [
+    {
+      "layer_id": "lofi_pad",
+      "layer_kind": "derived_style_layer",
+      "derived_style_layer": true,
+      "label": "Lofi Pad",
+      "muteable": true,
+      "manifest_path": "src/musikalisches/ops/assets/lofi_longhouse/lofi_pad_v1.manifest.json"
+    },
+    {
+      "layer_id": "lofi_drums",
+      "layer_kind": "derived_style_layer",
+      "derived_style_layer": true,
+      "label": "Lofi Drums",
+      "muteable": true,
+      "manifest_path": "src/musikalisches/ops/assets/lofi_longhouse/lofi_drums_v1.manifest.json"
+    }
+  ],
+  "mix_bus_profile": {
+    "profile_id": "stage5_lofi_longhouse_mix_bus_v1",
+    "main_gain_db": -2.5,
+    "drone_gain_db": -18.0,
+    "ambient_gain_db": -22.0,
+    "derived_style_layer_gain_db": -6.0,
+    "master_gain_db": 0.0,
+    "peak_ceiling_amplitude": 0.78,
+    "target_peak_max_amplitude": 0.75,
+    "target_rms_max_dbfs": -20.0,
+    "target_lufs_max": -20.0,
+    "require_no_clipping": true,
+    "envelope_coupling": {
+      "enabled": true,
+      "depth_db": 3.0
+    }
+  },
+  "palette": {
+    "palette_id": "lofi_warm_brown",
+    "background_color": "#2a241e",
+    "panel_color": "#3a3228",
+    "grid_color": "#5c5144",
+    "text_color": "#d8c7a8",
+    "accent_sequence": [
+      "#c98a4a",
+      "#8a8a5c",
+      "#d48a8a",
+      "#e8d8b8"
+    ],
+    "colors": {
+      "base03": "#2a241e",
+      "base02": "#3a3228",
+      "base01": "#5c5144",
+      "base00": "#7a6b58",
+      "base0": "#9a8a70",
+      "base1": "#b8a888",
+      "warm_orange": "#c98a4a",
+      "muted_olive": "#8a8a5c",
+      "soft_pink": "#d48a8a",
+      "cream": "#e8d8b8"
+    }
+  },
+  "style": "lofi-longhouse"
+}

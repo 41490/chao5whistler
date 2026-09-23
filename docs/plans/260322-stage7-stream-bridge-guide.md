@@ -23,12 +23,19 @@ make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-preflight-regression-check
 make -C src/musikalisches stage7-soak-check
+make -C src/musikalisches stage8-readiness-check
 ```
 
 默认输入：
 
-- stage5 音频工件：`ops/out/stream-demo`
-- stage6 视频工件：`ops/out/video-render`
+- stage5 音频工件：`ops/out/stream-sf2`
+- stage6 视频工件：`ops/out/video-render-sf2`
+
+formal live baseline：
+
+- 音频后端：`stage5-sf2`
+- 单组合保留：`16` cycles
+- stage8 readiness 会显式验证 `soundfont_rustysynth + 16-cycle hold`
 
 默认输出：
 
@@ -57,6 +64,8 @@ make -C src/musikalisches stage7-soak-check
 - `soak gate`: 基于 bridge manifest 生成 `stage7_soak_plan.json`，并以 `stage7-soak-check` 验证进入 stage 8 前的最小条件
 - `artifact_integrity + tolerance`: stage7 manifest 现同步冻结 `stage7_bridge_profile.json` / `stream_bridge_ffmpeg_args.json` / `run_stage7_stream_bridge.sh` / `stage7_failure_taxonomy.json` / `stage7_soak_plan.json` 以及 `stage7_bridge_smoke.flv` 的文件级 `sha256` / `size_bytes`，并把 smoke 输出的 frame count / fps / duration / keyframe cadence / stream layout 容差显式写入 manifest，和 stage6 `offline_preview.mp4` 的验收口径对齐
 - `bridge consistency`: stage7 manifest 现显式冻结 stage6 `offline_preview.mp4` 的 probe 摘要、`sha256` 链接、以及到 stage7 `stage7_bridge_smoke.flv` 的 comparison tolerance / stream delta，validator 会直接比较两阶段的 width / height / fps / frame count / duration / keyframe cadence / stream layout
+- `stage8 ops contract`: stage7 manifest 现额外冻结 `stage8_ops` 区块，明确 real soak guide、entry script、required env vars、background files、required runtime reports 与 readiness report 文件名
+- `stage8 sample retention`: stage8 ops contract 现同步冻结样本留存工具路径、样本目录命名和 operator summary / attempt index / runtime digest 模板文件名，真实 preflight/soak 结束后可直接收成独立样本包
 
 运行脚本约定：
 
@@ -89,6 +98,8 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 - preflight fail 时，控制台首行固定输出 `preflight failed: <check_id>; see ...preflight_report.json and ...preflight.stderr.log`
 - wrapper 非零退出时，会提示先查 `stage7_bridge_preflight_report.json`，再看 `stage7_bridge_runtime_report.json` 与 `stage7_bridge_latest.stderr.log`
 - 人工排障顺序固定为：先 `stage7_bridge_preflight_report.json`，后 `stage7_bridge_preflight.stderr.log`
+- `make -C src/musikalisches stage7-preflight-regression-check` 默认优先使用 `musikalisches-stage7-runtime`；若本地尚未构建，会先编译 Rust runtime，再只在缺失二进制时回退 Python runtime
+- redaction / failure classification 已收敛到 runtime 内建逻辑；live-host 不再把 `classify_stage7_bridge_failure.py` 视作必需依赖
 
 边界：
 
@@ -121,3 +132,12 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
     - `comparison_tolerance`
     - `expected_stream_delta`
     - `expected_matches`
+- `stream_bridge_manifest.json > stage8_ops`
+  - 显式冻结：
+    - `guide_file`
+    - `entry_script_file`
+    - `required_env_vars`
+    - `background_files`
+    - `required_runtime_reports`
+    - `readiness_report_file`
+    - `sample_retention`

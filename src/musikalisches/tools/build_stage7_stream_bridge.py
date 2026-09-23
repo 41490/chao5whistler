@@ -19,12 +19,16 @@ from stage7_bridge_profile import (
 )
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+STAGE8_GUIDE_PATH = REPO_ROOT / "docs" / "plans" / "260324-stage8-real-soak-ops-guide.md"
+STAGE8_SAMPLE_TOOL_PATH = Path(__file__).resolve().parent / "retain_stage8_ops_samples.py"
 REQUIRED_AUDIO_FILES = {
     "artifact_summary.json",
     "render_request.json",
     "stream_loop_plan.json",
     "m1_validation_report.json",
     "offline_audio.wav",
+    "soundscape_selection.json",
 }
 REQUIRED_VIDEO_FILES = {
     "video_render_manifest.json",
@@ -45,8 +49,9 @@ ATTEMPT_REPORT_PATTERN = "stage7_bridge_attempt_{attempt:03d}.exit_report.json"
 FAILURE_TAXONOMY_FILE = "stage7_failure_taxonomy.json"
 SOAK_PLAN_FILE = "stage7_soak_plan.json"
 SOAK_VALIDATION_REPORT_FILE = "stage7_soak_validation_report.json"
-CLASSIFIER_TOOL_PATH = Path(__file__).resolve().parent / "classify_stage7_bridge_failure.py"
 RUNTIME_TOOL_PATH = Path(__file__).resolve().parent / "run_stage7_stream_bridge_runtime.py"
+RUST_RUNTIME_BIN_NAME = "musikalisches-stage7-runtime"
+RUNTIME_BIN_ENV = "MUSIKALISCHES_STAGE7_RUNTIME_BIN"
 LOOP_MODE_SPECS = {
     "once": {
         "stream_loop": None,
@@ -60,6 +65,11 @@ LOOP_MODE_SPECS = {
 SOAK_MIN_RUNTIME_HOURS = 8
 DRIFT_TOLERANCE_SECONDS_PER_HOUR = 0.25
 RECONNECT_BACKOFF_SECONDS = [1, 5, 15]
+REQUIRED_SOUNDSCAPE_BADGE_IDS = [
+    "registration_label",
+    "ambient_label",
+    "combination_hold_progress",
+]
 
 
 def load_json(path: Path) -> dict:
@@ -100,6 +110,12 @@ def round6(value: float) -> float:
     return round(value, 6)
 
 
+def approx_equal(left: object, right: object, *, tolerance: float) -> bool:
+    if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+        return False
+    return abs(float(left) - float(right)) <= tolerance
+
+
 def parse_rate(value: str | None) -> float | None:
     if not value:
         return None
@@ -117,6 +133,118 @@ def parse_rate(value: str | None) -> float | None:
         return float(value)
     except ValueError:
         return None
+
+
+def resolve_soundscape_summary(
+    *,
+    audio_summary: dict,
+    render_request: dict,
+    audio_loop_plan: dict,
+    audio_report: dict,
+    soundscape_selection: dict,
+    stage6_scene: dict,
+) -> dict:
+    soundscape = audio_summary.get("soundscape")
+    if not isinstance(soundscape, dict):
+        raise SystemExit("artifact_summary.json missing soundscape summary")
+
+    selection_file = soundscape.get("selection_file")
+    if selection_file != "soundscape_selection.json":
+        raise SystemExit("artifact_summary.json soundscape.selection_file must be soundscape_selection.json")
+
+    for payload_name, payload in (
+        ("render_request.json", render_request),
+        ("stream_loop_plan.json", audio_loop_plan),
+        ("m1_validation_report.json", audio_report),
+    ):
+        if payload.get("soundscape") != soundscape:
+            raise SystemExit(f"{payload_name} soundscape summary must match artifact_summary.json")
+        if payload.get("output_files", {}).get("soundscape_selection") != selection_file:
+            raise SystemExit(
+                f"{payload_name} output_files.soundscape_selection must be {selection_file}"
+            )
+
+    if soundscape_selection.get("stage") != "stage5_soundscape_selection":
+        raise SystemExit("soundscape_selection.json stage must be stage5_soundscape_selection")
+
+    layers_by_kind = {
+        layer.get("layer_kind"): layer
+        for layer in soundscape_selection.get("layers", [])
+        if isinstance(layer, dict)
+    }
+    registration = soundscape_selection.get("registration", {})
+    ambient_layer = layers_by_kind.get("ambient", {})
+    drone_layer = layers_by_kind.get("drone", {})
+    if not registration or not ambient_layer or not drone_layer:
+        raise SystemExit(
+            "soundscape_selection.json must expose registration, ambient layer, and drone layer"
+        )
+
+    if soundscape.get("profile_id") != soundscape_selection.get("soundscape_profile_id"):
+        raise SystemExit("artifact_summary.json soundscape.profile_id mismatch")
+    if soundscape.get("mix_bus_profile_id") != soundscape_selection.get("mix_bus", {}).get("profile_id"):
+        raise SystemExit("artifact_summary.json soundscape.mix_bus_profile_id mismatch")
+    if soundscape.get("registration_id") != registration.get("registration_id"):
+        raise SystemExit("artifact_summary.json soundscape.registration_id mismatch")
+    if soundscape.get("registration_label") != registration.get("label"):
+        raise SystemExit("artifact_summary.json soundscape.registration_label mismatch")
+    if soundscape.get("ambient_asset_id") != ambient_layer.get("asset_id"):
+        raise SystemExit("artifact_summary.json soundscape.ambient_asset_id mismatch")
+    if soundscape.get("ambient_label") != ambient_layer.get("label"):
+        raise SystemExit("artifact_summary.json soundscape.ambient_label mismatch")
+    if soundscape.get("drone_asset_id") != drone_layer.get("asset_id"):
+        raise SystemExit("artifact_summary.json soundscape.drone_asset_id mismatch")
+    if soundscape.get("drone_label") != drone_layer.get("label"):
+        raise SystemExit("artifact_summary.json soundscape.drone_label mismatch")
+    if soundscape.get("layer_count") != len(soundscape_selection.get("layers", [])):
+        raise SystemExit("artifact_summary.json soundscape.layer_count mismatch")
+    mix_bus = soundscape_selection.get("mix_bus", {})
+    if not approx_equal(soundscape.get("duration_seconds"), mix_bus.get("output_duration_seconds"), tolerance=0.01):
+        raise SystemExit("artifact_summary.json soundscape.duration_seconds mismatch")
+    if not approx_equal(soundscape.get("peak_amplitude"), mix_bus.get("peak_amplitude"), tolerance=1e-4):
+        raise SystemExit("artifact_summary.json soundscape.peak_amplitude mismatch")
+    if not approx_equal(soundscape.get("rms_dbfs"), mix_bus.get("rms_dbfs"), tolerance=0.1):
+        raise SystemExit("artifact_summary.json soundscape.rms_dbfs mismatch")
+
+    soundscape_badges = stage6_scene.get("soundscape_badges")
+    if not isinstance(soundscape_badges, dict):
+        raise SystemExit("stage6 video_stub_scene.json missing soundscape_badges")
+    badge_ids = [badge.get("badge_id") for badge in soundscape_badges.get("badges", [])]
+    if badge_ids != REQUIRED_SOUNDSCAPE_BADGE_IDS:
+        raise SystemExit("stage6 soundscape_badges badge order must match stage6 contract")
+    if soundscape_badges.get("registration_label") != soundscape.get("registration_label"):
+        raise SystemExit("stage6 soundscape_badges registration_label mismatch")
+    if soundscape_badges.get("ambient_label") != soundscape.get("ambient_label"):
+        raise SystemExit("stage6 soundscape_badges ambient_label mismatch")
+    if soundscape_badges.get("drone_label") != soundscape.get("drone_label"):
+        raise SystemExit("stage6 soundscape_badges drone_label mismatch")
+    if soundscape_badges.get("soundscape_profile_id") != soundscape.get("profile_id"):
+        raise SystemExit("stage6 soundscape_badges soundscape_profile_id mismatch")
+    hold_progress = soundscape_badges.get("combination_hold_progress")
+    if not isinstance(hold_progress, dict):
+        raise SystemExit("stage6 soundscape_badges combination_hold_progress must be an object")
+    if hold_progress.get("total_cycles") != soundscape_selection.get("combination_hold_cycles"):
+        raise SystemExit("stage6 soundscape_badges total hold cycles mismatch soundscape_selection.json")
+    if not isinstance(hold_progress.get("current_cycle_index"), int) or hold_progress.get("current_cycle_index") <= 0:
+        raise SystemExit("stage6 soundscape_badges current hold cycle must be a positive integer")
+    if hold_progress.get("current_cycle_index") > hold_progress.get("total_cycles"):
+        raise SystemExit("stage6 soundscape_badges current hold cycle exceeds total cycles")
+    if stage6_scene.get("input_summary", {}).get("soundscape_selection_file") != selection_file:
+        raise SystemExit("stage6 input_summary soundscape_selection_file mismatch")
+
+    return {
+        **soundscape,
+        "combination_id": soundscape_selection.get("combination_id"),
+        "combination_hold_cycles": soundscape_selection.get("combination_hold_cycles"),
+        "combination_hold_progress": hold_progress,
+        "layer_palette_hint": soundscape_badges.get("layer_palette_hint"),
+        "badge_ids": badge_ids,
+        "source_contracts": {
+            "audio_summary_file": "artifact_summary.json",
+            "selection_file": selection_file,
+            "stage6_scene_file": "video_stub_scene.json",
+        },
+    }
 
 
 def resolve_bridge_profile(profile_path: Path) -> dict:
@@ -525,7 +653,13 @@ def build_failure_taxonomy(url_env_var: str) -> dict:
                 "class_id": "interrupted",
                 "description": "operator interrupt or termination signal",
                 "retryable": False,
-                "match_any": [],
+                # ffmpeg catches SIGINT/SIGTERM and exits 255 after printing
+                # "Exiting normally, received signal <n>."; the trailing period
+                # anchors the match so signal 2x/15x never false-positives.
+                "match_any": [
+                    "exiting normally, received signal 2.",
+                    "exiting normally, received signal 15.",
+                ],
                 "match_exit_codes": [130, 143],
             },
             {
@@ -686,28 +820,51 @@ def build_runtime_script(
     *,
     env_var: str,
     runtime_tool_path: Path,
+    runtime_bin_name: str,
+    runtime_bin_env: str,
 ) -> str:
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         "",
         'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+        'REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"',
         f'LOOP_MODE="${{{LOOP_MODE_ENV}:-infinite}}"',
         f'MAX_RUNTIME_SECONDS="${{{MAX_RUNTIME_ENV}:-}}"',
+        f'RUST_RUNTIME_BIN="${{{runtime_bin_env}:-}}"',
         "",
         f'if [[ -z "${{{env_var}:-}}" ]]; then',
         f'  printf "%s\\n" "missing {env_var}: export {env_var}=..." >&2',
         "  exit 1",
         "fi",
         "",
+        'if [[ -z "${RUST_RUNTIME_BIN}" ]]; then',
+        f'  if [[ -x "${{REPO_ROOT}}/target/release/{runtime_bin_name}" ]]; then',
+        f'    RUST_RUNTIME_BIN="${{REPO_ROOT}}/target/release/{runtime_bin_name}"',
+        f'  elif [[ -x "${{REPO_ROOT}}/target/debug/{runtime_bin_name}" ]]; then',
+        f'    RUST_RUNTIME_BIN="${{REPO_ROOT}}/target/debug/{runtime_bin_name}"',
+        "  fi",
+        "fi",
+        "",
         f'PYTHON_BIN="${{PYTHON:-python3}}"',
         f'RUNNER={shlex.quote(str(runtime_tool_path))}',
-        'CMD=("${PYTHON_BIN}" "${RUNNER}"',
+        'COMMON_ARGS=(',
         '  --artifact-dir "${SCRIPT_DIR}"',
         f'  --stream-url-env {env_var}',
         '  --loop-mode "${LOOP_MODE}"',
         '  --max-runtime-seconds "${MAX_RUNTIME_SECONDS:-0}"',
         ')',
+        'if [[ -n "${RUST_RUNTIME_BIN}" ]]; then',
+        '  CMD=("${RUST_RUNTIME_BIN}" "${COMMON_ARGS[@]}")',
+        'else',
+        '  CMD=("${PYTHON_BIN}" "${RUNNER}" "${COMMON_ARGS[@]}")',
+        'fi',
+        "",
+        'if [[ -n "${RUST_RUNTIME_BIN}" ]]; then',
+        f'  printf "%s\\n" "stage7 wrapper runtime: rust ({runtime_bin_env}=${{RUST_RUNTIME_BIN}})" >&2',
+        'else',
+        '  printf "%s\\n" "stage7 wrapper runtime: python fallback" >&2',
+        'fi',
         "",
         'if [[ -n "${MAX_RUNTIME_SECONDS}" && "${MAX_RUNTIME_SECONDS}" != "0" ]]; then',
         '  printf "%s\\n" "stage7 wrapper note: MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS is an overall runtime budget; omit it for unattended LOOP_MODE=infinite." >&2',
@@ -811,10 +968,17 @@ def main() -> int:
 
     bridge_profile = resolve_bridge_profile(Path(args.bridge_profile).resolve())
     audio_summary = load_json(audio_dir / "artifact_summary.json")
+    render_request = load_json(audio_dir / "render_request.json")
     audio_loop_plan = load_json(audio_dir / "stream_loop_plan.json")
     audio_report = load_json(audio_dir / "m1_validation_report.json")
+    soundscape_selection = load_json(audio_dir / "soundscape_selection.json")
     video_manifest = load_json(video_dir / "video_render_manifest.json")
     video_report = load_json(video_dir / "stage6_render_validation_report.json")
+    stage6_source_dir = Path(video_manifest.get("source_artifact_dir", ""))
+    stage6_scene_path = stage6_source_dir / "video_stub_scene.json"
+    if not stage6_scene_path.exists():
+        raise SystemExit(f"stage6 source scene does not exist: {stage6_scene_path}")
+    stage6_scene = load_json(stage6_scene_path)
     audio_path = audio_dir / "offline_audio.wav"
     video_path = video_dir / "offline_preview.mp4"
     wav_metadata = inspect_wav(audio_path)
@@ -860,6 +1024,14 @@ def main() -> int:
         raise SystemExit("stage5 audio sample rate does not match stage7 bridge profile")
     if wav_metadata["channels"] != profile_audio["channels"]:
         raise SystemExit("stage5 audio channel count does not match stage7 bridge profile")
+    soundscape = resolve_soundscape_summary(
+        audio_summary=audio_summary,
+        render_request=render_request,
+        audio_loop_plan=audio_loop_plan,
+        audio_report=audio_report,
+        soundscape_selection=soundscape_selection,
+        stage6_scene=stage6_scene,
+    )
 
     ffmpeg_path = None if args.skip_smoke else shutil.which(args.ffmpeg_bin)
     resolved_ffmpeg_path = shutil.which(args.ffmpeg_bin) or args.ffmpeg_bin
@@ -942,7 +1114,9 @@ def main() -> int:
         "source_cycle_duration_frames": audio_loop_plan.get("cycle_duration_frames"),
         "source_cycle_count": len(audio_loop_plan.get("cycles", [])),
         "source_render_loop_count": audio_loop_plan.get("loop_count"),
+        "combination_hold_cycles": audio_loop_plan.get("loop_count"),
         "source_render_duration_seconds": duration_audio,
+        "combination_duration_seconds": duration_audio,
         "video_render_duration_seconds": round6(duration_video),
         "source_duration_delta_seconds": round6(duration_delta),
         "continuous_alignment_mode": "repeat_full_source_pair",
@@ -957,8 +1131,14 @@ def main() -> int:
         "attempt_log_pattern": ATTEMPT_LOG_PATTERN,
         "attempt_report_pattern": ATTEMPT_REPORT_PATTERN,
         "redact_env_vars": [bridge_profile["ingest"]["stream_url_env"]],
-        "classifier_tool_path": str(CLASSIFIER_TOOL_PATH),
         "runtime_tool_path": str(RUNTIME_TOOL_PATH),
+        "preferred_runtime": "rust",
+        "runtime_bin_env": RUNTIME_BIN_ENV,
+        "runtime_bin_name": RUST_RUNTIME_BIN_NAME,
+        "runtime_bin_paths": {
+            "release": str(REPO_ROOT / "target" / "release" / RUST_RUNTIME_BIN_NAME),
+            "debug": str(REPO_ROOT / "target" / "debug" / RUST_RUNTIME_BIN_NAME),
+        },
     }
     preflight = {
         "required_checks": soak_plan["preflight_policy"]["required_checks"],
@@ -971,6 +1151,9 @@ def main() -> int:
     }
     runtime_executor = {
         "tool_path": str(RUNTIME_TOOL_PATH),
+        "preferred_runtime": "rust",
+        "runtime_bin_env": RUNTIME_BIN_ENV,
+        "runtime_bin_name": RUST_RUNTIME_BIN_NAME,
         "runtime_report_file": RUNTIME_REPORT_FILE,
         "attempt_log_pattern": ATTEMPT_LOG_PATTERN,
         "attempt_report_pattern": ATTEMPT_REPORT_PATTERN,
@@ -1016,6 +1199,8 @@ def main() -> int:
         build_runtime_script(
             env_var=bridge_profile["ingest"]["stream_url_env"],
             runtime_tool_path=RUNTIME_TOOL_PATH,
+            runtime_bin_name=RUST_RUNTIME_BIN_NAME,
+            runtime_bin_env=RUNTIME_BIN_ENV,
         ),
     )
     (output_dir / "run_stage7_stream_bridge.sh").chmod(0o755)
@@ -1132,6 +1317,7 @@ def main() -> int:
             "loop_count": audio_loop_plan.get("loop_count"),
             "duration_seconds": duration_audio,
             "default_loop_mode": loop_bridge["default_loop_mode"],
+            "source_audio_render_backend": audio_summary.get("audio", {}).get("render_backend"),
             "video_width": profile_video["width"],
             "video_height": profile_video["height"],
             "video_fps": profile_video["fps"],
@@ -1152,6 +1338,7 @@ def main() -> int:
             "ingest_container": bridge_profile["ingest"]["container"],
             "ingest_url_env": bridge_profile["ingest"]["stream_url_env"],
         },
+        "soundscape": soundscape,
         "loop_bridge": loop_bridge,
         "runtime_observability": runtime_observability,
         "preflight": preflight,
@@ -1205,6 +1392,37 @@ def main() -> int:
                 "audio_stream_count": 1,
             },
             "expected_matches": bridge_expected_matches,
+        },
+        "stage8_ops": {
+            "guide_file": str(STAGE8_GUIDE_PATH),
+            "entry_script_file": "run_stage7_stream_bridge.sh",
+            "required_env_vars": [bridge_profile["ingest"]["stream_url_env"]],
+            "supported_loop_modes": ["once", "infinite"],
+            "recommended_loop_mode": loop_bridge["default_loop_mode"],
+            "formal_soak_runtime_budget_policy": "unset_for_formal_soak",
+            "preflight_runtime_budget_example_seconds": 120,
+            "background_files": {
+                "console_log_file": f"{LOG_DIR_NAME}/stage8_soak_console.log",
+                "pid_file": f"{LOG_DIR_NAME}/stage8_soak.pid",
+            },
+            "required_validation_reports": [
+                "stage7_bridge_validation_report.json",
+                "stage7_soak_validation_report.json",
+            ],
+            "required_runtime_reports": [
+                f"{LOG_DIR_NAME}/{PREFLIGHT_REPORT_FILE}",
+                f"{LOG_DIR_NAME}/{RUNTIME_REPORT_FILE}",
+                f"{LOG_DIR_NAME}/{EXIT_REPORT_FILE}",
+            ],
+            "readiness_report_file": "stage8_ops_readiness_report.json",
+            "sample_retention": {
+                "tool_path": str(STAGE8_SAMPLE_TOOL_PATH),
+                "samples_dir": "stage8-samples",
+                "operator_summary_template_file": "operator_summary_template.md",
+                "attempt_log_index_file": "attempt_log_index.json",
+                "runtime_artifact_digest_file": "runtime_artifact_digest.json",
+                "retention_report_file": "stage8_sample_retention_report.json",
+            },
         },
         "live_command": {
             "ffmpeg_bin": resolved_ffmpeg_path,

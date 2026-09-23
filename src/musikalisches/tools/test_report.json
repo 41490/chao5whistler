@@ -1,0 +1,176 @@
+{
+  "failures": [],
+  "fragments_checked": 176,
+  "fragments_dir": "/tmp/frag93.Rh1m72",
+  "fragments_expected": 176,
+  "issue": 93,
+  "measured": {
+    "internal_adjacent_diff_max": 220.828125,
+    "max_alpha_head": 0.0,
+    "max_alpha_tail": 0.0,
+    "seam_diff_max": 0.0
+  },
+  "neutral_frame_check": {
+    "errors": [],
+    "fragments_checked": 176,
+    "fragments_dir": "/tmp/frag93.Rh1m72",
+    "fragments_expected": 176,
+    "head_frames": 15,
+    "max_alpha_head": 0.0,
+    "max_alpha_tail": 0.0,
+    "pass": true,
+    "tail_frames": 15,
+    "threshold": 0.05,
+    "violations": []
+  },
+  "pairs": 20,
+  "pass": true,
+  "rationale": "Seam metric is the mean absolute RGBA difference (0..255, alpha included) between the last frame of fragment i and the first frame of fragment j. Valid transparent gates give exactly 0.0; a broken gate scores in the tens to hundreds. Threshold 2.0 (0.8% of full scale) clears 8-bit encode noise on real renders and stays far below any genuine jump. internal_adjacent_diff_max is the same metric applied inside fragments and must exceed the threshold, so a pass is never an empty assertion.",
+  "seam_pairs": [
+    {
+      "from": 127,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 145,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 91,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 30,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 24,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 91,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 38,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 45,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 101,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 32,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 42,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 149,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 9,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 159,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 142,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 31,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 174,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 160,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 95,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 103,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 32,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 168,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 19,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 167,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 53,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 57,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 168,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 124,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 42,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 152,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 76,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 153,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 75,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 87,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 55,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 122,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 15,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 44,
+      "to_frame": "frame_0000.png"
+    },
+    {
+      "from": 154,
+      "from_frame": "frame_0040.png",
+      "mean_abs_rgba_diff": 0.0,
+      "to": 27,
+      "to_frame": "frame_0000.png"
+    }
+  ],
+  "seed": 93,
+  "thresholds": {
+    "gate_alpha": 0.05,
+    "seam_mean_abs_rgba_diff": 2.0
+  }
+}

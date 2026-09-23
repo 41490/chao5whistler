@@ -17,6 +17,7 @@ make -C src/musikalisches stage5-build
 make -C src/musikalisches stage5-test
 make -C src/musikalisches stage7-ffmpeg-check
 make -C src/musikalisches stage7-all
+make -C src/musikalisches stage8-readiness-check
 ```
 
 其中：
@@ -24,7 +25,9 @@ make -C src/musikalisches stage7-all
 - `stage5-build` 会重建 release 二进制
 - `stage5-test` 会跑 Rust 测试
 - `stage7-ffmpeg-check` 会确认 `ops/bin/ffmpeg` / `ops/bin/ffprobe` 具备 `rtmps` output、`libx264` 和本地 `flv` smoke 编码能力
-- `stage7-all` 会串起 stage5 音频、stage6 视频、stage7 bridge 的默认构建与校验
+- `stage7-all` 会串起 `stage5-sf2 + stage6-video-render-sf2 + stage7 bridge` 的默认 live 构建与校验
+- `stage8-readiness-check` 会把真实 live soak 前的 stage7 contract、repo toolchain、运行入口脚本和 stage8 ops 约定收成独立 readiness report
+- 默认 formal live baseline 已冻结为 `stage5-sf2`，且每个组合保留 `16` cycles
 
 如果你只想做日常快速回归，不重建 release，也可以直接执行：
 
@@ -33,15 +36,32 @@ make -C src/musikalisches stage7-ffmpeg-check
 make -C src/musikalisches stage7-all
 ```
 
+如果这次是继续推进 issue #9 的多层声景链路，在进入 stage5 mix bus 之前，先单独冻结并校验资产包：
+
+```bash
+make -C src/musikalisches soundscape-assets-generate
+make -C src/musikalisches soundscape-assets-check
+```
+
+这一步只验证 manifest / license / hash / loop duration contract，不会改动现有 stage7 live 基线。
+
+从 issue #9 `P3` 开始，`stage5-stream` / `stage5-sf2` 默认还会继续做一层 soundscape mix bus：
+
+- 会按 `combination_id` 从 curated registration 池里选一个 organ profile
+- 会从 `soundscape_asset_pack_v1.json` 中确定一组 `drone + ambient`
+- 会把三层结果统一混进 stage5 的 `offline_audio.wav`
+- 会额外生成 `soundscape_selection.json`
+
 ## 2. 检查通过的判据
 
 以下报告文件都应为 `status = passed`：
 
 - `ops/out/ffmpeg-rtmps-check/stage7_ffmpeg_toolchain_validation_report.json`
-- `ops/out/video-stub/stage6_validation_report.json`
-- `ops/out/video-render/stage6_render_validation_report.json`
+- `ops/out/video-stub-sf2/stage6_validation_report.json`
+- `ops/out/video-render-sf2/stage6_render_validation_report.json`
 - `ops/out/stream-bridge/stage7_bridge_validation_report.json`
 - `ops/out/stream-bridge/stage7_soak_validation_report.json`
+- `ops/out/stream-bridge/stage8_ops_readiness_report.json`
 
 可直接用下面的命令快速查看：
 
@@ -52,10 +72,11 @@ from pathlib import Path
 
 files = [
     "ops/out/ffmpeg-rtmps-check/stage7_ffmpeg_toolchain_validation_report.json",
-    "ops/out/video-stub/stage6_validation_report.json",
-    "ops/out/video-render/stage6_render_validation_report.json",
+    "ops/out/video-stub-sf2/stage6_validation_report.json",
+    "ops/out/video-render-sf2/stage6_render_validation_report.json",
     "ops/out/stream-bridge/stage7_bridge_validation_report.json",
     "ops/out/stream-bridge/stage7_soak_validation_report.json",
+    "ops/out/stream-bridge/stage8_ops_readiness_report.json",
 ]
 for item in files:
     path = Path(item)
@@ -74,22 +95,32 @@ PY
 生成本地离线预览视频：
 
 ```bash
-make -C src/musikalisches stage6-video-render
-make -C src/musikalisches stage6-video-render-check
+make -C src/musikalisches stage5-sf2 LOOP_COUNT=16
+make -C src/musikalisches stage5-sf2-check
+make -C src/musikalisches stage6-video-render-sf2
+make -C src/musikalisches stage6-video-render-check-sf2
 ```
 
 默认输出目录：
 
 ```text
-ops/out/video-render
+ops/out/video-render-sf2
 ```
 
 重点文件：
 
-- `ops/out/video-render/offline_preview.mp4`
-- `ops/out/video-render/offline_frame_sequence.json`
-- `ops/out/video-render/video_render_manifest.json`
-- `ops/out/video-render/stage6_render_validation_report.json`
+- `ops/out/stream-sf2/soundscape_selection.json`
+- `ops/out/video-render-sf2/offline_preview.mp4`
+- `ops/out/video-render-sf2/offline_frame_sequence.json`
+- `ops/out/video-render-sf2/video_render_manifest.json`
+- `ops/out/video-render-sf2/stage6_render_validation_report.json`
+
+其中 `ops/out/stream-sf2/soundscape_selection.json` 会记录本次 stage5 实际选中的：
+
+- `registration`
+- `drone asset`
+- `ambient asset`
+- `mix_bus` peak / RMS / gain guardrail 摘要
 
 注意：
 
@@ -129,6 +160,7 @@ ops/out/stream-bridge
 - `ops/out/stream-bridge/stage7_soak_validation_report.json`
 
 `stage7_bridge_smoke.flv` 的用途是本地验证 stage7 的音视频封装链路是否正常，不等价于真实推流。
+当前默认 smoke 输入来自 `ops/out/stream-sf2/offline_audio.wav` 与 `ops/out/video-render-sf2/offline_preview.mp4`。
 
 ## 5. 正式推流前要改哪个配置
 
@@ -169,6 +201,10 @@ export MUSIKALISCHES_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/<stream-key>'
 
 ```bash
 make -C src/musikalisches stage7-ffmpeg-check
+make -C src/musikalisches stage5-sf2 LOOP_COUNT=16
+make -C src/musikalisches stage5-sf2-check
+make -C src/musikalisches stage6-video-render-sf2
+make -C src/musikalisches stage6-video-render-check-sf2
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-soak-check
@@ -194,10 +230,14 @@ ops/out/stream-bridge/run_stage7_stream_bridge.sh
 
 - `MUSIKALISCHES_STAGE7_LOOP_MODE=once|infinite`
 - `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS=<n>`
+- `MUSIKALISCHES_STAGE7_RUNTIME_BIN=/abs/path/to/musikalisches-stage7-runtime`
+- `LIVE_LOOP_COUNT=16` 只影响默认 live-source 重建；formal live 基线建议保持 `16`
 
 语义说明：
 
 - `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS` 表示整体 wrapper runtime budget
+- 默认入口会优先尝试 Rust runtime；若 repo 下没有已构建的 `musikalisches-stage7-runtime`，才会回退到 Python runtime
+- redaction / failure classification 已内建在 runtime 内；live-host 不再需要额外部署 `classify_stage7_bridge_failure.py`
 - 如果目标是长期无人值守直播，应保留 `MUSIKALISCHES_STAGE7_LOOP_MODE=infinite`，并且不要设置 `MUSIKALISCHES_STAGE7_MAX_RUNTIME_SECONDS`
 - 如果设置了 runtime budget，达到上限后以受控方式退出属于预期行为，不代表隐藏错误
 
@@ -231,6 +271,19 @@ sed -n '1,260p' ops/out/stream-bridge/logs/stage7_bridge_preflight_report.json
 sed -n '1,220p' ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json
 sed -n '1,220p' ops/out/stream-bridge/logs/stage7_bridge_exit_report.json
 ```
+
+如果要把这次真实 preflight / soak 收成可回填 issue 的独立样本包，执行：
+
+```bash
+make -C src/musikalisches stage8-sample-retain STAGE8_RUN_LABEL=<label>
+```
+
+默认会生成：
+
+- `ops/out/stream-bridge/stage8-samples/<label>/operator_summary_template.md`
+- `ops/out/stream-bridge/stage8-samples/<label>/attempt_log_index.json`
+- `ops/out/stream-bridge/stage8-samples/<label>/runtime_artifact_digest.json`
+- `ops/out/stream-bridge/stage8-samples/<label>/stage8_sample_retention_report.json`
 
 如果需要做真实平台长时 soak，直接按 `docs/plans/260324-stage8-real-soak-ops-guide.md` 执行。
 

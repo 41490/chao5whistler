@@ -73,6 +73,14 @@
     "base_font_size_px": 28,
     "line_gap_px": 8
   },
+  "soundscape_badges": {
+    "x": 438,
+    "y": 566,
+    "width": 405,
+    "height": 64,
+    "badge_gap_px": 6,
+    "font_size_px": 14
+  },
   "footer_progress_area": {
     "x": 438,
     "y": 648,

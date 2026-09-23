@@ -21,6 +21,7 @@
 - `ops/bin/ffmpeg` 与 `ops/bin/ffprobe` 已准备好
 - `stage7-bridge-check` 通过
 - `stage7-soak-check` 通过
+- `stage8-readiness-check` 通过
 - 运维已拿到真实 `MUSIKALISCHES_RTMP_URL`
 
 建议先确认当前 bookmark：
@@ -59,11 +60,14 @@ ops/bin/ffmpeg -version | sed -n '1,4p'
 ## 4. 重新生成 stage6 / stage7 工件
 
 ```bash
-make -C src/musikalisches stage6-video-render
-make -C src/musikalisches stage6-video-render-check
+make -C src/musikalisches stage5-sf2 LOOP_COUNT=16
+make -C src/musikalisches stage5-sf2-check
+make -C src/musikalisches stage6-video-render-sf2
+make -C src/musikalisches stage6-video-render-check-sf2
 make -C src/musikalisches stage7-bridge
 make -C src/musikalisches stage7-bridge-check
 make -C src/musikalisches stage7-soak-check
+make -C src/musikalisches stage8-readiness-check
 ```
 
 建议额外核对 manifest：
@@ -72,8 +76,10 @@ make -C src/musikalisches stage7-soak-check
 python3 - <<'PY'
 import json
 from pathlib import Path
-video = json.loads(Path("ops/out/video-render/video_render_manifest.json").read_text())
+video = json.loads(Path("ops/out/video-render-sf2/video_render_manifest.json").read_text())
 bridge = json.loads(Path("ops/out/stream-bridge/stream_bridge_manifest.json").read_text())
+print("stage7 source_audio_render_backend =", bridge["bridge_summary"].get("source_audio_render_backend"))
+print("stage7 combination_hold_cycles =", bridge["loop_bridge"].get("combination_hold_cycles"))
 print("stage6 ffmpeg_bin =", video["mp4_generation"].get("ffmpeg_bin"))
 print("stage6 ffprobe_bin =", video["mp4_generation"].get("ffprobe_bin"))
 print("stage7 live ffmpeg_bin =", bridge["live_command"].get("ffmpeg_bin"))
@@ -85,6 +91,10 @@ PY
 预期：
 
 - 都指向 `ops/bin/ffmpeg` / `ops/bin/ffprobe`
+- `source_audio_render_backend = soundfont_rustysynth`
+- `combination_hold_cycles = 16`
+- `ops/out/stream-bridge/stage8_ops_readiness_report.json` 为 `status = passed`
+- `stream_bridge_manifest.json > stage8_ops.sample_retention` 已包含样本留存模板约定
 
 ## 5. 短时 preflight 验证
 
@@ -221,18 +231,41 @@ kill -INT "$(cat ops/out/stream-bridge/logs/stage8_soak.pid)"
 
 ## 8. 结束后汇总
 
-结束后必须留存：
+结束后先执行样本留存：
 
 ```bash
-sed -n '1,260p' ops/out/stream-bridge/logs/stage7_bridge_preflight_report.json
-sed -n '1,260p' ops/out/stream-bridge/logs/stage7_bridge_runtime_report.json
-sed -n '1,260p' ops/out/stream-bridge/logs/stage7_bridge_exit_report.json
+make -C src/musikalisches stage8-sample-retain STAGE8_RUN_LABEL=<label>
+```
+
+默认会在以下目录生成独立样本包：
+
+```text
+ops/out/stream-bridge/stage8-samples/<label>
+```
+
+其中至少会带出：
+
+- `operator_summary_template.md`
+- `attempt_log_index.json`
+- `runtime_artifact_digest.json`
+- `stage8_sample_retention_report.json`
+- `logs/stage7_bridge_preflight_report.json`
+- `logs/stage7_bridge_runtime_report.json`
+- `logs/stage7_bridge_exit_report.json`
+- `logs/stage7_bridge_latest.stderr.log`
+
+如需人工复查，优先看：
+
+```bash
+sed -n '1,260p' ops/out/stream-bridge/stage8-samples/<label>/operator_summary_template.md
+sed -n '1,260p' ops/out/stream-bridge/stage8-samples/<label>/attempt_log_index.json
+sed -n '1,260p' ops/out/stream-bridge/stage8-samples/<label>/runtime_artifact_digest.json
 ```
 
 如有多次重连，还应检查：
 
 ```bash
-find ops/out/stream-bridge/logs -maxdepth 1 -name 'stage7_bridge_attempt_*' | sort
+find ops/out/stream-bridge/stage8-samples/<label>/logs -maxdepth 1 -name 'stage7_bridge_attempt_*' | sort
 ```
 
 建议人工记录以下 8 项：
@@ -248,7 +281,7 @@ find ops/out/stream-bridge/logs -maxdepth 1 -name 'stage7_bridge_attempt_*' | so
 
 ## 9. 最小结论模板
 
-建议在 issue 中按以下格式汇报：
+建议直接基于 `ops/out/stream-bridge/stage8-samples/<label>/operator_summary_template.md` 回填 issue；其字段模板为：
 
 ```text
 - stage8 soak host: <platform/host>

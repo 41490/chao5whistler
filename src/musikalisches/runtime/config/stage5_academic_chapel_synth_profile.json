@@ -1,0 +1,66 @@
+{
+  "profile_id": "stage5_academic_chapel",
+  "description": "Academic chapel enhancement for long-form listening: short algorithmic chapel reverb, beat-level velocity dynamics, per-voice EQ/pan and a slow gain automation breath.",
+  "mix": {
+    "reverb": {
+      "enabled": true,
+      "wet": 0.22,
+      "dry": 0.85,
+      "decay_seconds": 1.6,
+      "render_tail_seconds": 2.0,
+      "room_size": 0.45,
+      "damping": 0.4
+    },
+    "master_trim_db": 2.64,
+    "dynamic": {
+      "velocity_depth": 0.6,
+      "phrase_period_quarters": 12.0,
+      "beat_accent_pattern": [1.0, 0.82, 0.9, 0.84]
+    },
+    "ab_expectations": {
+      "dynamic_spread_gain_db_min": 1.5,
+      "reverb_tail_dbfs_min": -45.0,
+      "lufs_band": [-20.0, -18.0],
+      "lufs_band_basis": "premix_render_offline_audio_note_region"
+    }
+  },
+  "voice_groups": [
+    {
+      "part_index": 1,
+      "channel": 0,
+      "program": 19,
+      "velocity": 92,
+      "base_amplitude": 0.12,
+      "left_gain": 0.72,
+      "right_gain": 0.46,
+      "velocity_curve": [1.0, 0.86, 0.94, 0.88],
+      "eq": {
+        "gain_db": 1.5,
+        "tilt": 0.2
+      },
+      "pan": -0.12,
+      "gain_automation": {
+        "depth_db": 1.0,
+        "period_quarters": 24.0
+      }
+    },
+    {
+      "part_index": 2,
+      "channel": 1,
+      "program": 20,
+      "velocity": 84,
+      "base_amplitude": 0.1,
+      "left_gain": 0.46,
+      "right_gain": 0.72,
+      "eq": {
+        "gain_db": -1.0,
+        "tilt": -0.15
+      },
+      "pan": 0.12,
+      "gain_automation": {
+        "depth_db": 0.8,
+        "period_quarters": 24.0
+      }
+    }
+  ]
+}

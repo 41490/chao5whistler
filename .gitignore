@@ -1,3 +1,8 @@
+# ops/assets/ 资源依赖
+ops/cfg/secrets.toml
+ops/assets/*
+ops/assets/**
+# ops/bin/ 编译产物
 # ops/bin/ 编译产物
 ops/bin/*
 ops/bin/**
@@ -33,6 +38,8 @@ target
 # songh local overrides
 songh.local.toml
 **/songh.local.toml
+movpixer.local.toml
+**/movpixer.local.toml
 
 # Common Node.js / frontend engineering directories
 node_modules/
@@ -103,3 +110,13 @@ coverage.out
 # Common Rust engineering directories
 target/
 **/target/
+
+# Repository layout policy:
+# - source trees under src/ do not store compiled binaries or runtime/generated data
+# - shared compiled tools live under ops/bin/
+# - runtime/generated outputs live under var/ and ops/out/
+src/*/bin/
+src/*/var/
+src/*/target/
+var/*
+var/**

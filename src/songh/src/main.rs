@@ -6,6 +6,9 @@ mod cli;
 mod config;
 mod model;
 mod replay;
+mod stage7;
+#[cfg(test)]
+mod test_support;
 mod text;
 mod video;
 

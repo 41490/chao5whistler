@@ -1,0 +1,33 @@
+# Musikalisches systemd --user live service configuration.
+# Replace stream_url with a real ingest URL before installing the units.
+# If you store a real stream key here, keep the file user-readable only.
+
+version = 1
+
+[service]
+unit_name_prefix = "musikalisches-live"
+description = "Musikalisches RTMPS live stream"
+working_directory = "../.."
+artifact_dir = "../out/stream-bridge"
+user_unit_dir = "~/.config/systemd/user"
+python_bin = "python3"
+journal_identifier_prefix = "musikalisches-live"
+loop_mode = "infinite"
+mirror_child_stderr = true
+require_readiness_passed = true
+stream_url = "rtmps://a.rtmps.youtube.com/live2/brqs-rf5v-pr2e-kb0z-7swa"
+
+[modes."300s"]
+description = "Short controlled real-platform publish validation"
+max_runtime_seconds = 300
+
+[modes."8h"]
+description = "Formal 8-hour soak run"
+max_runtime_seconds = 28800
+
+[modes.forever]
+description = "Continuous live run without runtime budget"
+max_runtime_seconds = 0
+
+[install]
+wanted_by = ["default.target"]

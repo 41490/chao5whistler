@@ -11,9 +11,17 @@ VIDEO_STUB_SF2_OUT := $(ROOT)/ops/out/video-stub-sf2
 VIDEO_RENDER_OUT := $(ROOT)/ops/out/video-render
 VIDEO_RENDER_SF2_OUT := $(ROOT)/ops/out/video-render-sf2
 STREAM_BRIDGE_OUT := $(ROOT)/ops/out/stream-bridge
+WEAVER_STATE_OUT := $(ROOT)/ops/out/state/musikalisches/weaver
+WEAVER_BUFFER_OUT := $(ROOT)/ops/out/weaver-buffer
+WEAVER_WORK_OUT := $(ROOT)/ops/out/weaver-work
+WEAVER_DRY_RUN_ADAPTER := $(ROOT)/src/musikalisches/runtime/config/weaver_dry_run_adapter.json
+WEAVER_CONSUME_COUNT ?= 3
+WEAVER_PLAY_SECONDS ?= 0
+WEAVER_LOOP_COUNT ?= 1
 FFMPEG_TOOLCHAIN_OUT := $(ROOT)/ops/out/ffmpeg-rtmps-check
 STAGE7_PREFLIGHT_REGRESSION_OUT := $(ROOT)/ops/out/stage7-preflight-regressions
 DEFAULT_SYNTH_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_synth_profile.json
+DEFAULT_SOUNDSCAPE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage5_default_soundscape_profile.json
 DEFAULT_STAGE6_SCENE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage6_default_scene_profile.json
 DEFAULT_STAGE6_TEXT_CONFIG := $(ROOT)/src/musikalisches/runtime/config/stage6_default_text_overrides.toml
 DEFAULT_STAGE7_BRIDGE_PROFILE := $(ROOT)/src/musikalisches/runtime/config/stage7_default_bridge_profile.json
@@ -21,6 +29,7 @@ DEFAULT_SOUNDFONT := $(ROOT)/ops/assets/soundfonts/default.sf2
 DEFAULT_SYSTEM_SOUNDFONTS := /usr/share/sounds/sf2/FluidR3_GM.sf2 /usr/share/sounds/sf2/TimGM6mb.sf2 /usr/share/sounds/sf2/FluidR3Mono_GM.sf2 /usr/local/share/sounds/sf2/default.sf2
 DEFAULT_STAGE5_LEDGER := $(ROOT)/ops/out/state/musikalisches/stage5_stream_combination_ledger.json
 DEFAULT_STAGE5_SF2_LEDGER := $(ROOT)/ops/out/state/musikalisches/stage5_stream_sf2_combination_ledger.json
+LIVE_LOOP_COUNT ?= 16
 REPO_FFMPEG_BIN := $(ROOT)/ops/bin/ffmpeg
 REPO_FFPROBE_BIN := $(ROOT)/ops/bin/ffprobe
 FFMPEG_BIN ?= $(if $(wildcard $(REPO_FFMPEG_BIN)),$(REPO_FFMPEG_BIN),ffmpeg)
@@ -47,11 +56,14 @@ help:
 	'  make stage5-demo           Render fallback demo artifacts' \
 	'  make stage5-validate       Validate fallback demo artifacts' \
 	'  make stage5-stream         Render looped stream artifacts from a unique persisted combination ledger' \
-	'  make stage5-stream-check   Validate looped stream artifacts and unique selection metadata' \
+	'  make stage5-stream-check   Validate looped stream artifacts, unique selection metadata, and soundscape mix-bus contract' \
 	'  make stage5-stream-play    Play looped demo WAV with ffplay' \
 	'  make stage5-sf2            Render looped SoundFont artifacts from a unique persisted combination ledger' \
-	'  make stage5-sf2-check      Validate looped SoundFont artifacts and unique selection metadata' \
+	'  make stage5-sf2-check      Validate looped SoundFont artifacts, unique selection metadata, and soundscape mix-bus contract' \
+	'  make soundscape-assets-generate Generate deterministic seed soundscape assets/manifests for issue9 P2' \
+	'  make soundscape-assets-check Validate soundscape asset pack and license manifest' \
 	'  make stage5-profile-show   Show default synth profile path' \
+	'  make stage5-soundscape-profile-show Show default stage5 soundscape profile path' \
 	'' \
 	'Stage 6 preflight:' \
 	'  make stage6-video-stub    Derive visual stub artifacts from analyzer output' \
@@ -74,11 +86,20 @@ help:
 	'  make stage7-bridge-check  Validate stage7 bridge artifacts' \
 	'  make stage7-preflight-regression-check Validate automated stage7 preflight fail observability' \
 	'  make stage7-soak-check    Validate pre-stage8 soak readiness contract' \
+	'  make stage8-readiness-check Validate stage8 real-soak ops readiness gate' \
+	'  make stage8-sample-retain Retain stage8 preflight/soak sample bundle and operator summary template' \
 	'  make stage7-ffmpeg-build  Build repo-managed ffmpeg/ffprobe with RTMPS output support' \
 	'  make stage7-ffmpeg-check  Validate repo-managed ffmpeg/ffprobe capability' \
 	'  make stage7-bridge-profile-show Show default stage7 bridge profile path' \
 	'  make stage7-plan-show     Show stage7 bridge guide path' \
 	'  make stage8-plan-show     Show stage8 real-soak ops guide path' \
+	'' \
+	'Weaver supervisor (issue #62):' \
+	'  make weaver-build         Build the musikalisches-weaver binary' \
+	'  make weaver-test          Run the weaver end-to-end regression set' \
+	'  make weaver-dry-run       Buffer + consume assets through the local fake bridge (no stream key)' \
+	'  make weaver-report        Print the latest weaver throughput report' \
+	'  make weaver-runbook-show  Show the weaver operator runbook path' \
 	'' \
 	'Utilities:' \
 	'  make stage5-all            fmt + test + golden + stream render + validate' \
@@ -91,7 +112,9 @@ help:
 	'Variables:' \
 	'  SOUND_FONT=/path/to/file.sf2       Override SoundFont for stage5-sf2' \
 	'  SYNTH_PROFILE=/path/to/profile.json Override synth routing profile' \
+	'  SOUNDSCAPE_PROFILE=/path/to/profile.json Override stage5 soundscape profile' \
 	'  LOOP_COUNT=4                       Override loop count for stream targets' \
+	'  LIVE_LOOP_COUNT=16                 Default hold cycles for stage7/stage8 live-source rebuilds' \
 	'  ANALYSIS_WINDOW_MS=40              Override analyzer window size' \
 	'  STAGE5_LEDGER_PATH=/path/to/ledger.json Override unique-combination ledger for stage5-stream' \
 	'  STAGE5_SF2_LEDGER_PATH=/path/to/ledger.json Override unique-combination ledger for stage5-sf2' \
@@ -102,6 +125,7 @@ help:
 	'  STAGE7_AUDIO_SOURCE_DIR=/path/to/artifacts Override stage7 audio source dir' \
 	'  STAGE7_VIDEO_SOURCE_DIR=/path/to/artifacts Override stage7 video source dir' \
 	'  STAGE7_BRIDGE_PROFILE=/path/to/profile.json Override stage7 bridge profile' \
+	'  STAGE8_RUN_LABEL=<label>           Override retained sample label for stage8-sample-retain' \
 	'  FFMPEG_BIN=/path/to/ffmpeg             Override ffmpeg binary used by stage6/stage7' \
 	'  FFPROBE_BIN=/path/to/ffprobe           Override ffprobe binary used by stage7 checks'
 
@@ -152,12 +176,13 @@ stage5-stream:
 		--ledger-path "$${STAGE5_LEDGER_PATH:-$(DEFAULT_STAGE5_LEDGER)}" \
 		--loop-count $${LOOP_COUNT:-4} \
 		--analysis-window-ms $${ANALYSIS_WINDOW_MS:-40} \
+		$(if $(SOUNDSCAPE_PROFILE),--soundscape-profile $(SOUNDSCAPE_PROFILE),) \
 		$(if $(SYNTH_PROFILE),--synth-profile $(SYNTH_PROFILE),) \
 		--output-dir $(STREAM_DEMO_OUT)
 
 .PHONY: stage5-stream-check
 stage5-stream-check:
-	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection $(STREAM_DEMO_OUT)
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection --require-soundscape $(STREAM_DEMO_OUT)
 
 .PHONY: stage5-stream-play
 stage5-stream-play:
@@ -190,16 +215,29 @@ stage5-sf2:
 		--loop-count $${LOOP_COUNT:-4} \
 		--analysis-window-ms $${ANALYSIS_WINDOW_MS:-40} \
 		--soundfont "$$SF2" \
+		$(if $(SOUNDSCAPE_PROFILE),--soundscape-profile $(SOUNDSCAPE_PROFILE),) \
 		$(if $(SYNTH_PROFILE),--synth-profile $(SYNTH_PROFILE),) \
 		--output-dir $(STREAM_SF2_OUT)
 
 .PHONY: stage5-sf2-check
 stage5-sf2-check:
-	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection $(STREAM_SF2_OUT)
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_m1_artifacts.py --require-selection --require-soundscape $(STREAM_SF2_OUT)
 
 .PHONY: stage5-profile-show
 stage5-profile-show:
 	@printf '%s\n' $(DEFAULT_SYNTH_PROFILE)
+
+.PHONY: stage5-soundscape-profile-show
+stage5-soundscape-profile-show:
+	@printf '%s\n' $(DEFAULT_SOUNDSCAPE_PROFILE)
+
+.PHONY: soundscape-assets-generate
+soundscape-assets-generate:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/generate_soundscape_seed_assets.py
+
+.PHONY: soundscape-assets-check
+soundscape-assets-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_soundscape_asset_pack.py
 
 .PHONY: stage6-video-stub
 stage6-video-stub:
@@ -315,17 +353,17 @@ stage7-ffmpeg-check:
 
 .PHONY: stage7-bridge
 stage7-bridge:
-	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_DEMO_OUT)}"; \
-	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_OUT)}"; \
-	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav; do \
+	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_SF2_OUT)}"; \
+	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_SF2_OUT)}"; \
+	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav soundscape_selection.json; do \
 		if [[ ! -f "$$AUDIO_DIR/$$required" ]]; then \
-			$(MAKE) stage5-stream; \
+			$(MAKE) stage5-sf2 LOOP_COUNT=$(LIVE_LOOP_COUNT); \
 			break; \
 		fi; \
 	done; \
 	for required in video_render_manifest.json stage6_render_validation_report.json offline_preview.mp4 visual_scene_profile.json; do \
 		if [[ ! -f "$$VIDEO_DIR/$$required" ]]; then \
-			$(MAKE) stage6-video-render; \
+			$(MAKE) stage6-video-render-sf2; \
 			break; \
 		fi; \
 	done; \
@@ -346,20 +384,23 @@ stage7-bridge-check:
 
 .PHONY: stage7-preflight-regression-check
 stage7-preflight-regression-check:
-	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_DEMO_OUT)}"; \
-	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_OUT)}"; \
-	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav; do \
+	@AUDIO_DIR="$${STAGE7_AUDIO_SOURCE_DIR:-$(STREAM_SF2_OUT)}"; \
+	VIDEO_DIR="$${STAGE7_VIDEO_SOURCE_DIR:-$(VIDEO_RENDER_SF2_OUT)}"; \
+	for required in artifact_summary.json render_request.json stream_loop_plan.json m1_validation_report.json offline_audio.wav soundscape_selection.json; do \
 		if [[ ! -f "$$AUDIO_DIR/$$required" ]]; then \
-			$(MAKE) stage5-stream; \
+			$(MAKE) stage5-sf2 LOOP_COUNT=$(LIVE_LOOP_COUNT); \
 			break; \
 		fi; \
 	done; \
 	for required in video_render_manifest.json stage6_render_validation_report.json offline_preview.mp4 visual_scene_profile.json; do \
 		if [[ ! -f "$$VIDEO_DIR/$$required" ]]; then \
-			$(MAKE) stage6-video-render; \
+			$(MAKE) stage6-video-render-sf2; \
 			break; \
 		fi; \
 	done; \
+	if [[ ! -x "$(ROOT)/target/release/musikalisches-stage7-runtime" && ! -x "$(ROOT)/target/debug/musikalisches-stage7-runtime" ]]; then \
+		cd $(ROOT) && $(CARGO) build --bin musikalisches-stage7-runtime; \
+	fi; \
 	cd $(ROOT) && PATH="$(ROOT)/ops/bin:$$PATH" $(PYTHON) src/musikalisches/tools/validate_stage7_preflight_failures.py \
 		--ffmpeg-bin "$(FFMPEG_BIN)" \
 		--ffprobe-bin "$(FFPROBE_BIN)" \
@@ -385,6 +426,25 @@ stage7-plan-show:
 .PHONY: stage8-plan-show
 stage8-plan-show:
 	@printf '%s\n' $(ROOT)/docs/plans/260324-stage8-real-soak-ops-guide.md
+
+.PHONY: stage8-readiness-check
+stage8-readiness-check:
+	@$(MAKE) stage7-ffmpeg-check
+	@$(MAKE) stage7-bridge-check
+	@$(MAKE) stage7-soak-check
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/validate_stage8_ops_readiness.py \
+		--ffmpeg-bin "$(FFMPEG_BIN)" \
+		--ffprobe-bin "$(FFPROBE_BIN)" \
+		$(STREAM_BRIDGE_OUT)
+
+.PHONY: stage8-sample-retain
+stage8-sample-retain:
+	@if [[ ! -f "$(STREAM_BRIDGE_OUT)/stage8_ops_readiness_report.json" ]]; then \
+		$(MAKE) stage8-readiness-check; \
+	fi
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/retain_stage8_ops_samples.py \
+		$(if $(STAGE8_RUN_LABEL),--run-label "$(STAGE8_RUN_LABEL)",) \
+		$(STREAM_BRIDGE_OUT)
 .PHONY: stage5-all
 stage5-all:
 	cd $(ROOT) && $(CARGO) fmt --all
@@ -413,8 +473,8 @@ stage6-sf2-all:
 
 .PHONY: stage7-all
 stage7-all:
-	@$(MAKE) stage5-stream
-	@$(MAKE) stage6-video-render
+	@$(MAKE) stage5-sf2 LOOP_COUNT=$(LIVE_LOOP_COUNT)
+	@$(MAKE) stage6-video-render-sf2
 	@$(MAKE) stage7-ffmpeg-check
 	@$(MAKE) stage7-bridge
 	@$(MAKE) stage7-bridge-check
@@ -423,6 +483,45 @@ stage7-all:
 .PHONY: plans-open
 plans-open:
 	@printf '%s\n' $(ROOT)/docs/plans/260321-stage5-build-and-manual-test-guide.md
+
+.PHONY: weaver-build
+weaver-build:
+	cd $(ROOT) && $(CARGO) build --bin musikalisches-weaver
+
+.PHONY: weaver-test
+weaver-test:
+	cd $(ROOT) && $(CARGO) test --test weaver_e2e
+
+# Keyless end-to-end smoke: real stage5/stage6 rendering, real stage7 bridge
+# contract build, local fake bridge instead of RTMPS.
+.PHONY: weaver-dry-run
+weaver-dry-run:
+	cd $(ROOT) && $(CARGO) run --bin musikalisches-weaver -- \
+		--adapter-config "$(WEAVER_DRY_RUN_ADAPTER)" \
+		--state-dir "$(WEAVER_STATE_OUT)" \
+		--buffer-dir "$(WEAVER_BUFFER_OUT)" \
+		--work-dir "$(WEAVER_WORK_OUT)" \
+		--consume-count $(WEAVER_CONSUME_COUNT) \
+		--buffer-depth 3 \
+		--low-water 2 \
+		--loop-count $(WEAVER_LOOP_COUNT) \
+		--play-seconds $(WEAVER_PLAY_SECONDS)
+
+.PHONY: weaver-report
+weaver-report:
+	cd $(ROOT) && $(PYTHON) -m json.tool "$(WEAVER_STATE_OUT)/weaver_throughput_report.json"
+
+.PHONY: weaver-runbook-show
+weaver-runbook-show:
+	@printf '%s\n' $(ROOT)/docs/plans/260917-musikalisches-weaver-runbook.md
+
+.PHONY: stage6-events-check stage6-events-render-check stage6-events-acceptance
+stage6-events-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/check_stage6_events.py l1
+stage6-events-render-check:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/check_stage6_events.py l2
+stage6-events-acceptance:
+	cd $(ROOT) && $(PYTHON) src/musikalisches/tools/check_stage6_events.py l3
 
 .PHONY: clean-out
 clean-out:

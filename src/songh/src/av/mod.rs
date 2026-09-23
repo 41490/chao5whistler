@@ -453,18 +453,15 @@ fn round4(value: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, OnceLock};
-
     use tempfile::tempdir;
 
     use super::*;
     use crate::archive;
     use crate::config::schema::Config;
+    use crate::test_support;
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-
-    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[derive(Debug)]
     struct EnvVarGuard {
@@ -489,10 +486,6 @@ mod tests {
         }
     }
 
-    fn env_lock() -> &'static Mutex<()> {
-        ENV_LOCK.get_or_init(|| Mutex::new(()))
-    }
-
     fn write_executable_script(path: &Path, body: &str) {
         fs::write(path, body).expect("write script");
         #[cfg(unix)]
@@ -505,7 +498,7 @@ mod tests {
 
     #[test]
     fn render_day_pack_writes_preview_mp4_and_probe_manifest() {
-        let _guard = env_lock().lock().expect("lock env");
+        let _guard = test_support::env_lock().lock().expect("lock env");
         let temp = tempdir().expect("tempdir");
         let archive_root = temp.path().join("archive");
         let output_dir = temp.path().join("render-av");
@@ -575,7 +568,7 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
       "index": 1,
       "codec_type": "audio",
       "codec_name": "aac",
-      "sample_rate": "48000",
+      "sample_rate": "44100",
       "channels": 2,
       "duration": "8.000000"
     }
@@ -616,7 +609,7 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
         assert_eq!(report.expected_fps, 4);
         assert_eq!(report.expected_duration_seconds, 8.0);
         assert_eq!(report.video.rendered_frame_count, 32);
-        assert_eq!(report.audio.rendered_frame_count, 384_000);
+        assert_eq!(report.audio.rendered_frame_count, 352_800);
         assert!(report.ffprobe_path.as_ref().expect("probe path").exists());
 
         let ffmpeg_args = fs::read_to_string(&ffmpeg_log).expect("read ffmpeg log");
@@ -645,7 +638,7 @@ cat "$SONGH_TEST_FFPROBE_FIXTURE"
             .iter()
             .find(|stream| stream.codec_type == "audio")
             .expect("audio stream");
-        assert_eq!(audio_stream.sample_rate, Some(48_000));
+        assert_eq!(audio_stream.sample_rate, Some(44_100));
         assert_eq!(audio_stream.channels, Some(2));
     }
 }

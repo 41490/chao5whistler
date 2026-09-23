@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TypeGuard
+from stage6_events import response_policy
 import json
 import re
 from pathlib import Path
@@ -26,6 +28,7 @@ TOP_LEVEL_REQUIRED_KEYS = {
     "motion",
     "preview",
     "title_area",
+    "soundscape_badges",
     "footer_progress_area",
     "selector_label_sprites",
     "spectrum_trails",
@@ -83,6 +86,14 @@ TITLE_AREA_KEYS = {
     "base_font_size_px",
     "line_gap_px",
 }
+SOUNDSCAPE_BADGES_KEYS = {
+    "x",
+    "y",
+    "width",
+    "height",
+    "badge_gap_px",
+    "font_size_px",
+}
 FOOTER_PROGRESS_AREA_KEYS = {
     "x",
     "y",
@@ -138,18 +149,21 @@ HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f'{path.name}: {error}') from error
 
 
-def _is_nonempty_string(value: object) -> bool:
+def _is_nonempty_string(value: object) -> TypeGuard[str]:
     return isinstance(value, str) and value.strip() != ""
 
 
-def _is_number(value: object) -> bool:
+def _is_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _is_integer(value: object) -> bool:
+def _is_integer(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
@@ -212,9 +226,14 @@ def validate_scene_profile_payload(
             profile,
             label="scene profile",
             required=TOP_LEVEL_REQUIRED_KEYS,
-            optional=TOP_LEVEL_OPTIONAL_KEYS if allow_output_metadata else set(),
+            optional=(TOP_LEVEL_OPTIONAL_KEYS if allow_output_metadata else set()) | {'event_response'},
         )
     )
+
+    try:
+        response_policy(profile)
+    except (ValueError, TypeError) as error:
+        errors.append(f'event_response: {error}')
 
     profile_id = profile.get("profile_id")
     if not _is_nonempty_string(profile_id):
@@ -407,6 +426,33 @@ def validate_scene_profile_payload(
                 errors.append(f"scene profile title_area.{field_name} must be an integer >= 0")
         if _is_integer(title_area.get("base_font_size_px")) and title_area["base_font_size_px"] <= 0:
             errors.append("scene profile title_area.base_font_size_px must be > 0")
+
+    soundscape_badges = profile.get("soundscape_badges")
+    if not isinstance(soundscape_badges, dict):
+        errors.append("scene profile soundscape_badges must be an object")
+    else:
+        errors.extend(
+            _check_exact_keys(
+                soundscape_badges,
+                label="scene profile soundscape_badges",
+                required=SOUNDSCAPE_BADGES_KEYS,
+            )
+        )
+        if canvas_width is not None and canvas_height is not None:
+            errors.extend(
+                _check_rect_bounds(
+                    soundscape_badges,
+                    label="scene profile soundscape_badges",
+                    canvas_width=canvas_width,
+                    canvas_height=canvas_height,
+                )
+            )
+        badge_gap_px = soundscape_badges.get("badge_gap_px")
+        if not _is_integer(badge_gap_px) or badge_gap_px < 0:
+            errors.append("scene profile soundscape_badges.badge_gap_px must be an integer >= 0")
+        font_size_px = soundscape_badges.get("font_size_px")
+        if not _is_integer(font_size_px) or font_size_px <= 0:
+            errors.append("scene profile soundscape_badges.font_size_px must be an integer > 0")
 
     footer_progress_area = profile.get("footer_progress_area")
     if not isinstance(footer_progress_area, dict):

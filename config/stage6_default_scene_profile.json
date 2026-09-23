@@ -1,0 +1,142 @@
+{
+  "profile_id": "stage6_default_dual_orbit_solarized_dark",
+  "description": "Default stage-6 analyzer-driven visual stub profile for the dual-voice runtime skeleton.",
+  "canvas": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30
+  },
+  "palette": {
+    "palette_id": "solarized_dark",
+    "background_color": "#002b36",
+    "panel_color": "#073642",
+    "grid_color": "#586e75",
+    "text_color": "#93a1a1",
+    "accent_sequence": [
+      "blue",
+      "cyan",
+      "green",
+      "yellow",
+      "orange",
+      "magenta",
+      "violet",
+      "red"
+    ],
+    "colors": {
+      "base03": "#002b36",
+      "base02": "#073642",
+      "base01": "#586e75",
+      "base00": "#657b83",
+      "base0": "#839496",
+      "base1": "#93a1a1",
+      "yellow": "#b58900",
+      "orange": "#cb4b16",
+      "red": "#dc322f",
+      "magenta": "#d33682",
+      "violet": "#6c71c4",
+      "blue": "#268bd2",
+      "cyan": "#2aa198",
+      "green": "#859900"
+    }
+  },
+  "motion": {
+    "mode": "dual_orbit_pulse",
+    "clock_source": "analysis_window_sequence.clock_seconds",
+    "keyframe_source": "one_keyframe_per_analysis_window",
+    "rotation_degrees_per_second": 24.0,
+    "base_scale": 0.65,
+    "envelope_scale_range": 0.7,
+    "grid_alpha_base": 0.08,
+    "grid_alpha_range": 0.18,
+    "lane_center_y_ratio": 0.46,
+    "lane_bias_y_range_ratio": 0.08,
+    "lane_energy_base": 0.75,
+    "lane_energy_scale": 0.5,
+    "lane_wave_height_px": 12.0,
+    "lane_orbit_px": 42.0,
+    "lane_orbit_wave_px": 8.0,
+    "base_radius_px": 72.0,
+    "radius_range_px": 210.0,
+    "base_opacity": 0.28,
+    "opacity_range": 0.55,
+    "base_stroke_width_px": 2.0,
+    "stroke_width_range_px": 6.0
+  },
+  "title_area": {
+    "x": 438,
+    "y": 44,
+    "width": 405,
+    "height": 104,
+    "max_lines": 2,
+    "layout_strategy": "explicit_newlines_centered",
+    "text_align": "center",
+    "base_font_size_px": 28,
+    "line_gap_px": 8
+  },
+  "soundscape_badges": {
+    "x": 438,
+    "y": 566,
+    "width": 405,
+    "height": 64,
+    "badge_gap_px": 6,
+    "font_size_px": 14
+  },
+  "footer_progress_area": {
+    "x": 438,
+    "y": 648,
+    "width": 405,
+    "height": 40,
+    "format_template": "{played_unique_count} / {total_combinations}",
+    "text_align": "center",
+    "font_size_px": 18
+  },
+  "selector_label_sprites": {
+    "x": 438,
+    "y": 174,
+    "width": 405,
+    "height": 360,
+    "random_seed_source": "selection.combination_id",
+    "label_min_font_size_px": 16,
+    "label_max_font_size_px": 22,
+    "label_padding_px": 10,
+    "idle_drift_px": 8,
+    "idle_rotation_degrees": 4,
+    "active_bounce_y_px": 14,
+    "active_scale_multiplier": 1.08
+  },
+  "spectrum_trails": {
+    "x": 438,
+    "y": 160,
+    "width": 405,
+    "height": 396,
+    "trail_count": 5,
+    "envelope_floor": 0.12,
+    "envelope_ceiling": 0.96,
+    "stroke_min_width_px": 1.5,
+    "stroke_max_width_px": 6.0,
+    "alpha_base": 0.12,
+    "alpha_range": 0.3,
+    "band_count": 20
+  },
+  "short_safe_layout": {
+    "x": 438,
+    "y": 0,
+    "width": 405,
+    "height": 720,
+    "target_aspect_ratio": "9:16"
+  },
+  "text_overrides": {
+    "default_toml_path": "src/musikalisches/runtime/config/stage6_default_text_overrides.toml",
+    "toml_section": "stage6.text_overrides",
+    "title_key": "title",
+    "newline_mode": "escaped_or_literal_newline",
+    "horizontal_alignment": "center",
+    "max_title_lines": 2
+  },
+  "preview": {
+    "sampled_window_limit": 180,
+    "title": "musikalisches stage6 video stub preview",
+    "geometry_label": "representative pulse geometry",
+    "envelope_label": "sampled analyzer envelope over time"
+  }
+}

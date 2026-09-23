@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from stage6_events import validate_contract
 from stage6_scene_profile import (
     SCENE_PROFILE_SCHEMA_PATH,
     validate_scene_profile_payload,
@@ -21,7 +22,10 @@ REQUIRED_FILES = {
 
 
 def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f'{path.name}: {error}') from error
 
 
 def rect_within_canvas(rect: dict, canvas: dict) -> bool:
@@ -105,6 +109,11 @@ def main() -> int:
     scene_profile = load_json(artifact_dir / "visual_scene_profile.json")
     manifest = load_json(artifact_dir / "video_stub_manifest.json")
     scene = load_json(artifact_dir / "video_stub_scene.json")
+    if 'structural_events' in scene:
+        try:
+            validate_contract(scene['structural_events'])
+        except ValueError as error:
+            return fail([str(error)])
     preview_text = (artifact_dir / "video_stub_preview.svg").read_text(encoding="utf-8")
 
     keyframes = scene.get("keyframes", [])
@@ -112,6 +121,7 @@ def main() -> int:
     cycles = scene.get("cycles", [])
     canvas = scene.get("canvas", {})
     title_area = scene.get("title_area", {})
+    soundscape_badges = scene.get("soundscape_badges", {})
     footer_progress_area = scene.get("footer_progress_area", {})
     selector_label_sprites = scene.get("selector_label_sprites", {})
     short_safe_layout = scene.get("short_safe_layout", {})
@@ -322,6 +332,27 @@ def main() -> int:
     )
     checks.append(
         build_check(
+            "soundscape_badges",
+            rect_within_canvas(soundscape_badges, canvas)
+            and soundscape_badges.get("badge_count") == len(soundscape_badges.get("badges", []))
+            and soundscape_badges.get("badge_count") == 3
+            and soundscape_badges.get("badge_count")
+            == scene.get("summary", {}).get("soundscape_badge_count")
+            and isinstance(soundscape_badges.get("registration_label"), str)
+            and soundscape_badges.get("registration_label", "").strip() != ""
+            and isinstance(soundscape_badges.get("ambient_label"), str)
+            and soundscape_badges.get("ambient_label", "").strip() != ""
+            and soundscape_badges.get("combination_hold_progress", {}).get("total_cycles", 0) > 0,
+            {
+                "soundscape_badges": soundscape_badges,
+                "summary_soundscape_badge_count": scene.get("summary", {}).get(
+                    "soundscape_badge_count"
+                ),
+            },
+        )
+    )
+    checks.append(
+        build_check(
             "footer_progress_area",
             rect_within_canvas(footer_progress_area, canvas)
             and isinstance(footer_progress_area.get("text"), str)
@@ -335,6 +366,24 @@ def main() -> int:
             rect_within_canvas(selector_label_sprites, canvas)
             and selector_label_sprites.get("sprite_count") == len(selector_label_sprites.get("sprites", []))
             and selector_label_sprites.get("sprite_count") == scene.get("summary", {}).get("selector_label_count")
+            and all(
+                rect_within_canvas(
+                    {
+                        "x": round(sprite.get("x", 0)),
+                        "y": round(sprite.get("y", 0)),
+                        "width": round(sprite.get("width", 0)),
+                        "height": round(sprite.get("height", 0)),
+                    },
+                    canvas,
+                )
+                and sprite.get("x", 0) >= selector_label_sprites.get("x", 0)
+                and sprite.get("y", 0) >= selector_label_sprites.get("y", 0)
+                and sprite.get("x", 0) + sprite.get("width", 0)
+                <= selector_label_sprites.get("x", 0) + selector_label_sprites.get("width", 0)
+                and sprite.get("y", 0) + sprite.get("height", 0)
+                <= selector_label_sprites.get("y", 0) + selector_label_sprites.get("height", 0)
+                for sprite in selector_label_sprites.get("sprites", [])
+            )
             and selector_label_sprites.get("sprite_count") == 16,
             {
                 "sprite_count": selector_label_sprites.get("sprite_count"),
@@ -379,6 +428,24 @@ def main() -> int:
             and isinstance(text_overrides.get("source_path"), str)
             and text_overrides.get("source_path", "").endswith(".toml"),
             {"text_overrides": text_overrides},
+        )
+    )
+    checks.append(
+        build_check(
+            "soundscape_badge_ids",
+            [badge.get("badge_id") for badge in soundscape_badges.get("badges", [])]
+            == [
+                "registration_label",
+                "ambient_label",
+                "combination_hold_progress",
+            ]
+            and all(
+                isinstance(badge.get("value"), str) and badge.get("value", "").strip() != ""
+                for badge in soundscape_badges.get("badges", [])
+            ),
+            {
+                "badge_ids": [badge.get("badge_id") for badge in soundscape_badges.get("badges", [])],
+            },
         )
     )
 

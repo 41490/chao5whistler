@@ -1,0 +1,5 @@
+bin/
+*.wav
+var/
+ghsingo.local.toml
+movpixer.local.toml

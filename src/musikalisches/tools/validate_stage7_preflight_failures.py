@@ -20,6 +20,8 @@ BUILD_STAGE7_STREAM_BRIDGE_TOOL = Path(__file__).resolve().parent / "build_stage
 RUN_STAGE7_STREAM_BRIDGE_RUNTIME_TOOL = (
     Path(__file__).resolve().parent / "run_stage7_stream_bridge_runtime.py"
 )
+RUST_RUNTIME_BIN_NAME = "musikalisches-stage7-runtime"
+RUNTIME_BIN_ENV = "MUSIKALISCHES_STAGE7_RUNTIME_BIN"
 STREAM_URL_ENV = "MUSIKALISCHES_RTMP_URL"
 REPORT_FILE = "stage7_preflight_regression_report.json"
 SCENARIO_ORDER = [
@@ -108,8 +110,21 @@ def build_bridge_artifacts(
 def run_runtime(*, artifact_dir: Path, target_url: str) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env[STREAM_URL_ENV] = target_url
-    return subprocess.run(
+    runtime_bin = resolve_runtime_bin(env)
+    command = (
         [
+            runtime_bin,
+            "--artifact-dir",
+            str(artifact_dir),
+            "--stream-url-env",
+            STREAM_URL_ENV,
+            "--loop-mode",
+            "once",
+            "--max-runtime-seconds",
+            "0",
+        ]
+        if runtime_bin
+        else [
             sys.executable,
             str(RUN_STAGE7_STREAM_BRIDGE_RUNTIME_TOOL),
             "--artifact-dir",
@@ -120,13 +135,35 @@ def run_runtime(*, artifact_dir: Path, target_url: str) -> subprocess.CompletedP
             "once",
             "--max-runtime-seconds",
             "0",
-        ],
+        ]
+    )
+    return subprocess.run(
+        command,
         check=False,
         capture_output=True,
         text=True,
         cwd=ROOT_PATH,
         env=env,
     )
+
+
+def resolve_runtime_bin(env: dict[str, str]) -> str | None:
+    explicit = env.get(RUNTIME_BIN_ENV, "").strip()
+    if explicit:
+        explicit_path = Path(explicit)
+        if not explicit_path.is_file():
+            raise SystemExit(f"{RUNTIME_BIN_ENV} does not point to a file: {explicit_path}")
+        if not os.access(explicit_path, os.X_OK):
+            raise SystemExit(f"{RUNTIME_BIN_ENV} is not executable: {explicit_path}")
+        return str(explicit_path)
+
+    for candidate in (
+        ROOT_PATH / "target" / "release" / RUST_RUNTIME_BIN_NAME,
+        ROOT_PATH / "target" / "debug" / RUST_RUNTIME_BIN_NAME,
+    ):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def reserve_port() -> int:
@@ -482,6 +519,11 @@ def main() -> int:
             "video_artifact_dir": str(video_dir),
             "ffmpeg_bin": args.ffmpeg_bin,
             "ffprobe_bin": args.ffprobe_bin,
+            "preferred_runtime": "rust",
+            "runtime_bin_env": RUNTIME_BIN_ENV,
+            "runtime_bin_name": RUST_RUNTIME_BIN_NAME,
+            "resolved_runtime_bin": resolve_runtime_bin(dict(os.environ)),
+            "fallback_runtime_tool": str(RUN_STAGE7_STREAM_BRIDGE_RUNTIME_TOOL),
         },
         "scenarios": scenario_results,
     }

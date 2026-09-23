@@ -395,7 +395,7 @@ pub struct AudioConfig {
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
-            sample_rate: 48_000,
+            sample_rate: 44_100,
             channels: 2,
             master_gain_db: 0.0,
             voice_mode_default: VoiceMode::Hybrid,
@@ -630,6 +630,10 @@ pub struct OutputEncodeConfig {
     pub video_codec: String,
     pub video_preset: String,
     pub audio_bitrate_kbps: u32,
+    pub video_bitrate_kbps: u32,
+    pub video_maxrate_kbps: u32,
+    pub video_bufsize_kbps: u32,
+    pub keyframe_interval_frames: u32,
 }
 
 impl Default for OutputEncodeConfig {
@@ -638,6 +642,10 @@ impl Default for OutputEncodeConfig {
             video_codec: "h264".to_string(),
             video_preset: "ultrafast".to_string(),
             audio_bitrate_kbps: 128,
+            video_bitrate_kbps: 4000,
+            video_maxrate_kbps: 4000,
+            video_bufsize_kbps: 8000,
+            keyframe_interval_frames: 60,
         }
     }
 }

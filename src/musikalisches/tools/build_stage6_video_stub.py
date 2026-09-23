@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import argparse
 import hashlib
 import json
@@ -15,6 +16,8 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ should provide tomllib
     tomllib = None
 
+from stage6_events import validate_contract, response_policy
+
 from stage6_scene_profile import (
     DEFAULT_SCENE_PROFILE_PATH,
     validate_scene_profile_payload,
@@ -27,12 +30,17 @@ REQUIRED_INPUT_FILES = {
     "synth_routing_profile.json",
     "artifact_summary.json",
     "realized_fragment_sequence.json",
+    "combination_selection.json",
+    "soundscape_selection.json",
 }
 ROOT_PATH = Path(__file__).resolve().parents[3]
 
 
 def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f'{path.name}: {error}') from error
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -123,7 +131,19 @@ def resolve_title_text(
 
 
 def format_count(value: int | None) -> str:
-    return f"{int(value or 0):,}"
+    return f"{value or 0:,}"
+
+
+def stable_index(seed_text: str, size: int) -> int:
+    if size <= 0:
+        raise SystemExit("stable_index size must be > 0")
+    digest = hashlib.sha256(seed_text.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") % size
+
+
+def pick_palette_name(scene_profile: dict, seed_text: str) -> str:
+    accent_sequence = scene_profile["palette"]["accent_sequence"]
+    return accent_sequence[stable_index(seed_text, len(accent_sequence))]
 
 
 def build_title_area(scene_profile: dict, title_text: dict) -> dict:
@@ -150,6 +170,107 @@ def build_footer_progress_area(scene_profile: dict, selection: dict) -> dict:
     }
 
 
+def build_soundscape_badges(
+    scene_profile: dict,
+    *,
+    selection: dict,
+    soundscape_selection: dict,
+    cycles: list[dict],
+) -> dict:
+    layers_by_kind = {
+        layer.get("layer_kind"): layer for layer in soundscape_selection.get("layers", [])
+    }
+    ambient_layer = layers_by_kind.get("ambient")
+    drone_layer = layers_by_kind.get("drone")
+    registration = soundscape_selection.get("registration", {})
+    if not isinstance(ambient_layer, dict) or not isinstance(drone_layer, dict):
+        raise SystemExit("soundscape_selection.json must expose ambient and drone layers for stage6")
+    if not isinstance(registration, dict):
+        raise SystemExit("soundscape_selection.json registration block is required for stage6")
+
+    registration_label = registration.get("label")
+    ambient_label = ambient_layer.get("label")
+    drone_label = drone_layer.get("label")
+    if not isinstance(registration_label, str) or registration_label.strip() == "":
+        raise SystemExit("soundscape_selection.json registration.label must be a non-empty string")
+    if not isinstance(ambient_label, str) or ambient_label.strip() == "":
+        raise SystemExit("soundscape_selection.json ambient layer label must be a non-empty string")
+    if not isinstance(drone_label, str) or drone_label.strip() == "":
+        raise SystemExit("soundscape_selection.json drone layer label must be a non-empty string")
+
+    total_cycles = selection.get("combination_hold_cycles")
+    if not isinstance(total_cycles, int) or total_cycles <= 0:
+        raise SystemExit("combination_selection.json combination_hold_cycles must be an integer > 0")
+    if len(cycles) != total_cycles:
+        raise SystemExit("stage6 cycles must match combination_selection.json combination_hold_cycles")
+
+    colors = scene_profile["palette"]["colors"]
+    layer_palette_hint = {
+        "registration_accent_name": pick_palette_name(
+            scene_profile,
+            registration.get("registration_id", registration_label),
+        ),
+        "ambient_accent_name": pick_palette_name(
+            scene_profile,
+            ambient_layer.get("asset_id", ambient_label),
+        ),
+        "drone_accent_name": pick_palette_name(
+            scene_profile,
+            drone_layer.get("asset_id", drone_label),
+        ),
+        "hold_accent_name": pick_palette_name(
+            scene_profile,
+            f"{selection.get('combination_id', '')}:hold_progress",
+        ),
+    }
+    hold_progress = {
+        "current_cycle_index": 1,
+        "total_cycles": total_cycles,
+        "value_template": "{current_cycle} / {total_cycles}",
+    }
+    badges = [
+        {
+            "badge_id": "registration_label",
+            "title": "REGISTRATION",
+            "value": registration_label,
+            "accent_name": layer_palette_hint["registration_accent_name"],
+            "accent_color": colors[layer_palette_hint["registration_accent_name"]],
+        },
+        {
+            "badge_id": "ambient_label",
+            "title": "AMBIENT",
+            "value": ambient_label,
+            "accent_name": layer_palette_hint["ambient_accent_name"],
+            "accent_color": colors[layer_palette_hint["ambient_accent_name"]],
+        },
+        {
+            "badge_id": "combination_hold_progress",
+            "title": "HOLD",
+            "value": f"1 / {total_cycles}",
+            "accent_name": layer_palette_hint["hold_accent_name"],
+            "accent_color": colors[layer_palette_hint["hold_accent_name"]],
+            "progress": hold_progress,
+        },
+    ]
+    return {
+        **scene_profile["soundscape_badges"],
+        "soundscape_profile_id": soundscape_selection.get("soundscape_profile_id"),
+        "registration_label": registration_label,
+        "ambient_label": ambient_label,
+        "drone_label": drone_label,
+        "combination_hold_progress": hold_progress,
+        "layer_palette_hint": {
+            **layer_palette_hint,
+            "registration_accent_color": colors[layer_palette_hint["registration_accent_name"]],
+            "ambient_accent_color": colors[layer_palette_hint["ambient_accent_name"]],
+            "drone_accent_color": colors[layer_palette_hint["drone_accent_name"]],
+            "hold_accent_color": colors[layer_palette_hint["hold_accent_name"]],
+        },
+        "badge_count": len(badges),
+        "badges": badges,
+    }
+
+
 def build_fragment_timeline(realized_fragments: dict, cycles: list[dict]) -> list[dict]:
     fragments = realized_fragments.get("fragments", [])
     if not fragments:
@@ -160,6 +281,9 @@ def build_fragment_timeline(realized_fragments: dict, cycles: list[dict]) -> lis
 
     timeline: list[dict] = []
     for cycle in cycles:
+        cycle_realization = realized_fragments.get('cycle_realizations', {}).get(str(cycle['cycle_index']), realized_fragments)
+        fragments = cycle_realization['fragments']
+        base_duration = cycle_realization['summary']['total_duration_seconds']
         cycle_duration = cycle.get("end_seconds", 0.0) - cycle.get("start_seconds", 0.0)
         if not math.isclose(cycle_duration, base_duration, rel_tol=0.0, abs_tol=1e-6):
             raise SystemExit(
@@ -213,10 +337,12 @@ def build_selector_label_sprites(
             area["label_min_font_size_px"],
             area["label_max_font_size_px"],
         )
-        label_width = int(round(cell_width - area["label_padding_px"] * 2))
-        label_height = int(round(max(cell_height * 0.58, font_size * 1.8)))
+        label_width = round(cell_width - area["label_padding_px"] * 2)
+        label_height = round(max(cell_height * 0.58, font_size * 1.8))
         x = area["x"] + column * cell_width + area["label_padding_px"] + jitter_x
         y = area["y"] + row * cell_height + area["label_padding_px"] + jitter_y
+        x = min(max(x, area["x"]), area["x"] + area["width"] - max(1, label_width))
+        y = min(max(y, area["y"]), area["y"] + area["height"] - max(1, label_height))
         active_windows = [
             {
                 "cycle_index": fragment["cycle_index"],
@@ -324,7 +450,7 @@ def resolve_scene_profile(
             "scene profile validation failed:\n- " + "\n- ".join(input_errors)
         )
 
-    resolved = json.loads(json.dumps(profile))
+    resolved = deepcopy(profile)
     resolved["canvas"]["width"] = width_override or resolved["canvas"]["width"]
     resolved["canvas"]["height"] = height_override or resolved["canvas"]["height"]
     resolved["canvas"]["fps"] = fps_override or resolved["canvas"]["fps"]
@@ -561,6 +687,7 @@ def build_preview_svg(scene: dict) -> str:
     keyframes = scene["keyframes"]
     representative = keyframes[len(keyframes) // 2]
     title_area = scene["title_area"]
+    soundscape_badges = scene["soundscape_badges"]
     footer_area = scene["footer_progress_area"]
     selector_block = scene["selector_label_sprites"]
     short_safe = scene["short_safe_layout"]
@@ -619,6 +746,28 @@ def build_preview_svg(scene: dict) -> str:
             f"fill=\"{palette['text_color']}\">{escape(sprite['text'])}</text>"
         )
 
+    badge_gap = soundscape_badges["badge_gap_px"]
+    badge_count = max(1, soundscape_badges.get("badge_count", 0))
+    badge_height = max(
+        1,
+        (soundscape_badges["height"] - badge_gap * max(0, badge_count - 1)) // badge_count,
+    )
+    soundscape_badge_rows: list[str] = []
+    for index, badge in enumerate(soundscape_badges.get("badges", [])):
+        y = soundscape_badges["y"] + index * (badge_height + badge_gap)
+        text = f"{badge['title']}: {badge['value']}"
+        soundscape_badge_rows.append(
+            f"<rect x=\"{soundscape_badges['x']}\" y=\"{y}\" width=\"{soundscape_badges['width']}\" "
+            f"height=\"{badge_height}\" rx=\"10\" fill=\"{palette['panel_color']}\" "
+            f"stroke=\"{badge['accent_color']}\" stroke-width=\"1.5\" opacity=\"0.92\" />"
+        )
+        soundscape_badge_rows.append(
+            f"<text x=\"{soundscape_badges['x'] + 12}\" "
+            f"y=\"{y + badge_height / 2 + soundscape_badges['font_size_px'] / 3}\" "
+            f"font-size=\"{soundscape_badges['font_size_px']}\" "
+            f"fill=\"{palette['text_color']}\">{escape(text)}</text>"
+        )
+
     lines = [
         f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">",
         f"<rect width=\"{width}\" height=\"{height}\" fill=\"{palette['background_color']}\" />",
@@ -626,6 +775,7 @@ def build_preview_svg(scene: dict) -> str:
         f"<text x=\"80\" y=\"104\" font-size=\"28\" fill=\"{palette['text_color']}\">{escape(scene['preview']['title'])}</text>",
         f"<rect x=\"{short_safe['x']}\" y=\"{short_safe['y']}\" width=\"{short_safe['width']}\" height=\"{short_safe['height']}\" fill=\"none\" stroke=\"{palette['grid_color']}\" stroke-width=\"2\" stroke-dasharray=\"8 8\" opacity=\"0.75\" />",
         *title_lines,
+        *soundscape_badge_rows,
         f"<text x=\"{width / 2}\" y=\"{footer_area['y'] + footer_area['font_size_px']}\" font-size=\"{footer_area['font_size_px']}\" text-anchor=\"middle\" fill=\"{palette['text_color']}\">{escape(footer_area['text'])}</text>",
         f"<text x=\"80\" y=\"146\" font-size=\"18\" fill=\"{palette['text_color']}\">profile: {escape(scene['visual_scene_profile_id'])}</text>",
         f"<text x=\"80\" y=\"176\" font-size=\"18\" fill=\"{palette['text_color']}\">source: {escape(scene['input_summary']['source_artifact_dir'])}</text>",
@@ -665,6 +815,8 @@ def main() -> int:
         "--text-config",
         help="optional TOML file overriding stage6 text_overrides title source",
     )
+    parser.add_argument('--events', help='versioned structural event contract JSON')
+    parser.add_argument('--disable-events', action='store_true')
     parser.add_argument("--width", type=int, help="override profile canvas width")
     parser.add_argument("--height", type=int, help="override profile canvas height")
     parser.add_argument("--fps", type=int, help="override profile frame rate")
@@ -691,6 +843,8 @@ def main() -> int:
     synth_profile = load_json(source_dir / "synth_routing_profile.json")
     artifact_summary = load_json(source_dir / "artifact_summary.json")
     realized_fragments = load_json(source_dir / "realized_fragment_sequence.json")
+    selection = load_json(source_dir / "combination_selection.json")
+    soundscape_selection = load_json(source_dir / "soundscape_selection.json")
 
     if analysis.get("work_id") != stream_plan.get("work_id"):
         raise SystemExit("work_id mismatch between analysis_window_sequence.json and stream_loop_plan.json")
@@ -700,15 +854,20 @@ def main() -> int:
         raise SystemExit(
             "work_id mismatch between realized_fragment_sequence.json and stream_loop_plan.json"
         )
+    if selection.get("work_id") != stream_plan.get("work_id"):
+        raise SystemExit(
+            "work_id mismatch between combination_selection.json and stream_loop_plan.json"
+        )
+    if soundscape_selection.get("combination_id") != selection.get("combination_id"):
+        raise SystemExit(
+            "combination_id mismatch between soundscape_selection.json and combination_selection.json"
+        )
     if not analysis.get("windows"):
         raise SystemExit("analysis_window_sequence.json must contain at least one analyzer window")
     if not synth_profile.get("voice_groups"):
         raise SystemExit("synth_routing_profile.json must contain at least one voice group")
-    selection = artifact_summary.get("selection")
-    if not isinstance(selection, dict):
-        raise SystemExit("artifact_summary.json must contain selection metadata from stage5 unique scheduler")
     if len(selection.get("selector_results", [])) != 16:
-        raise SystemExit("artifact_summary.json selection.selector_results must contain 16 entries")
+        raise SystemExit("combination_selection.json selector_results must contain 16 entries")
 
     scene_profile = resolve_scene_profile(
         scene_profile_path,
@@ -736,6 +895,12 @@ def main() -> int:
     )
     fragment_timeline = build_fragment_timeline(realized_fragments, cycles)
     title_area = build_title_area(scene_profile, title_text)
+    soundscape_badges = build_soundscape_badges(
+        scene_profile,
+        selection=selection,
+        soundscape_selection=soundscape_selection,
+        cycles=cycles,
+    )
     footer_progress_area = build_footer_progress_area(scene_profile, selection)
     selector_label_sprites = build_selector_label_sprites(
         scene_profile=scene_profile,
@@ -766,6 +931,7 @@ def main() -> int:
         "motion": scene_profile["motion"],
         "preview": scene_profile["preview"],
         "title_area": title_area,
+        "soundscape_badges": soundscape_badges,
         "footer_progress_area": footer_progress_area,
         "selector_label_sprites": selector_label_sprites,
         "spectrum_trails": spectrum_trails,
@@ -780,6 +946,10 @@ def main() -> int:
             "synth_routing_profile_id": synth_profile.get("profile_id"),
             "visual_scene_profile_id": scene_profile["profile_id"],
             "audio_duration_seconds": artifact_summary.get("audio_duration_seconds"),
+            "soundscape_profile_id": soundscape_selection.get("soundscape_profile_id"),
+            "registration_label": soundscape_badges["registration_label"],
+            "ambient_label": soundscape_badges["ambient_label"],
+            "soundscape_selection_file": "soundscape_selection.json",
         },
         "lane_layout": lanes,
         "cycles": cycles,
@@ -790,6 +960,7 @@ def main() -> int:
             "cycle_count": len(cycles),
             "lane_count": len(lanes),
             "selector_label_count": selector_label_sprites["sprite_count"],
+            "soundscape_badge_count": soundscape_badges["badge_count"],
             "title_line_count": title_area["line_count"],
             "total_duration_seconds": analysis.get("total_duration_seconds"),
             "sample_rate": analysis.get("sample_rate"),
@@ -810,6 +981,20 @@ def main() -> int:
         },
     }
 
+    event_path = Path(args.events) if args.events else source_dir / 'structural_events.json'
+    events = validate_contract(load_json(event_path)) if event_path.exists() else None
+    if args.events and not event_path.exists():
+        raise ValueError('structural_events: explicitly requested input is missing')
+    active_events = events if not args.disable_events and events and events['events'] else None
+    scene['events_fallback'] = active_events is None
+    scene['event_response'] = response_policy(scene_profile)
+    if active_events is not None:
+        scene['structural_events'] = active_events
+        if active_events['render_duration_seconds'] != scene['summary']['total_duration_seconds']:
+            raise ValueError('structural_events.render_duration_seconds: scene duration mismatch')
+    for lane in lanes:
+        lane['voice_group'] = f"part-{lane['part_index']}"
+
     manifest = {
         "stage": "stage6_video_stub",
         "description": "Analyzer-to-video stub derived from stage5 runtime artifacts.",
@@ -819,6 +1004,8 @@ def main() -> int:
         "visual_scene_profile_source": scene_profile["source"],
         "visual_scene_profile_path": scene_profile["source_path"],
         "input_files": sorted(REQUIRED_INPUT_FILES),
+        "events_fallback": scene["events_fallback"],
+        "event_count": len(active_events["events"]) if active_events else 0,
         "artifacts": {
             "visual_scene_profile_file": "visual_scene_profile.json",
             "scene_file": "video_stub_scene.json",
@@ -830,6 +1017,7 @@ def main() -> int:
             "cycle_count": scene["summary"]["cycle_count"],
             "lane_count": scene["summary"]["lane_count"],
             "selector_label_count": scene["summary"]["selector_label_count"],
+            "soundscape_badge_count": scene["summary"]["soundscape_badge_count"],
             "title_line_count": scene["summary"]["title_line_count"],
             "total_duration_seconds": scene["summary"]["total_duration_seconds"],
             "canvas": f"{scene['canvas']['width']}x{scene['canvas']['height']}",

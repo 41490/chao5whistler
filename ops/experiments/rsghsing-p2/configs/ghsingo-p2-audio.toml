@@ -1,29 +1,30 @@
-# rsghsing base profile (Issue #104).
+# ghsingo P2 audio parity config (Issue #105).
 #
-# Same schema/semantics as src/ghsingo/ghsingo.toml, restricted to the
-# sections P1 `prepare` reads. Unknown sections are ignored on load, so the
-# audio/video/composer blocks can be added here when a later subcommand
-# needs them.
+# Every audio-relevant block ([audio] / [composer] / [mixer] / [assets.*] /
+# [video].fps) is byte-for-byte the same values as src/rsghsing/rsghsing.toml,
+# so the Go and Rust renders consume the same tuning. The extra blocks here
+# ([video.background], [output.local]) exist only because Go's config validator
+# requires them; rsghsing's validator does not, and they do not touch audio.
 #
-# A sibling `rsghsing.local.toml` (gitignored) overlays ONLY the keys it
-# mentions. Relative paths resolve against THIS FILE's directory, so
-# `--config` works from any CWD.
+# Paths are absolute so both binaries work from any CWD and read the same
+# daypack bytes and the same WAV assets. audio_parity.sh substitutes
+# @@DAYPACK_DIR@@ before running.
 
 [meta]
 profile = "ambient"
 engine  = "v2"
 
 [archive]
-source_dir   = "../../var/rsghsing/archive/raw"
-daypack_dir  = "../../var/rsghsing/daypack"
-target_date  = "yesterday"
+source_dir   = "/home/zoomq/.herdr/worktrees/chao5whistler/run-105-p2/var/rsghsing/archive/raw"
+daypack_dir  = "@@DAYPACK_DIR@@"
+target_date  = "2026-03-28"
 
 [archive.download]
 enabled      = false
 base_url     = "https://data.gharchive.org"
 timeout_secs = 60
 max_parallel = 4
-user_agent   = "rsghsing/0.1"
+user_agent   = "ghsingo/0.2"
 
 [events]
 types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent", "ReleaseEvent"]
@@ -43,8 +44,6 @@ sample_rate = 44100
 channels = 2
 master_gain_db = 0.0
 
-# Composer (state-vector core, #30). Empty fields fall back to the defaults
-# documented in internal/composer/composer.go.
 [composer]
 ema_alpha             = 0.06
 density_saturation    = 12.0
@@ -54,18 +53,16 @@ accent_cooldown_ticks = 3
 accent_base_prob      = 0.10
 seed                  = 0
 
-# Mixer (long-lived bus model, #31 + #32). Linear gains in [0, 1].
 [mixer]
 master_gain     = 0.55
 drone_gain      = 1.0
 bed_gain        = 1.0
-tonal_bed_gain  = 0.575    # -4.8 dB
+tonal_bed_gain  = 0.575
 accent_gain     = 1.0
 wet_continuous  = 0.06
 wet_accent      = 0.45
 accent_max      = 4
 
-# Assets (v2 ambient layer assignments, #32).
 [assets.tonal_bed]
 wav_path = "/opt/src/41490/chao5whistler/ops/assets/sounds/ambient/tonal-bed.wav"
 gain_db  = -4.8
@@ -75,14 +72,19 @@ bank_dir    = "/opt/src/41490/chao5whistler/ops/assets/sounds/bells/sampled"
 synth_decay = 0.996
 
 [video]
+width = 1280
+height = 720
 fps = 15
+
+[video.background]
+mode = "solid"
+switch_every_secs = 2.0
+fade_secs = 0.2
 
 [output]
 mode = "local"
+video_preset = "ultrafast"
+audio_bitrate_kbps = 128
 
-[output.rtmps]
-url = ""
-
-# Reserved for the P2+ scheduler (decision baseline #1: UTC execution).
-[schedule]
-timezone = "UTC"
+[output.local]
+path = "/opt/logs/41490/out/rsghsing/p2/go/live.flv"

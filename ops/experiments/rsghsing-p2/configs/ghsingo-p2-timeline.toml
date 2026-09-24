@@ -1,0 +1,61 @@
+# ghsingo P2 composer-timeline parity config (Issue #105).
+#
+# The [composer] block is absent on purpose: Go composer-demo builds
+# `composer.New(composer.Config{Seed: *seedFlag})`, so every knob falls back to
+# the in-code #30 defaults. rsghsing's composer-timeline does the same because
+# rsghsing.toml carries exactly those documented defaults.
+#
+# timeline_parity.sh substitutes @@DAYPACK_DIR@@ with the same daypack bytes the
+# Rust side reads, so both sides consume byte-identical input.
+
+[meta]
+profile = "ambient"
+engine  = "v2"
+
+[archive]
+source_dir   = "/home/zoomq/.herdr/worktrees/chao5whistler/run-105-p2/var/rsghsing/archive/raw"
+daypack_dir  = "@@DAYPACK_DIR@@"
+target_date  = "2026-03-28"
+
+[archive.download]
+enabled      = false
+base_url     = "https://data.gharchive.org"
+timeout_secs = 60
+max_parallel = 4
+user_agent   = "ghsingo/0.2"
+
+[events]
+types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent", "ReleaseEvent"]
+max_per_second = 4
+dedupe_window_secs = 600
+
+[events.weights]
+PushEvent = 30
+CreateEvent = 40
+IssuesEvent = 50
+PullRequestEvent = 70
+ForkEvent = 80
+ReleaseEvent = 100
+
+[audio]
+sample_rate = 44100
+channels = 2
+master_gain_db = 0.0
+
+[video]
+width = 1280
+height = 720
+fps = 15
+
+[video.background]
+mode = "solid"
+switch_every_secs = 2.0
+fade_secs = 0.2
+
+[output]
+mode = "local"
+video_preset = "ultrafast"
+audio_bitrate_kbps = 128
+
+[output.local]
+path = "/opt/logs/41490/out/rsghsing/p2/go/live.flv"

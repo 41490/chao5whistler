@@ -1,0 +1,49 @@
+# rsghsing base profile (Issue #104).
+#
+# Same schema/semantics as src/ghsingo/ghsingo.toml, restricted to the
+# sections P1 `prepare` reads. Unknown sections are ignored on load, so the
+# audio/video/composer blocks can be added here when a later subcommand
+# needs them.
+#
+# A sibling `rsghsing.local.toml` (gitignored) overlays ONLY the keys it
+# mentions. Relative paths resolve against THIS FILE's directory, so
+# `--config` works from any CWD.
+
+[meta]
+profile = "ambient"
+engine  = "v2"
+
+[archive]
+source_dir   = "../../var/rsghsing/archive/raw"
+daypack_dir  = "../../var/rsghsing/daypack"
+target_date  = "yesterday"
+
+[archive.download]
+enabled      = false
+base_url     = "https://data.gharchive.org"
+timeout_secs = 60
+max_parallel = 4
+user_agent   = "rsghsing/0.1"
+
+[events]
+types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent", "ReleaseEvent"]
+max_per_second = 4
+dedupe_window_secs = 600
+
+[events.weights]
+PushEvent = 30
+CreateEvent = 40
+IssuesEvent = 50
+PullRequestEvent = 70
+ForkEvent = 80
+ReleaseEvent = 100
+
+[output]
+mode = "local"
+
+[output.rtmps]
+url = ""
+
+# Reserved for the P2+ scheduler (decision baseline #1: UTC execution).
+[schedule]
+timezone = "UTC"

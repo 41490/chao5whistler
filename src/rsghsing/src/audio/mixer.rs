@@ -385,3 +385,156 @@ impl Engine {
         self.mixer.render_frame()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// RMS of one rendered frame, both channels pooled.
+    fn frame_rms(m: &mut MixerV2) -> f64 {
+        let f = m.render_frame();
+        let n = f.len() as f64;
+        (f.iter().map(|&s| f64::from(s) * f64::from(s)).sum::<f64>() / n).sqrt()
+    }
+
+    /// Renders `frames` frames and returns the pooled RMS.
+    fn rms_over(m: &mut MixerV2, frames: usize) -> f64 {
+        let mut acc = 0.0f64;
+        let mut n = 0usize;
+        for _ in 0..frames {
+            for s in m.render_frame() {
+                acc += f64::from(s) * f64::from(s);
+                n += 1;
+            }
+        }
+        assert!(n > 0);
+        (acc / n as f64).sqrt()
+    }
+
+    /// A steady-state composer tick: no accents, mid density/brightness.
+    fn steady_output(density: f64, brightness: f64) -> Output {
+        Output {
+            state: State {
+                density,
+                brightness,
+                mode: Mode::Yo,
+                section: Section::Build,
+                accent_prob: 0.0,
+                ticks_in_phrase: 4,
+            },
+            accents: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn continuous_buses_are_audible_and_do_not_clip() {
+        let mut m = MixerV2::new(44_100, 15, 4);
+        m.apply_config(MixerConfig::default());
+        // Let the gain slew settle before measuring.
+        for _ in 0..40 {
+            m.apply_output(&steady_output(0.3, 0.5));
+        }
+        let rms = rms_over(&mut m, 30);
+        assert!(rms > 0.01, "mixer output is silent: rms={rms}");
+        assert!(rms < 0.5, "mixer output too hot: rms={rms}");
+    }
+
+    #[test]
+    fn each_continuous_bus_contributes_measurable_energy() {
+        // apply_config mirrors the Go builder and ignores a zero gain, so the
+        // buses are muted on the struct itself here. Each bus is measured in
+        // isolation: everything else muted, so the RMS is that bus alone.
+        let solo = |mute: fn(&mut MixerV2)| -> f64 {
+            let mut m = MixerV2::new(44_100, 15, 4);
+            m.apply_config(MixerConfig::default());
+            m.drone_gain = 0.0;
+            m.bed_gain = 0.0;
+            m.tonal_bed_gain = 0.0;
+            mute(&mut m);
+            for _ in 0..40 {
+                m.apply_output(&steady_output(0.3, 0.5));
+            }
+            rms_over(&mut m, 30)
+        };
+
+        let drone = solo(|m| m.drone_gain = 1.0);
+        let bed = solo(|m| m.bed_gain = 1.0);
+        let master = solo(|m| m.master_gain = 1.0); // nothing else on
+        assert!(master < 1e-6, "master-only render is not silent: {master}");
+        assert!(drone > 0.02, "drone bus is inaudible: rms={drone}");
+        assert!(bed > 0.002, "bed bus is inaudible: rms={bed}");
+        // The layer map puts the bed well under the drone; if that inverts the
+        // bed has become the lead layer.
+        assert!(bed < drone, "bed ({bed}) overtook drone ({drone})");
+
+        // Muting each bus on top of the others must remove energy.
+        fn paired(mute: fn(&mut MixerV2)) -> (f64, f64) {
+            let mut full = MixerV2::new(44_100, 15, 4);
+            full.apply_config(MixerConfig::default());
+            let mut cut = MixerV2::new(44_100, 15, 4);
+            cut.apply_config(MixerConfig::default());
+            mute(&mut cut);
+            for _ in 0..40 {
+                full.apply_output(&steady_output(0.3, 0.5));
+                cut.apply_output(&steady_output(0.3, 0.5));
+            }
+            (rms_over(&mut full, 30), rms_over(&mut cut, 30))
+        }
+        fn kill_drone(m: &mut MixerV2) {
+            m.drone_gain = 0.0;
+        }
+        fn kill_bed(m: &mut MixerV2) {
+            m.bed_gain = 0.0;
+        }
+        for (name, mute) in [("drone", kill_drone as fn(&mut MixerV2)),
+                             ("bed", kill_bed as fn(&mut MixerV2))] {
+            let (a, b) = paired(mute);
+            assert!(b < a, "{name} mute did not reduce energy: {a} -> {b}");
+        }
+    }
+
+    #[test]
+    fn tonal_bed_and_accent_buses_add_energy_on_top() {
+        // No tonal PCM and no bank: continuous buses only.
+        let mut bare = MixerV2::new(44_100, 15, 4);
+        bare.apply_config(MixerConfig::default());
+        // With tonal PCM loaded the bed must add energy.
+        let mut bedded = MixerV2::new(44_100, 15, 4);
+        bedded.apply_config(MixerConfig::default());
+        bedded.set_tonal_bed_pcm(
+            (0..2_205)
+                .map(|i| (f64::from(i) * 0.01).sin() as f32 * 0.5)
+                .collect(),
+        );
+        for _ in 0..40 {
+            bare.apply_output(&steady_output(0.3, 0.5));
+            bedded.apply_output(&steady_output(0.3, 0.5));
+        }
+        let a = rms_over(&mut bare, 30);
+        let b = rms_over(&mut bedded, 30);
+        assert!(b > a * 1.05, "tonal bed added no energy: {a} -> {b}");
+
+        // Accents: a bank must make the accent bus audible.
+        let mut silent = MixerV2::new(44_100, 15, 4);
+        silent.apply_config(MixerConfig::default());
+        let mut banked = MixerV2::new(44_100, 15, 4);
+        banked.apply_config(MixerConfig::default());
+        banked.set_accent_bank(BellBank::new(44_100));
+        let with_accent = Output {
+            accents: vec![Accent {
+                from_mode: Mode::Yo,
+                degree: 0,
+                octave: 3,
+                velocity: 100.0,
+            }],
+            ..steady_output(0.3, 0.5)
+        };
+        for _ in 0..20 {
+            silent.apply_output(&with_accent);
+            banked.apply_output(&with_accent);
+        }
+        let c = rms_over(&mut silent, 5);
+        let d = rms_over(&mut banked, 5);
+        assert!(d > c * 1.05, "accent bus added no energy: {c} -> {d}");
+    }
+}

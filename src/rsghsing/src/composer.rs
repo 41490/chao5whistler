@@ -402,7 +402,7 @@ mod tests {
     fn density_saturates_at_one() {
         let mut c = Composer::new(cfg(11));
         let burst: Vec<Event> = (0..200)
-            .map(|k| Event {
+            .map(|_k| Event {
                 type_id: 0,
                 weight: 255,
             })

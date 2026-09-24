@@ -6,8 +6,8 @@
 
 use std::fmt;
 use tracing::field::{Field, Visit};
-use tracing::{Event, Level, Metadata, Subscriber};
 use tracing::span::{Attributes, Id, Record};
+use tracing::{Event, Level, Metadata, Subscriber};
 
 pub fn init(level: Level) {
     let _ = tracing::subscriber::set_global_default(Stderr(level));

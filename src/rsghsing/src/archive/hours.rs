@@ -4,7 +4,7 @@
 //! otherwise a comma-separated list of single hours and inclusive ranges,
 //! deduplicated and sorted.
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 pub fn parse_hours(spec: &str) -> Result<Vec<usize>> {
     if spec.trim().is_empty() {
@@ -65,7 +65,10 @@ mod tests {
 
     #[test]
     fn ranges_dedup_and_sort() {
-        assert_eq!(parse_hours("16,12-14,13,0").unwrap(), vec![0, 12, 13, 14, 16]);
+        assert_eq!(
+            parse_hours("16,12-14,13,0").unwrap(),
+            vec![0, 12, 13, 14, 16]
+        );
     }
 
     #[test]

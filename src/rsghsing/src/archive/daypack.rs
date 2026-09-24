@@ -87,7 +87,11 @@ impl Daypack {
         buf.extend_from_slice(&[0, 0]); // reserved
 
         for tick in 0..TOTAL_TICKS {
-            let events = self.ticks.get(tick).map(|t| t.events.as_slice()).unwrap_or(&[]);
+            let events = self
+                .ticks
+                .get(tick)
+                .map(|t| t.events.as_slice())
+                .unwrap_or(&[]);
             let n = events.len().min(MAX_EVENTS_PER_TICK);
             buf.push(n as u8);
             for ev in &events[..n] {
@@ -185,11 +189,15 @@ impl<'a> Cursor<'a> {
     }
 
     fn u16(&mut self, where_: &'static str) -> Result<u16, DaypackError> {
-        Ok(u16::from_le_bytes(self.take(2, where_)?.try_into().unwrap()))
+        Ok(u16::from_le_bytes(
+            self.take(2, where_)?.try_into().unwrap(),
+        ))
     }
 
     fn u32(&mut self, where_: &'static str) -> Result<u32, DaypackError> {
-        Ok(u32::from_le_bytes(self.take(4, where_)?.try_into().unwrap()))
+        Ok(u32::from_le_bytes(
+            self.take(4, where_)?.try_into().unwrap(),
+        ))
     }
 }
 
@@ -247,7 +255,10 @@ mod tests {
 
         assert_eq!(&buf[0..4], b"GSIN");
         assert_eq!(u16::from_le_bytes([buf[4], buf[5]]), 1);
-        assert_eq!(u32::from_le_bytes(buf[6..10].try_into().unwrap()), 2026_0328);
+        assert_eq!(
+            u32::from_le_bytes(buf[6..10].try_into().unwrap()),
+            2026_0328
+        );
         assert_eq!(u32::from_le_bytes(buf[10..14].try_into().unwrap()), 86_400);
         assert_eq!(&buf[14..16], &[0, 0]);
         // Empty ticks still cost one count byte each.

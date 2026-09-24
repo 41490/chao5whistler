@@ -21,7 +21,7 @@ RAW="$REPO/var/rsghsing/archive/raw"
 BIN="$REPO/src/rsghsing/target/release/rsghsing"
 CFG_TEMPLATE="$SCRIPT_DIR/configs/rsghsing-download.toml"
 LIVE_URL="https://data.gharchive.org"
-DEAD_URL="http://127.0.0.1:9"   # discard port, nothing listens there
+DEAD_URL="http://127.0.0.1:9" # discard port, nothing listens there
 
 mkdir -p "$OUT"
 if [[ ! -x "$BIN" ]]; then
@@ -60,7 +60,7 @@ BIN2=$(sha256sum "$OUT/idem/daypack/$DATE/day.bin" | cut -d' ' -f1)
 sed "s|@@DATE@@|$DATE|; s|@@BASE_URL@@|$DEAD_URL|; s|@@RAWDIR@@|$RAW|" \
   "$CFG_TEMPLATE" >"$OUT/idem-run3.toml"
 if "$BIN" prepare --config "$OUT/idem-run3.toml" --date "$DATE" --hours "$HOUR" \
-    >"$OUT/idem-run3.log" 2>&1; then
+  >"$OUT/idem-run3.log" 2>&1; then
   echo "== run3 (base_url=$DEAD_URL): succeeded => no HTTP attempted =="
 else
   echo "== run3 FAILED (see $OUT/idem-run3.log) =="
@@ -74,10 +74,22 @@ echo "== run2 raw sha256 $RAW2 ($SIZE2 bytes) =="
 echo "== day.bin sha256: run1=$BIN1 run2=$BIN2 run3=$BIN3 =="
 
 fail=0
-grep -q "downloaded=1" "$OUT/idem-run1.log" || { echo "MISS: run1 did not download"; fail=1; }
-grep -q "missing=0 downloaded=0" "$OUT/idem-run2.log" || { echo "MISS: run2 was not a no-op"; fail=1; }
-[[ "$RAW1" == "$RAW2" ]] || { echo "MISS: raw bytes changed between runs"; fail=1; }
-[[ "$BIN1" == "$BIN2" && "$BIN2" == "$BIN3" ]] || { echo "MISS: day.bin not byte-stable"; fail=1; }
+grep -q "downloaded=1" "$OUT/idem-run1.log" || {
+  echo "MISS: run1 did not download"
+  fail=1
+}
+grep -q "missing=0 downloaded=0" "$OUT/idem-run2.log" || {
+  echo "MISS: run2 was not a no-op"
+  fail=1
+}
+[[ "$RAW1" == "$RAW2" ]] || {
+  echo "MISS: raw bytes changed between runs"
+  fail=1
+}
+[[ "$BIN1" == "$BIN2" && "$BIN2" == "$BIN3" ]] || {
+  echo "MISS: day.bin not byte-stable"
+  fail=1
+}
 [[ $fail -eq 0 ]] || exit 1
 
 echo "IDEMPOTENT_OK date=$DATE hour=$HOUR mode=$MODE zero_http_on_second_run=true"

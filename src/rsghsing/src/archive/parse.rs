@@ -10,7 +10,7 @@ use std::io::{self, BufRead, BufReader};
 use flate2::bufread::MultiGzDecoder;
 use serde::Deserialize;
 
-use super::daypack::{Event, Tick, TOTAL_TICKS, truncate_utf8};
+use super::daypack::{truncate_utf8, Event, Tick, TOTAL_TICKS};
 
 /// Same table as Go `archive.EventTypeID` / `config.EventTypeID`.
 pub const EVENT_TYPE_IDS: [(&str, u8); 6] = [
@@ -121,7 +121,8 @@ pub fn bucket_and_select(
     dedupe_window_secs: i64,
 ) -> Vec<Tick> {
     crate::gosort::sort_like_go(&mut events, &|a, b| {
-        a.second != b.second && a.second < b.second || a.second == b.second && a.base_weight > b.base_weight
+        a.second != b.second && a.second < b.second
+            || a.second == b.second && a.base_weight > b.base_weight
     });
 
     let mut buckets: Vec<Vec<ParsedEvent>> = vec![Vec::new(); TOTAL_TICKS];
@@ -185,7 +186,11 @@ pub fn second_of_day(ts: &str) -> Option<i64> {
     }
     let digits = |s: &str| -> Option<i64> { s.parse().ok() };
     let (y, m, d) = (digits(&ts[0..4])?, digits(&ts[5..7])?, digits(&ts[8..10])?);
-    let (hh, mm, ss) = (digits(&ts[11..13])?, digits(&ts[14..16])?, digits(&ts[17..19])?);
+    let (hh, mm, ss) = (
+        digits(&ts[11..13])?,
+        digits(&ts[14..16])?,
+        digits(&ts[17..19])?,
+    );
     let mut epoch = days_from_civil(y, m as u32, d as u32) * 86_400 + hh * 3600 + mm * 60 + ss;
     let rest = &ts[19..];
     if let Some(off) = parse_offset(rest) {
@@ -282,7 +287,12 @@ mod tests {
             line("3", "ReleaseEvent", "o/rel", "2026-03-28T11:00:03Z"),
             "{ this is not json".to_string(), // malformed, skipped
         ];
-        let evs = parse_gzip_events(gz(&lines).as_slice(), &allowed(&["PushEvent", "ReleaseEvent"]), &weights()).unwrap();
+        let evs = parse_gzip_events(
+            gz(&lines).as_slice(),
+            &allowed(&["PushEvent", "ReleaseEvent"]),
+            &weights(),
+        )
+        .unwrap();
         assert_eq!(evs.len(), 2);
         assert_eq!(evs[0].event_type, "PushEvent");
         assert_eq!(evs[0].base_weight, 30);
@@ -294,7 +304,12 @@ mod tests {
     #[test]
     fn text_falls_back_to_actor_when_repo_missing() {
         let l = r#"{"id":"9","type":"PushEvent","actor":{"login":"octocat"},"created_at":"2026-03-28T11:00:09Z"}"#;
-        let evs = parse_gzip_events(gz(&[l.to_string()]).as_slice(), &allowed(&["PushEvent"]), &weights()).unwrap();
+        let evs = parse_gzip_events(
+            gz(&[l.to_string()]).as_slice(),
+            &allowed(&["PushEvent"]),
+            &weights(),
+        )
+        .unwrap();
         assert_eq!(evs[0].text, "octocat");
         assert_eq!(evs[0].repo, "");
     }
@@ -304,9 +319,18 @@ mod tests {
         assert_eq!(second_of_day("2026-03-28T11:00:01Z"), Some(11 * 3600 + 1));
         assert_eq!(second_of_day("2026-03-28T11:00:01"), Some(11 * 3600 + 1));
         // +02:00 means the UTC second-of-day is two hours earlier.
-        assert_eq!(second_of_day("2026-03-28T11:00:01+02:00"), Some(9 * 3600 + 1));
-        assert_eq!(second_of_day("2026-03-28T00:30:00-01:00"), Some(3600 + 1800));
-        assert_eq!(second_of_day("2026-03-28T11:00:01.250Z"), Some(11 * 3600 + 1));
+        assert_eq!(
+            second_of_day("2026-03-28T11:00:01+02:00"),
+            Some(9 * 3600 + 1)
+        );
+        assert_eq!(
+            second_of_day("2026-03-28T00:30:00-01:00"),
+            Some(3600 + 1800)
+        );
+        assert_eq!(
+            second_of_day("2026-03-28T11:00:01.250Z"),
+            Some(11 * 3600 + 1)
+        );
         assert_eq!(second_of_day("nonsense"), None);
         assert_eq!(second_of_day(""), None);
     }
@@ -334,7 +358,11 @@ mod tests {
         assert_eq!(ticks[60].events[0].type_id, 0);
         // A heavier type in the same second wins the slots first.
         let ticks = bucket_and_select(
-            vec![ev(60, "PushEvent", "o/a"), ev(60, "ReleaseEvent", "o/b"), ev(60, "ForkEvent", "o/c")],
+            vec![
+                ev(60, "PushEvent", "o/a"),
+                ev(60, "ReleaseEvent", "o/b"),
+                ev(60, "ForkEvent", "o/c"),
+            ],
             1,
             600,
         );
@@ -346,7 +374,11 @@ mod tests {
     #[test]
     fn dedupes_same_repo_within_window() {
         let ticks = bucket_and_select(
-            vec![ev(10, "PushEvent", "o/r"), ev(20, "PushEvent", "o/r"), ev(700, "PushEvent", "o/r")],
+            vec![
+                ev(10, "PushEvent", "o/r"),
+                ev(20, "PushEvent", "o/r"),
+                ev(700, "PushEvent", "o/r"),
+            ],
             4,
             600,
         );
@@ -358,7 +390,11 @@ mod tests {
     #[test]
     fn out_of_range_seconds_are_dropped() {
         let ticks = bucket_and_select(
-            vec![ev(-5, "PushEvent", "o/a"), ev(TOTAL_TICKS as i64, "PushEvent", "o/b"), ev(1, "PushEvent", "o/c")],
+            vec![
+                ev(-5, "PushEvent", "o/a"),
+                ev(TOTAL_TICKS as i64, "PushEvent", "o/b"),
+                ev(1, "PushEvent", "o/c"),
+            ],
             4,
             600,
         );

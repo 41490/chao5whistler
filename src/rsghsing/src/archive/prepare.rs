@@ -8,11 +8,11 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use tracing::info;
 
 use super::daypack::Daypack;
-use super::download::{DownloadOptions, download_missing_hours, hour_file_path};
+use super::download::{download_missing_hours, hour_file_path, DownloadOptions};
 use super::hours::parse_hours;
 use super::parse::{bucket_and_select, parse_gzip_events};
 use crate::config::{Archive, Config, Events};
@@ -92,7 +92,11 @@ pub fn run(cfg: &Config, args: &PrepareArgs<'_>) -> Result<()> {
     let total_events = all_events.len();
     info!("total parsed events count={}", total_events);
 
-    let ticks = bucket_and_select(all_events, cfg.events.max_per_second, cfg.events.dedupe_window_secs);
+    let ticks = bucket_and_select(
+        all_events,
+        cfg.events.max_per_second,
+        cfg.events.dedupe_window_secs,
+    );
     let pack = Daypack::new(ymd_to_u32(&target_date), ticks);
 
     let out_dir = Path::new(&archive.daypack_dir).join(&target_date);
@@ -165,7 +169,11 @@ fn manifest(
         for ev in &tick.events {
             kept += 1;
             *by_type
-                .entry(super::parse::event_type_name(ev.type_id).unwrap_or("?").to_string())
+                .entry(
+                    super::parse::event_type_name(ev.type_id)
+                        .unwrap_or("?")
+                        .to_string(),
+                )
                 .or_default() += 1;
         }
     }

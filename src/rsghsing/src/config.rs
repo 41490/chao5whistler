@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -81,8 +81,8 @@ impl Config {
     pub fn load(path: &Path) -> Result<Config> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("read config {}", path.display()))?;
-        let mut merged: toml::Value = toml::from_str(&text)
-            .with_context(|| format!("parse config {}", path.display()))?;
+        let mut merged: toml::Value =
+            toml::from_str(&text).with_context(|| format!("parse config {}", path.display()))?;
 
         let local = local_overlay_path(path);
         if let Ok(local_text) = std::fs::read_to_string(&local) {
@@ -91,9 +91,7 @@ impl Config {
             merge_value(&mut merged, overlay);
         }
 
-        let mut cfg: Config = merged
-            .try_into()
-            .context("deserialize merged config")?;
+        let mut cfg: Config = merged.try_into().context("deserialize merged config")?;
         cfg.resolve_paths(path);
         cfg.validate()?;
         Ok(cfg)
@@ -227,7 +225,6 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,7 +311,10 @@ url = "rtmps://a.rtmps.youtube.com/live2/test-key"
         );
         let cfg = Config::load(&dir.join("rsghsing.toml")).unwrap();
         assert_eq!(cfg.output.mode, "rtmps");
-        assert_eq!(cfg.output.rtmps.url, "rtmps://a.rtmps.youtube.com/live2/test-key");
+        assert_eq!(
+            cfg.output.rtmps.url,
+            "rtmps://a.rtmps.youtube.com/live2/test-key"
+        );
         assert_eq!(cfg.meta.profile, "ambient");
         assert_eq!(cfg.events.max_per_second, 4);
         assert_eq!(cfg.events.weights["CreateEvent"], 40);
@@ -325,7 +325,11 @@ url = "rtmps://a.rtmps.youtube.com/live2/test-key"
     fn overlay_merges_nested_tables_without_dropping_siblings() {
         let dir = scratch("nested");
         write(&dir, "rsghsing.toml", BASE);
-        write(&dir, "rsghsing.local.toml", "[events]\nmax_per_second = 8\n");
+        write(
+            &dir,
+            "rsghsing.local.toml",
+            "[events]\nmax_per_second = 8\n",
+        );
         let cfg = Config::load(&dir.join("rsghsing.toml")).unwrap();
         assert_eq!(cfg.events.max_per_second, 8);
         assert_eq!(cfg.events.dedupe_window_secs, 600);
@@ -336,8 +340,20 @@ url = "rtmps://a.rtmps.youtube.com/live2/test-key"
     fn relative_archive_paths_resolve_against_the_config_dir() {
         let dir = scratch("paths");
         let cfg = Config::load(&write(&dir, "rsghsing.toml", BASE)).unwrap();
-        assert!(cfg.archive.source_dir.starts_with(&dir.to_string_lossy().to_string()), "{}", cfg.archive.source_dir);
-        assert!(cfg.archive.daypack_dir.starts_with(&dir.to_string_lossy().to_string()), "{}", cfg.archive.daypack_dir);
+        assert!(
+            cfg.archive
+                .source_dir
+                .starts_with(&dir.to_string_lossy().to_string()),
+            "{}",
+            cfg.archive.source_dir
+        );
+        assert!(
+            cfg.archive
+                .daypack_dir
+                .starts_with(&dir.to_string_lossy().to_string()),
+            "{}",
+            cfg.archive.daypack_dir
+        );
         assert!(cfg.archive.source_dir.ends_with("var/rsghsing/archive/raw"));
     }
 

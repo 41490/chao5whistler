@@ -4,8 +4,8 @@
 //! append variants to `Command` and a match arm here.
 
 mod archive;
-mod gosort;
 mod config;
+mod gosort;
 mod log;
 
 use std::path::PathBuf;
@@ -50,10 +50,13 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Prepare { date, hours } => {
             let cfg = config::Config::load(&cli.config)?;
-            archive::prepare::run(&cfg, &archive::prepare::PrepareArgs {
-                date: date.as_deref(),
-                hours: &hours,
-            })
+            archive::prepare::run(
+                &cfg,
+                &archive::prepare::PrepareArgs {
+                    date: date.as_deref(),
+                    hours: &hours,
+                },
+            )
         }
     }
 }

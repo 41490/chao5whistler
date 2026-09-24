@@ -47,10 +47,26 @@ impl Reverb {
         let ap_gains = [0.5f32, 0.5];
 
         let mut combs: [CombFilter; 4] = [
-            CombFilter { buf: Vec::new(), pos: 0, gain: 0.0 },
-            CombFilter { buf: Vec::new(), pos: 0, gain: 0.0 },
-            CombFilter { buf: Vec::new(), pos: 0, gain: 0.0 },
-            CombFilter { buf: Vec::new(), pos: 0, gain: 0.0 },
+            CombFilter {
+                buf: Vec::new(),
+                pos: 0,
+                gain: 0.0,
+            },
+            CombFilter {
+                buf: Vec::new(),
+                pos: 0,
+                gain: 0.0,
+            },
+            CombFilter {
+                buf: Vec::new(),
+                pos: 0,
+                gain: 0.0,
+            },
+            CombFilter {
+                buf: Vec::new(),
+                pos: 0,
+                gain: 0.0,
+            },
         ];
         for i in 0..4 {
             let n = (comb_delays_ms[i] * f64::from(sample_rate) / 1000.0) as usize;
@@ -62,8 +78,16 @@ impl Reverb {
         }
 
         let mut allpasses: [AllpassFilter; 2] = [
-            AllpassFilter { buf: Vec::new(), pos: 0, gain: 0.0 },
-            AllpassFilter { buf: Vec::new(), pos: 0, gain: 0.0 },
+            AllpassFilter {
+                buf: Vec::new(),
+                pos: 0,
+                gain: 0.0,
+            },
+            AllpassFilter {
+                buf: Vec::new(),
+                pos: 0,
+                gain: 0.0,
+            },
         ];
         for i in 0..2 {
             let n = ((ap_delays_ms[i] * f64::from(sample_rate) / 1000.0) as usize).max(1);

@@ -14,7 +14,7 @@ use crate::audio::drone::DroneVoice;
 use crate::audio::pitch::{self, Note, Pitch};
 use crate::audio::reverb::Reverb;
 use crate::audio::tonal_bed::TonalBedVoice;
-use crate::composer::{self, Accent, Composer, Mode, Output, State, Section};
+use crate::composer::{self, Accent, Composer, Mode, Output, Section, State};
 
 const ACCENT_SEED_BASE: i64 = 0x5eed_1050;
 
@@ -144,7 +144,11 @@ impl MixerV2 {
             self.wet_continuous = clamp_unit(cfg.wet_continuous);
             self.wet_accent = clamp_unit(cfg.wet_accent);
         }
-        self.accent_max = if cfg.accent_max == 0 { 4 } else { cfg.accent_max };
+        self.accent_max = if cfg.accent_max == 0 {
+            4
+        } else {
+            cfg.accent_max
+        };
     }
 
     pub fn set_accent_bank(&mut self, b: BellBank) {
@@ -309,18 +313,12 @@ pub fn pitch_for_accent(a: Accent) -> Pitch {
 }
 
 fn pentatonic_for_mode(m: Mode) -> [Note; 5] {
-    let base = [
-        Note::Gong,
-        Note::Shang,
-        Note::Jue,
-        Note::Zhi,
-        Note::Yu,
-    ];
+    let base = [Note::Gong, Note::Shang, Note::Jue, Note::Zhi, Note::Yu];
     let rot = match m {
-        Mode::Yo => 0,     // 宫
-        Mode::Hira => 1,   // 商
-        Mode::In => 2,     // 角
-        Mode::Ryo => 4,    // 羽
+        Mode::Yo => 0,   // 宫
+        Mode::Hira => 1, // 商
+        Mode::In => 2,   // 角
+        Mode::Ryo => 4,  // 羽
     };
     let mut out = [Note::Gong; 5];
     for i in 0..5 {
@@ -486,8 +484,10 @@ mod tests {
         fn kill_bed(m: &mut MixerV2) {
             m.bed_gain = 0.0;
         }
-        for (name, mute) in [("drone", kill_drone as fn(&mut MixerV2)),
-                             ("bed", kill_bed as fn(&mut MixerV2))] {
+        for (name, mute) in [
+            ("drone", kill_drone as fn(&mut MixerV2)),
+            ("bed", kill_bed as fn(&mut MixerV2)),
+        ] {
             let (a, b) = paired(mute);
             assert!(b < a, "{name} mute did not reduce energy: {a} -> {b}");
         }

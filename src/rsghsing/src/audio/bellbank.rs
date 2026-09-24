@@ -55,7 +55,13 @@ impl BellBank {
     }
 
     pub fn synth_voice(&self, p: Pitch, velocity: f32, seed: i64) -> KarplusVoice {
-        KarplusVoice::new(self.sample_rate, p.frequency(), self.synth_decay, velocity, seed)
+        KarplusVoice::new(
+            self.sample_rate,
+            p.frequency(),
+            self.synth_decay,
+            velocity,
+            seed,
+        )
     }
 }
 
@@ -67,7 +73,10 @@ mod tests {
     fn synth_voice_is_silenced_after_two_seconds() {
         let b = BellBank::new(44_100);
         let mut v = b.synth_voice(
-            Pitch { note: pitch::Note::Gong, octave: pitch::Octave::Mid },
+            Pitch {
+                note: pitch::Note::Gong,
+                octave: pitch::Octave::Mid,
+            },
             1.0,
             1,
         );
@@ -81,6 +90,9 @@ mod tests {
     #[test]
     fn load_from_dir_missing_dir_loads_nothing() {
         let mut b = BellBank::new(44_100);
-        assert_eq!(b.load_from_dir(Path::new("/nonexistent-rsghsing")).unwrap(), 0);
+        assert_eq!(
+            b.load_from_dir(Path::new("/nonexistent-rsghsing")).unwrap(),
+            0
+        );
     }
 }

@@ -185,8 +185,14 @@ mod tests {
     #[test]
     fn window_mapping_matches_go_source_window_for_render_second() {
         // Go: windowStart = start + floor(rs*rate); end = floor((rs+1)*rate).
-        assert_eq!(source_window_for_render_second(50_400, 1.0, 0), (50_400, 50_401));
-        assert_eq!(source_window_for_render_second(50_400, 12.0, 0), (50_400, 50_412));
+        assert_eq!(
+            source_window_for_render_second(50_400, 1.0, 0),
+            (50_400, 50_401)
+        );
+        assert_eq!(
+            source_window_for_render_second(50_400, 12.0, 0),
+            (50_400, 50_412)
+        );
         assert_eq!(
             source_window_for_render_second(50_400, 12.0, 1),
             (50_412, 50_424)

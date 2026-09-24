@@ -88,9 +88,30 @@ mod tests {
 
     #[test]
     fn frequencies_match_go_table() {
-        assert_eq!(Pitch { note: Note::Gong, octave: Octave::Low }.frequency(), 130.81);
-        assert_eq!(Pitch { note: Note::Gong, octave: Octave::Mid }.frequency(), 261.62);
-        assert_eq!(Pitch { note: Note::Yu, octave: Octave::High }.frequency(), 880.0);
+        assert_eq!(
+            Pitch {
+                note: Note::Gong,
+                octave: Octave::Low
+            }
+            .frequency(),
+            130.81
+        );
+        assert_eq!(
+            Pitch {
+                note: Note::Gong,
+                octave: Octave::Mid
+            }
+            .frequency(),
+            261.62
+        );
+        assert_eq!(
+            Pitch {
+                note: Note::Yu,
+                octave: Octave::High
+            }
+            .frequency(),
+            880.0
+        );
         assert_eq!(all_pitches().len(), 15);
         assert_eq!(all_pitches()[0].filename(), "C3.wav");
         assert_eq!(all_pitches()[14].filename(), "A5.wav");

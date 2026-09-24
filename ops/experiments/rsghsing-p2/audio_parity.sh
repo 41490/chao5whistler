@@ -32,8 +32,8 @@ GO_CFG="$OUT/ghsingo-p2-audio.toml"
 
 mkdir -p "$OUT"
 
-if [[ ! -x "$GO_BIN/composer-demo" || ! -x "$GO_BIN/render-audio-v2" \
-   || ! -x "$GO_BIN/audio-metrics" ]]; then
+if [[ ! -x "$GO_BIN/composer-demo" || ! -x "$GO_BIN/render-audio-v2" ||
+  ! -x "$GO_BIN/audio-metrics" ]]; then
   echo "== make -C src/ghsingo build-composer-demo build-render-audio-v2 \
 build-audio-metrics =="
   make -C "$REPO/src/ghsingo" build-composer-demo build-render-audio-v2 \
@@ -44,7 +44,10 @@ if [[ ! -x "$RS/target/release/rsghsing" ]]; then
   (cd "$RS" && cargo build --release >"$OUT/cargo-build.log" 2>&1)
 fi
 
-fail() { echo "AUDIO_PARITY_FAIL $1"; exit 1; }
+fail() {
+  echo "AUDIO_PARITY_FAIL $1"
+  exit 1
+}
 
 DAYPACK_DIR="$(sed -n 's/^daypack_dir *= *"\(.*\)"/\1/p' "$RS_TOML")"
 DAYPACK_DIR="${DAYPACK_DIR/#..\/..\//$REPO/}"
@@ -81,8 +84,7 @@ check_window() { # <clock> <tag>
   read -r rl rt <<<"$(jq -r '.loudness.integrated_lufs, .loudness.true_peak_dbtp' \
     "$OUT/rust-$tag.report.json" | tr '\n' ' ')"
 
-  python3 - "$tag" "$gl" "$rl" "$gt" "$rt" "$LUFS_TOL" "$TP_TOL" <<'PY' \
-    || fail "$tag"
+  python3 - "$tag" "$gl" "$rl" "$gt" "$rt" "$LUFS_TOL" "$TP_TOL" <<'PY' ||
 import sys
 tag, gl, rl, gt, rt, lt, tt = sys.argv[1:8]
 dl, dt = abs(float(gl) - float(rl)), abs(float(gt) - float(rt))
@@ -92,11 +94,12 @@ print(f"WINDOW {tag}: go lufs={gl} rust lufs={rl} |d|={dl:.4f} "
 print(f"WINDOW {tag}: {'PASS' if ok else 'FAIL'}")
 sys.exit(0 if ok else 1)
 PY
+    fail "$tag"
 
   # Render bookkeeping must match too: same ticks, accents, transitions.
   diff <(jq -S 'del(.engine, .config)' "$g.metrics.json") \
-       <(jq -S 'del(.engine, .config)' "$r.metrics.json") \
-    || fail "$tag sidecar"
+    <(jq -S 'del(.engine, .config)' "$r.metrics.json") ||
+    fail "$tag sidecar"
   echo "SIDECAR_OK tag=$tag (engine/config fields differ by design)"
 }
 

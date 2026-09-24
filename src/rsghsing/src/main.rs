@@ -56,7 +56,11 @@ enum Command {
         #[arg(long, default_value = "0")]
         seed: i64,
 
-        #[arg(long, short = 'o', default_value = "/tmp/rsghsing-composer-timeline.json")]
+        #[arg(
+            long,
+            short = 'o',
+            default_value = "/tmp/rsghsing-composer-timeline.json"
+        )]
         out: PathBuf,
     },
 

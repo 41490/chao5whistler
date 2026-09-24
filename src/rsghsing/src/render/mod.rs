@@ -23,7 +23,9 @@ use crate::composer::{Config as ComposerConfig, Event};
 /// `findLatestDaypack`: newest `<daypack_dir>/<date>/day.bin` by name sort.
 pub fn find_latest_daypack(dir: &Path) -> Result<(PathBuf, String)> {
     let mut dates = Vec::new();
-    for e in std::fs::read_dir(dir).with_context(|| format!("read daypack dir {}", dir.display()))? {
+    for e in
+        std::fs::read_dir(dir).with_context(|| format!("read daypack dir {}", dir.display()))?
+    {
         let e = e?;
         if !e.file_type()?.is_dir() {
             continue;
@@ -91,12 +93,16 @@ pub fn parse_duration(spec: &str) -> Result<f64> {
             's' => 1.0,
             other => bail!("unknown duration unit {other:?} in {spec:?}"),
         };
-        let v: f64 = num.parse().with_context(|| format!("bad number in {spec:?}"))?;
+        let v: f64 = num
+            .parse()
+            .with_context(|| format!("bad number in {spec:?}"))?;
         total += v * unit;
         num.clear();
     }
     if !num.is_empty() {
-        total += num.parse::<f64>().with_context(|| format!("bad number in {spec:?}"))?;
+        total += num
+            .parse::<f64>()
+            .with_context(|| format!("bad number in {spec:?}"))?;
     }
     if total <= 0.0 {
         bail!("duration must be positive, got {spec:?}");
@@ -161,7 +167,12 @@ pub fn build_engine(cfg: &crate::config::Config, seed: i64) -> Result<Engine> {
         wet_accent: cfg.mixer.wet_accent,
         accent_max: cfg.mixer.accent_max,
     };
-    let mut engine = Engine::new(cfg.audio.sample_rate, cfg.video.fps, composer_cfg, mixer_cfg);
+    let mut engine = Engine::new(
+        cfg.audio.sample_rate,
+        cfg.video.fps,
+        composer_cfg,
+        mixer_cfg,
+    );
 
     if !cfg.assets.accents.bank_dir.is_empty() {
         let mut bank = BellBank::new(cfg.audio.sample_rate);

@@ -28,8 +28,8 @@ RS_CFG="$OUT/rsghsing-p2-timeline.toml"
 mkdir -p "$OUT"
 
 GO_BIN="$REPO/ops/bin"
-if [[ ! -x "$GO_BIN/composer-demo" || ! -x "$GO_BIN/render-audio-v2" \
-   || ! -x "$GO_BIN/audio-metrics" ]]; then
+if [[ ! -x "$GO_BIN/composer-demo" || ! -x "$GO_BIN/render-audio-v2" ||
+  ! -x "$GO_BIN/audio-metrics" ]]; then
   echo "== make -C src/ghsingo build-composer-demo build-render-audio-v2 \
 build-audio-metrics =="
   make -C "$REPO/src/ghsingo" build-composer-demo build-render-audio-v2 \
@@ -51,7 +51,10 @@ sed "s|@@DAYPACK_DIR@@|$DAYPACK_DIR|" \
   "$SCRIPT_DIR/configs/ghsingo-p2-timeline.toml" >"$GO_CFG"
 cp "$RS/rsghsing.toml" "$RS_CFG"
 
-fail() { echo "TIMELINE_PARITY_FAIL $1"; exit 1; }
+fail() {
+  echo "TIMELINE_PARITY_FAIL $1"
+  exit 1
+}
 
 check() { # <tag> <go.json> <rust.json>
   local tag="$1" a="$2" b="$3"

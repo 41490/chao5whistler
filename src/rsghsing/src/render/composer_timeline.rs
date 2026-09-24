@@ -116,20 +116,14 @@ pub fn run(cfg: &crate::config::Config, duration: &str, seed: i64, out: &Path) -
     s.push_str(&format!("    \"ticks\": {total_ticks},\n"));
     s.push_str(&format!("    \"total_events\": {total_events},\n"));
     s.push_str(&format!("    \"total_accents\": {total_accents},\n"));
-    s.push_str(&format!(
-        "    \"accents_per_minute\": {accents_per_min},\n"
-    ));
+    s.push_str(&format!("    \"accents_per_minute\": {accents_per_min},\n"));
     s.push_str(&format!("    \"events_per_minute\": {events_per_min},\n"));
     s.push_str(&format!("    \"final_density\": {final_density},\n"));
-    s.push_str(&format!(
-        "    \"final_brightness\": {final_brightness},\n"
-    ));
+    s.push_str(&format!("    \"final_brightness\": {final_brightness},\n"));
     s.push_str(&format!(
         "    \"section_transitions\": {section_transitions},\n"
     ));
-    s.push_str(&format!(
-        "    \"mode_transitions\": {mode_transitions}\n"
-    ));
+    s.push_str(&format!("    \"mode_transitions\": {mode_transitions}\n"));
     s.push_str("  },\n");
     s.push_str("  \"ticks\": [");
     for (i, t) in ticks.iter().enumerate() {
@@ -155,7 +149,11 @@ pub fn run(cfg: &crate::config::Config, duration: &str, seed: i64, out: &Path) -
         } else {
             s.push_str(",\n        \"accents\": [\n");
             for (j, a) in t.accents.iter().enumerate() {
-                s.push_str(if j == 0 { "          " } else { ",\n          " });
+                s.push_str(if j == 0 {
+                    "          "
+                } else {
+                    ",\n          "
+                });
                 s.push_str(&format!(
                     "{{\n            \"velocity\": {},\n            \"degree\": {},\n            \"octave\": {},\n            \"mode\": \"{}\"\n          }}",
                     a.0, a.1, a.2, a.3

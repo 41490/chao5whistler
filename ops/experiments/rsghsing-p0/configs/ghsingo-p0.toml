@@ -1,0 +1,132 @@
+# ghsingo P0 measurement config (Issue #103).
+#
+# Copy of src/ghsingo/ghsingo.toml with paths rewritten to absolute values so
+# the same file works from any CWD and writes nothing into the repo:
+#   * inputs  -> /opt/src/41490/chao5whistler/ops/assets (gitignored samples)
+#   * outputs -> /opt/logs/41490/out/rsghsing/p0
+# Never edit src/ghsingo/ghsingo.toml for a measurement: run with --config.
+#
+# Decision baseline (#102): 30fps / 720p / 2500kbps video / 128kbps audio,
+# execution in UTC, so [schedule] reserves the timezone key here.
+
+[meta]
+profile = "ambient"
+engine  = "v2"
+
+[archive]
+source_dir   = "/opt/src/41490/chao5whistler/ops/assets"
+daypack_dir  = "/opt/logs/41490/out/rsghsing/p0/daypack"
+target_date  = "2026-03-28"
+
+[archive.download]
+# Off: this run measures the already-downloaded 2026-03-28-{0..23}.json.gz
+# sample set (no network in the measurement sandbox).
+enabled      = false
+base_url     = "https://data.gharchive.org"
+timeout_secs = 60
+max_parallel = 4
+user_agent   = "ghsingo/0.2"
+
+# Reserved for the rsghsing scheduler (P1+). ghsingo ignores unknown keys;
+# the value documents that every timestamp in this run is UTC.
+[schedule]
+timezone = "UTC"
+buffer   = 4
+
+[events]
+types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent", "ReleaseEvent"]
+max_per_second = 4
+dedupe_window_secs = 600
+
+[events.weights]
+PushEvent = 30
+CreateEvent = 40
+IssuesEvent = 50
+PullRequestEvent = 70
+ForkEvent = 80
+ReleaseEvent = 100
+
+[audio]
+sample_rate = 44100
+channels = 2
+master_gain_db = 0.0
+
+[composer]
+ema_alpha             = 0.06
+density_saturation    = 12.0
+brightness_saturation = 80.0
+phrase_ticks          = 16
+accent_cooldown_ticks = 3
+accent_base_prob      = 0.10
+seed                  = 0
+
+[mixer]
+master_gain     = 0.55
+drone_gain      = 1.0
+bed_gain        = 1.0
+tonal_bed_gain  = 0.575    # -4.8 dB
+accent_gain     = 1.0
+wet_continuous  = 0.06
+wet_accent      = 0.45
+accent_max      = 4
+
+[assets.tonal_bed]
+wav_path = "/opt/src/41490/chao5whistler/ops/assets/sounds/ambient/tonal-bed.wav"
+gain_db  = -4.8
+
+[assets.accents]
+bank_dir    = "/opt/src/41490/chao5whistler/ops/assets/sounds/bells/sampled"
+synth_decay = 0.996
+
+[video]
+width = 1280
+height = 720
+fps = 30
+font_path = "/opt/src/41490/chao5whistler/ops/assets/3270NerdFontMono-Condensed.ttf"
+font_size_min = 14
+font_size_max = 42
+
+[video.palette]
+background = "#002b36"
+text = "#fdf6e3"
+accent = "#b58900"
+
+[video.motion]
+speed_px_per_sec = 180.0
+spawn_y_min = 0.50
+spawn_y_max = 0.95
+
+[video.text]
+bottom_margin_px = 16
+despawn_y_min = 0.18
+despawn_y_max = 0.45
+scale_grow_per_sec = 0.22
+rotation_deg = 90.0
+
+[video.background]
+mode = "solid"
+sequence_dir = ""
+sequence_dirs = []
+switch_every_secs = 2.0
+fade_secs = 0.2
+
+[video.event_colors]
+PushEvent = "#268bd2"
+CreateEvent = "#2aa198"
+IssuesEvent = "#cb4b16"
+PullRequestEvent = "#d33682"
+ForkEvent = "#93a1a1"
+ReleaseEvent = "#dc322f"
+
+[output]
+mode = "local"
+video_preset = "ultrafast"
+video_bitrate_kbps = 2500
+audio_bitrate_kbps = 128
+
+[output.local]
+path = "/opt/logs/41490/out/rsghsing/p0/live-v2-5m.flv"
+
+[observe]
+log_level = "info"
+emit_stats_every_secs = 30

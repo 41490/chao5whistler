@@ -2,10 +2,10 @@
 //! mapping, engine construction.
 //!
 //! Ported from `cmd/render-audio-v2` (audio render + sidecar) and
-//! `cmd/composer-demo` (timeline JSON). The Go `backend.Backend` seam and its
-//! two implementations (`backend/gov2`, `backend/sc`) plus `internal/lifecycle`
-//! are not ported: the render path calls `audio::Engine` directly. Evidence for
-//! that ablation lives in the P2 report.
+//! `cmd/composer-demo` (timeline JSON). The Go backend seam and its two
+//! implementations (the in-process v2 engine and the external synth server)
+//! plus the process-supervision package are not ported: the render
+//! `audio::Engine` directly. Evidence lives in the P2 report's ablation list.
 
 pub mod composer_timeline;
 pub mod render_audio;
@@ -140,7 +140,7 @@ fn to_composer_events(evs: &[PackEvent]) -> Vec<Event> {
         .collect()
 }
 
-/// Builds the engine from config. Mirrors `buildGoV2Backend`.
+/// Builds the engine from config. Mirrors the Go v2 backend builder.
 pub fn build_engine(cfg: &crate::config::Config, seed: i64) -> Result<Engine> {
     let composer_cfg = ComposerConfig {
         ema_alpha: cfg.composer.ema_alpha,

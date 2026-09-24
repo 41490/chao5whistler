@@ -60,7 +60,7 @@ pub struct MixerV2 {
     accent_serial: i64,
 }
 
-/// Mirrors `gov2.MixerConfig` / the `[mixer]` toml block. Linear gains.
+/// Mirrors the v2 MixerConfig / the `[mixer]` toml block. Linear gains.
 #[derive(Debug, Clone, Copy)]
 pub struct MixerConfig {
     pub master_gain: f32,
@@ -329,8 +329,9 @@ fn pentatonic_for_mode(m: Mode) -> [Note; 5] {
     out
 }
 
-/// The engine: composer (#30) + mixer (#31), what `backend/gov2` was in Go.
-/// The Backend interface and its scsynth/gov2 split are gone — see the report.
+/// The engine: composer (#30) + mixer (#31). It is the whole of what the Go
+/// backend seam provided on the render path; the interface and its alternate
+/// implementation are gone — see the P2 report's ablation list.
 pub struct Engine {
     pub mixer: MixerV2,
     pub composer: Composer,

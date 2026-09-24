@@ -29,6 +29,7 @@ bookmark, and cleanup lifecycle.
 - Use `rtk jj bookmark create <name> -r @` before pushing a new line of work.
 - Use `rtk jj git push` or `rtk jj git push --bookmark <name>` to publish changes.
 - The `main` bookmark is tracked from `origin`.
+- 工程协作（Issue / PR / Actions / release）一律优先 `gh --repo 41490/chao5whistler`；`fj`（Forgejo CLI）暂无引入计划，不调用、不引入。
 
 ## Repo State
 
@@ -41,8 +42,14 @@ bookmark, and cleanup lifecycle.
 - Do not place compiled binaries, build caches, prepared daypacks, recordings, or other generated artifacts under `src/<project>/`.
 - Store shared compiled tools under `ops/bin/`.
 - Store generated runtime data under `var/`.
-- Store reproducible sample/render outputs under `ops/out/`.
 - When adding a new build or runtime path, update `.gitignore` in the same change so generated directories remain untracked.
+
+## 测试/运行输出目录约定（强制）
+
+- **所有测试、渲染、验证等运行输出一律写入绝对路径 `/opt/logs/41490/out/`。**
+- 仓库内 `ops/out` 已是软链接 → `/opt/logs/41490/out/`，仅为兼容存量引用（文档/脚本里的 `ops/out/...` 路径仍可解析）。
+- **真实输出时不得再使用 `ops/out/` 或 `opt/out/` 相对路径**：新建输出目录、`--output-dir`、日志重定向等一律直接使用 `/opt/logs/41490/out/<子路径>`。
+- 本约定同样适用于 `src/` 下各子项目（musikalisches / ghsingo / songh / ng46tv / rsghsing），各子项目根目录的 `AGENTS.md` 均有同样条款。
 
 ## 工作哲学
 

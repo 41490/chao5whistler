@@ -17,14 +17,17 @@ CFG="$SCRIPT_DIR/configs/ghsingo-p0.toml"
 BIN="$REPO/ops/bin"
 PY=python3
 
-LIVE_SECS="${LIVE_SECS:-300}"    # task1: >= 5 min wall clock
+LIVE_SECS="${LIVE_SECS:-300}"     # task1: >= 5 min wall clock
 RENDER_SECS="${RENDER_SECS:-300}" # task3c + task4 source clip
-ENC_SECS="${ENC_SECS:-600}"      # task3a: 10 min of 720p30 content
-SEG_SECS="${SEG_SECS:-150}"      # task4: prototype segment length
+ENC_SECS="${ENC_SECS:-600}"       # task3a: 10 min of 720p30 content
+SEG_SECS="${SEG_SECS:-150}"       # task4: prototype segment length
 
 mkdir -p "$OUT" "$OUT/segments"
 
-hr() { printf '=%.0s' {1..72}; echo; }
+hr() {
+  printf '=%.0s' {1..72}
+  echo
+}
 
 # Machine-readable values for summary(); re-created on every run.
 rm -f "$OUT/run.env"
@@ -85,8 +88,8 @@ task3() {
     emit "ENCODE_${p^^}_FPS" "$(tr '\r' '\n' <"$OUT/enc-$p.log" | grep -oE 'fps=[[:space:]]*[0-9.]+' | tail -1 | grep -oE '[0-9.]+$')"
   done
   # (b) frame generation cost: live-v2 renders no video, so bench the renderer.
-  ( cd "$REPO/src/ghsingo" && go test -run '^$' -bench 'BenchmarkRenderFrame$' \
-      -benchtime 2000x ./internal/video/ ) >"$OUT/bench-video.log" 2>&1
+  (cd "$REPO/src/ghsingo" && go test -run '^$' -bench 'BenchmarkRenderFrame$' \
+    -benchtime 2000x ./internal/video/) >"$OUT/bench-video.log" 2>&1
   local nsop
   nsop=$(grep -E '^BenchmarkRenderFrame-' "$OUT/bench-video.log" | awk '{print $3}')
   emit BENCH_FRAME_NS_OP "$nsop"
@@ -134,7 +137,6 @@ task4() {
     --out "$OUT/relay.flv" --log "$OUT/relay.log" \
     --cpu-csv "$OUT/relay-ffmpeg-cpu.csv" | tee "$OUT/pump.log"
 }
-
 
 summary() {
   $PY - "$OUT" "$LIVE_SECS" "$RENDER_SECS" "$ENC_SECS" "$SEG_SECS" <<'PYEOF'

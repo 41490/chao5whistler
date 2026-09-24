@@ -9,11 +9,20 @@ set -euo pipefail
 OUT="/opt/logs/41490/out/rsghsing/p0"
 PY=python3
 
-[ -f "$OUT/relay.flv" ] || { echo "FAIL: missing $OUT/relay.flv"; exit 1; }
-[ -f "$OUT/relay.log" ] || { echo "FAIL: missing $OUT/relay.log"; exit 1; }
+[ -f "$OUT/relay.flv" ] || {
+  echo "FAIL: missing $OUT/relay.flv"
+  exit 1
+}
+[ -f "$OUT/relay.log" ] || {
+  echo "FAIL: missing $OUT/relay.log"
+  exit 1
+}
 shopt -s nullglob
 segs=("$OUT"/segments/*.ts)
-[ "${#segs[@]}" -ge 2 ] || { echo "FAIL: need >=2 segments, found ${#segs[@]}"; exit 1; }
+[ "${#segs[@]}" -ge 2 ] || {
+  echo "FAIL: need >=2 segments, found ${#segs[@]}"
+  exit 1
+}
 
 $PY - "$OUT" "${segs[@]}" <<'PYEOF'
 import re, subprocess, sys, os

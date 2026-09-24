@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Slice the 11 source rolls into 176 audio fragments for issue #110 (83-R1).
 
-Each fragment is exactly ``AUDIO_SAMPLES`` (33075) frames @ 44100 Hz == 0.75 s of
-content; the 5+5 transparent gate frames live in the video time base only (see
-``fragment_timebase.py``), so no gate samples are written here.
+Each fragment is exactly ``AUDIO_SAMPLES`` frames @ 44100 Hz == ``SEGMENT_SECONDS``
+(1.0 s at the 90 BPM re-base) of content; the 5+5 transparent gate frames live in
+the video time base only (see ``fragment_timebase.py``), so no gate samples are
+written here.
 
 Outputs:
   <out>/audio/fragment_XXX.wav   176 slices, numbered 001..176 across rolls
@@ -25,7 +26,7 @@ from build_glyph_sprites import alpha_nonzero
 from fragment_timebase import (AUDIO_SAMPLES, AUDIO_SR, QUANTIZATION_TOLERANCE,
                                contract_failures, onset_quantization_error)
 
-DEFAULT_DATA_ROOT = "/opt/logs/41490/out/issue83-data"
+DEFAULT_DATA_ROOT = "/opt/logs/41490/out/issue83-data-90bpm"
 DEFAULT_OUT_ROOT = "/opt/logs/41490/out/260924-issue83-r1"
 MANIFEST_NAME = "r1_manifest.json"
 EXPECTED_ROLLS = 11
@@ -140,7 +141,7 @@ def selftest(data_root, out_root):
         if not ok:
             failures.append(desc)
 
-    # (a) 176 slices, each exactly 33075 frames
+    # (a) 176 slices, each exactly AUDIO_SAMPLES frames
     audio_dir = Path(out_root) / "audio"
     wavs = sorted(audio_dir.glob("fragment_*.wav")) if audio_dir.is_dir() else []
     check(f"{EXPECTED_FRAGMENTS} fragment files present", len(wavs) == EXPECTED_FRAGMENTS,
@@ -150,15 +151,16 @@ def selftest(data_root, out_root):
         with wave.open(str(wav), "rb") as fh:
             if fh.getnframes() != AUDIO_SAMPLES or fh.getframerate() != AUDIO_SR:
                 bad.append(f"{wav.name}:{fh.getnframes()}@{fh.getframerate()}")
-    check("every slice == 33075 samples @44100Hz", not bad, ",".join(bad[:5]))
+    check(f"every slice == {AUDIO_SAMPLES} samples @{AUDIO_SR}Hz", not bad, ",".join(bad[:5]))
 
-    # (b) time contract + zero quantization over all 11 rolls
+    # (b) time contract + quantization within tolerance over all 11 rolls
     contract = contract_failures()
-    check("timebase contract (18+5+5=28, 0.75*24=18, 0.75s==33075 samples)",
+    check("timebase contract (24+5+5=34, 1.0*24=24, 1.0s==44100 samples)",
           not contract, "; ".join(contract))
     errs = onset_errors(data_root)
     worst = max((e for _, _, e in errs), default=0.0)
-    check(f"zero quantization over {len(errs)} onsets in {EXPECTED_ROLLS} rolls",
+    check(f"quantization < {QUANTIZATION_TOLERANCE} frames over {len(errs)} onsets "
+          f"in {EXPECTED_ROLLS} rolls",
           worst < QUANTIZATION_TOLERANCE, f"max error {worst!r}")
 
     # (c) every sprite is RGBA with non-empty alpha
@@ -183,7 +185,7 @@ def selftest(data_root, out_root):
         manifest = read_json(path)
         audio = manifest.get("audio") or {}
         listed = audio.get("fragments", [])
-        check("manifest lists 176 slices with 33075 samples each",
+        check(f"manifest lists {EXPECTED_FRAGMENTS} slices with {AUDIO_SAMPLES} samples each",
               len(listed) == EXPECTED_FRAGMENTS
               and all(f["nframes"] == AUDIO_SAMPLES for f in listed),
               f"{len(listed)} entries")

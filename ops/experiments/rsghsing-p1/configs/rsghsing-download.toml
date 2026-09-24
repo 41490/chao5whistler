@@ -1,0 +1,42 @@
+# rsghsing download-idempotency config (Issue #104).
+#
+# Same shape as src/rsghsing/rsghsing.toml but with download ENABLED and
+# absolute paths, so download_idem.sh can flip @@BASE_URL@@ between the real
+# data.gharchive.org and a closed local port without touching the repo.
+#
+# download_idem.sh substitutes @@DATE@@ and @@BASE_URL@@ before each run.
+
+[meta]
+profile = "ambient"
+engine  = "v2"
+
+[archive]
+source_dir   = "@@RAWDIR@@"
+daypack_dir  = "/opt/logs/41490/out/rsghsing/p1/idem/daypack"
+target_date  = "@@DATE@@"
+
+[archive.download]
+enabled      = true
+base_url     = "@@BASE_URL@@"
+timeout_secs = 60
+max_parallel = 4
+user_agent   = "rsghsing/0.1"
+
+[events]
+types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent", "ReleaseEvent"]
+max_per_second = 4
+dedupe_window_secs = 600
+
+[events.weights]
+PushEvent = 30
+CreateEvent = 40
+IssuesEvent = 50
+PullRequestEvent = 70
+ForkEvent = 80
+ReleaseEvent = 100
+
+[output]
+mode = "local"
+
+[output.rtmps]
+url = ""

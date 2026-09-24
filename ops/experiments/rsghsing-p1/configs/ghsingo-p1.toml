@@ -1,0 +1,66 @@
+# ghsingo P1 parity config (Issue #104).
+#
+# Copy of src/ghsingo/ghsingo.toml with absolute paths so the same file works
+# from any CWD and writes nothing into the repo:
+#   * inputs  -> var/rsghsing/archive/raw (the SAME hour packs rsghsing reads)
+#   * outputs -> /opt/logs/41490/out/rsghsing/p1/go/daypack
+# Download stays OFF: parity must consume byte-identical inputs, so both sides
+# read the same file already on disk.
+#
+# parity.sh substitutes @@DATE@@ and @@RAWDIR@@ before running Go prepare.
+
+[meta]
+profile = "ambient"
+engine  = "v2"
+
+[archive]
+source_dir   = "@@RAWDIR@@"
+daypack_dir  = "/opt/logs/41490/out/rsghsing/p1/go/daypack"
+target_date  = "@@DATE@@"
+
+[archive.download]
+enabled      = false
+base_url     = "https://data.gharchive.org"
+timeout_secs = 60
+max_parallel = 4
+user_agent   = "ghsingo/0.2"
+
+[events]
+types = ["PushEvent", "CreateEvent", "IssuesEvent", "PullRequestEvent", "ForkEvent", "ReleaseEvent"]
+max_per_second = 4
+dedupe_window_secs = 600
+
+[events.weights]
+PushEvent = 30
+CreateEvent = 40
+IssuesEvent = 50
+PullRequestEvent = 70
+ForkEvent = 80
+ReleaseEvent = 100
+
+[audio]
+sample_rate = 44100
+channels = 2
+master_gain_db = 0.0
+
+[video]
+width = 1280
+height = 720
+fps = 30
+
+[video.background]
+mode = "solid"
+switch_every_secs = 2.0
+fade_secs = 0.2
+
+[output]
+mode = "local"
+video_preset = "ultrafast"
+audio_bitrate_kbps = 128
+
+[output.local]
+path = "/opt/logs/41490/out/rsghsing/p1/go/live.flv"
+
+[observe]
+log_level = "info"
+emit_stats_every_secs = 30

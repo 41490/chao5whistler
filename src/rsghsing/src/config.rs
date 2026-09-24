@@ -7,10 +7,11 @@
 //!     ONLY the keys it actually mentions (deep merge on tables);
 //!   * `target_date = "yesterday" | "today"` resolves to a YYYY-MM-DD string.
 //!
-//! P1 models only the sections `prepare` needs (meta / archive / events /
-//! output). Unknown sections (audio, video, composer, mixer, assets, observe)
-//! are ignored by serde, so the shared rsghsing.toml profile keeps parsing;
-//! add them here when a later subcommand needs them.
+//! P1 models the sections `prepare` needs (meta / archive / events / output).
+//! P2 (Issue #105) adds the sections the audio render path reads:
+//! [audio] / [composer] / [mixer] / [assets.*], plus [video].fps and
+//! [schedule] (reserved for P3). Everything else in the shared ghsingo.toml
+//! profile stays ignored by serde.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,92 @@ pub struct Config {
     pub events: Events,
     #[serde(default)]
     pub output: Output,
+    #[serde(default)]
+    pub audio: Audio,
+    #[serde(default)]
+    pub composer: ConfigComposer,
+    #[serde(default)]
+    pub mixer: ConfigMixer,
+    #[serde(default)]
+    pub assets: ConfigAssets,
+    #[serde(default)]
+    pub video: Video,
+}
+
+/// `[audio]` — only the fields the render path reads.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Audio {
+    pub sample_rate: i32,
+    #[serde(default)]
+    pub channels: i32,
+    #[serde(default)]
+    pub master_gain_db: f64,
+}
+
+/// `[composer]` — mirrors `composer.Config`. Zero values fall back to the
+/// composer defaults (0.06 / 12 / 80 / 16 / 3 / 0.10).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ConfigComposer {
+    pub ema_alpha: f64,
+    #[serde(default)]
+    pub density_saturation: f64,
+    #[serde(default)]
+    pub brightness_saturation: f64,
+    #[serde(default)]
+    pub phrase_ticks: i32,
+    #[serde(default)]
+    pub accent_cooldown_ticks: i32,
+    #[serde(default)]
+    pub accent_base_prob: f64,
+    #[serde(default)]
+    pub seed: i64,
+}
+
+/// `[mixer]` — linear gains in [0,1]; zero keeps the MixerV2 default.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ConfigMixer {
+    pub master_gain: f32,
+    #[serde(default)]
+    pub drone_gain: f32,
+    #[serde(default)]
+    pub bed_gain: f32,
+    #[serde(default)]
+    pub tonal_bed_gain: f32,
+    #[serde(default)]
+    pub accent_gain: f32,
+    #[serde(default)]
+    pub wet_continuous: f32,
+    #[serde(default)]
+    pub wet_accent: f32,
+    #[serde(default)]
+    pub accent_max: usize,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ConfigAssets {
+    pub tonal_bed: AssetTonalBed,
+    #[serde(default)]
+    pub accents: AssetAccents,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AssetTonalBed {
+    pub wav_path: String,
+    #[serde(default)]
+    pub gain_db: f64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AssetAccents {
+    pub bank_dir: String,
+    #[serde(default)]
+    pub synth_decay: f64,
+}
+
+/// `[video]` — only `fps` is on the audio path (frames per rendered second).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Video {
+    pub fps: i32,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -103,7 +190,12 @@ impl Config {
     /// invocation) the two agree exactly.
     fn resolve_paths(&mut self, base: &Path) {
         let dir = base.parent().unwrap_or(Path::new("."));
-        for field in [&mut self.archive.source_dir, &mut self.archive.daypack_dir] {
+        for field in [
+            &mut self.archive.source_dir,
+            &mut self.archive.daypack_dir,
+            &mut self.assets.tonal_bed.wav_path,
+            &mut self.assets.accents.bank_dir,
+        ] {
             if field.is_empty() || Path::new(field.as_str()).is_absolute() {
                 continue;
             }
@@ -130,6 +222,12 @@ impl Config {
         }
         if self.output.mode == "rtmps" && self.output.rtmps.url.is_empty() {
             bail!("output.rtmps.url required when mode is \"rtmps\"");
+        }
+        if self.audio.sample_rate <= 0 {
+            bail!("audio.sample_rate must be positive");
+        }
+        if self.video.fps <= 0 {
+            bail!("video.fps must be positive");
         }
         if self.events.max_per_second == 0 {
             bail!("events.max_per_second must be positive");
@@ -254,6 +352,13 @@ dedupe_window_secs = 600
 [events.weights]
 PushEvent = 30
 CreateEvent = 40
+
+[audio]
+sample_rate = 44100
+channels = 2
+
+[video]
+fps = 15
 
 [output]
 mode = "local"

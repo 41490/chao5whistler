@@ -38,6 +38,45 @@ PullRequestEvent = 70
 ForkEvent = 80
 ReleaseEvent = 100
 
+[audio]
+sample_rate = 44100
+channels = 2
+master_gain_db = 0.0
+
+# Composer (state-vector core, #30). Empty fields fall back to the defaults
+# documented in internal/composer/composer.go.
+[composer]
+ema_alpha             = 0.06
+density_saturation    = 12.0
+brightness_saturation = 80.0
+phrase_ticks          = 16
+accent_cooldown_ticks = 3
+accent_base_prob      = 0.10
+seed                  = 0
+
+# Mixer (long-lived bus model, #31 + #32). Linear gains in [0, 1].
+[mixer]
+master_gain     = 0.55
+drone_gain      = 1.0
+bed_gain        = 1.0
+tonal_bed_gain  = 0.575    # -4.8 dB
+accent_gain     = 1.0
+wet_continuous  = 0.06
+wet_accent      = 0.45
+accent_max      = 4
+
+# Assets (v2 ambient layer assignments, #32).
+[assets.tonal_bed]
+wav_path = "/opt/src/41490/chao5whistler/ops/assets/sounds/ambient/tonal-bed.wav"
+gain_db  = -4.8
+
+[assets.accents]
+bank_dir    = "/opt/src/41490/chao5whistler/ops/assets/sounds/bells/sampled"
+synth_decay = 0.996
+
+[video]
+fps = 15
+
 [output]
 mode = "local"
 

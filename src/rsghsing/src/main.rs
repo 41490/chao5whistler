@@ -4,9 +4,13 @@
 //! append variants to `Command` and a match arm here.
 
 mod archive;
+mod audio;
+mod composer;
 mod config;
+mod gorand;
 mod gosort;
 mod log;
+mod render;
 
 use std::path::PathBuf;
 
@@ -41,6 +45,51 @@ enum Command {
         #[arg(long, default_value = "")]
         hours: String,
     },
+
+    /// Drive the composer against the latest daypack and dump the JSON state
+    /// timeline (same shape as Go `cmd/composer-demo`).
+    ComposerTimeline {
+        #[arg(long)]
+        duration: String,
+
+        /// Composer rng seed; 0 = use [composer].seed.
+        #[arg(long, default_value = "0")]
+        seed: i64,
+
+        #[arg(long, short = 'o', default_value = "/tmp/rsghsing-composer-timeline.json")]
+        out: PathBuf,
+    },
+
+    /// Render an audio file from a daypack time window via the v2 engine.
+    Render {
+        #[command(subcommand)]
+        kind: RenderKind,
+    },
+}
+
+#[derive(Subcommand)]
+enum RenderKind {
+    /// Render `--duration` of audio starting at `--start-clock` in the daypack.
+    Audio {
+        /// UTC clock within the daypack, e.g. 14:00 or 14:00:00.
+        #[arg(long, default_value = "")]
+        start_clock: String,
+
+        /// Source data span mapped into the render duration, e.g. 1h.
+        /// Empty = same as --duration (real-time mapping).
+        #[arg(long, default_value = "")]
+        source_span: String,
+
+        #[arg(long)]
+        duration: String,
+
+        #[arg(long, default_value = "0")]
+        seed: i64,
+
+        /// Output path (.m4a; ffmpeg aac 128k). Sidecar goes to <out>.metrics.json.
+        #[arg(long, short = 'o', default_value = "/tmp/rsghsing-audio.m4a")]
+        out: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -58,6 +107,36 @@ fn main() -> Result<()> {
                 },
             )
         }
+        Command::ComposerTimeline {
+            duration,
+            seed,
+            out,
+        } => {
+            let cfg = config::Config::load(&cli.config)?;
+            render::composer_timeline::run(&cfg, &duration, seed, &out)
+        }
+        Command::Render { kind } => match kind {
+            RenderKind::Audio {
+                start_clock,
+                source_span,
+                duration,
+                seed,
+                out,
+            } => {
+                let cfg = config::Config::load(&cli.config)?;
+                render::render_audio::run(
+                    &cfg,
+                    &render::render_audio::Args {
+                        config: &cli.config.display().to_string(),
+                        start_clock: &start_clock,
+                        source_span: &source_span,
+                        duration: &duration,
+                        seed,
+                        out: &out,
+                    },
+                )
+            }
+        },
     }
 }
 

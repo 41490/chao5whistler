@@ -37,7 +37,10 @@ if [ "${REUSE:-0}" = "1" ]; then
   # Re-judge an existing run's artifacts (used after a criterion change):
   # no new 60 min run, no rebuild, just the checks below on what is on disk.
   echo "== REUSE=1: judging existing artifacts, no new run =="
-  [ -s "$FLV" ] && [ -s "$RUSTLOG" ] || { echo "FAIL: no artifacts to reuse"; exit 1; }
+  [ -s "$FLV" ] && [ -s "$RUSTLOG" ] || {
+    echo "FAIL: no artifacts to reuse"
+    exit 1
+  }
   RC=0
   # The pump's own wall measurement is the authority; the artifacts' mtimes give
   # the absolute window (both are stamped when the run ends).

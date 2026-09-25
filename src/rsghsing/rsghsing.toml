@@ -118,3 +118,20 @@ url = ""
 # Reserved for the P2+ scheduler (decision baseline #1: UTC execution).
 [schedule]
 timezone = "UTC"
+
+# Streamer (P4, Issue #107). The TARGET stays in [output] (mode + rtmps.url,
+# overlay-only, never committed); this section is transport only.
+#   segments_dir        root holding <YYYY-MM-DD>/seg-<idx>.ts, where the date
+#                       is D-1 relative to the wall clock (the daypack date).
+#                       Empty = must be passed as --segments-dir.
+#   ffmpeg_path         PATH lookup by default.
+#   chunk_bytes         pump write size; 256 KiB keeps syscalls rare.
+#   missing_poll_secs   wait interval when a segment is not ready yet.
+#                       We wait and warn, never skip (water level is P5's).
+#   restart_backoff_max_secs  cap for the ffmpeg respawn backoff.
+[stream]
+segments_dir            = "../../var/rsghsing/stream/segments"
+ffmpeg_path             = "ffmpeg"
+chunk_bytes             = 262144
+missing_poll_secs       = 1.0
+restart_backoff_max_secs = 30.0

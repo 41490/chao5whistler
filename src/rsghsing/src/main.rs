@@ -11,6 +11,7 @@ mod gorand;
 mod gosort;
 mod log;
 mod render;
+mod stream;
 mod video;
 
 use std::path::PathBuf;
@@ -69,6 +70,35 @@ enum Command {
     Render {
         #[command(subcommand)]
         kind: RenderKind,
+    },
+
+    /// Long-running relay: pump D-1's 15-min TS segments at UTC wall-clock
+    /// pace into a persistent `ffmpeg -c copy -f flv` session (P4, Issue #107).
+    Stream {
+        /// Inject the wall clock: epoch seconds or `2026-03-28T11:00:00Z`.
+        /// Deterministic boundary testing; the clock still advances in realtime.
+        #[arg(long)]
+        now: Option<String>,
+
+        /// Override [output].mode for this run: local | rtmps.
+        #[arg(long)]
+        output: Option<String>,
+
+        /// Local .flv output path (mode=local).
+        #[arg(long)]
+        local_path: Option<PathBuf>,
+
+        /// Override [stream].segments_dir (root holding <YYYY-MM-DD>/seg-NN.ts).
+        #[arg(long)]
+        segments_dir: Option<String>,
+
+        /// Stop after N seconds of wall time (soak/preflight harness).
+        #[arg(long)]
+        duration: Option<f64>,
+
+        /// ffmpeg stderr log, stream key redacted; default = inherit stderr.
+        #[arg(long)]
+        ffmpeg_log: Option<PathBuf>,
     },
 }
 
@@ -161,6 +191,27 @@ fn main() -> Result<()> {
                 )
             }
         },
+        Command::Stream {
+            now,
+            output,
+            local_path,
+            segments_dir,
+            duration,
+            ffmpeg_log,
+        } => {
+            let cfg = config::Config::load(&cli.config)?;
+            stream::run(
+                &cfg,
+                &stream::Args {
+                    now: now.as_deref(),
+                    output: output.as_deref(),
+                    local_path: local_path.as_deref(),
+                    segments_dir: segments_dir.as_deref(),
+                    duration,
+                    ffmpeg_log: ffmpeg_log.as_deref(),
+                },
+            )
+        }
     }
 }
 

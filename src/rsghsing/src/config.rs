@@ -40,6 +40,59 @@ pub struct Config {
     pub assets: ConfigAssets,
     #[serde(default)]
     pub video: Video,
+    #[serde(default)]
+    pub stream: Stream,
+}
+
+/// `[stream]` — transport knobs for `rsghsing stream` (P4, Issue #107).
+///
+/// DECISION: the target (mode + rtmps.url) stays in `[output]` — P1 overlay
+/// semantics, so the key never enters the repo. This section only says WHERE
+/// the pre-rendered segments live and HOW bytes move. Every field has a
+/// default, so a config without `[stream]` still loads.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Stream {
+    /// Root holding `<YYYY-MM-DD>/seg-<idx>.ts`. Empty = must be passed as
+    /// `--segments-dir` (what the soak/preflight harnesses do).
+    #[serde(default)]
+    pub segments_dir: String,
+    /// ffmpeg binary; PATH lookup by default.
+    #[serde(default = "default_ffmpeg_path")]
+    pub ffmpeg_path: String,
+    /// Pump write size in bytes (256 KiB keeps syscalls rare, RSS flat).
+    #[serde(default = "default_chunk_bytes")]
+    pub chunk_bytes: usize,
+    /// Poll interval while a segment is missing (seconds). We wait, never skip.
+    #[serde(default = "default_poll_secs")]
+    pub missing_poll_secs: f64,
+    /// Upper bound for the ffmpeg restart backoff (seconds).
+    #[serde(default = "default_backoff_secs")]
+    pub restart_backoff_max_secs: f64,
+}
+
+fn default_ffmpeg_path() -> String {
+    "ffmpeg".to_string()
+}
+fn default_chunk_bytes() -> usize {
+    256 * 1024
+}
+fn default_poll_secs() -> f64 {
+    1.0
+}
+fn default_backoff_secs() -> f64 {
+    30.0
+}
+
+impl Default for Stream {
+    fn default() -> Self {
+        Stream {
+            segments_dir: String::new(),
+            ffmpeg_path: default_ffmpeg_path(),
+            chunk_bytes: default_chunk_bytes(),
+            missing_poll_secs: default_poll_secs(),
+            restart_backoff_max_secs: default_backoff_secs(),
+        }
+    }
 }
 
 /// `[audio]` — only the fields the render path reads.
@@ -246,6 +299,7 @@ impl Config {
         for field in [
             &mut self.archive.source_dir,
             &mut self.archive.daypack_dir,
+            &mut self.stream.segments_dir,
             &mut self.assets.tonal_bed.wav_path,
             &mut self.assets.accents.bank_dir,
             &mut self.video.font_path,
@@ -346,13 +400,13 @@ fn utc_days() -> i64 {
     secs.div_euclid(86_400)
 }
 
-fn ymd(days: i64) -> String {
+pub(crate) fn ymd(days: i64) -> String {
     let (y, m, d) = civil_from_days(days);
     format!("{y:04}-{m:02}-{d:02}")
 }
 
 /// Howard Hinnant's `civil_from_days`: days since 1970-01-01 -> (y, m, d).
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
+pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = z - era * 146_097;
@@ -366,8 +420,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 /// Inverse of `civil_from_days`.
-#[cfg(test)]
-fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+pub(crate) fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;

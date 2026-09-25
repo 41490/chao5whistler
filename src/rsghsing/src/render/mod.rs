@@ -9,6 +9,7 @@
 
 pub mod composer_timeline;
 pub mod render_audio;
+pub mod render_segment;
 
 use std::path::{Path, PathBuf};
 

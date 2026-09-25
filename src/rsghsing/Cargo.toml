@@ -26,3 +26,5 @@ tracing = "0.1"
 # "gzip" feature is deliberately NOT enabled — GH Archive hour packs are
 # application/x-gzip bodies that we inflate ourselves with flate2.
 ureq = { version = "2", default-features = false, features = ["tls"] }
+# Font rasterization for the P3 video path (Issue #106). Whitelisted small dep.
+ab_glyph = "0.2"

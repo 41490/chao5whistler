@@ -11,6 +11,7 @@ mod gorand;
 mod gosort;
 mod log;
 mod render;
+mod video;
 
 use std::path::PathBuf;
 
@@ -94,6 +95,18 @@ enum RenderKind {
         #[arg(long, short = 'o', default_value = "/tmp/rsghsing-audio.m4a")]
         out: PathBuf,
     },
+
+    /// Render one 15-min TS segment (index N) of D-1: h264 30fps 2500k 720p +
+    /// aac 128k, absolute PTS, per-event manifest. P3 (Issue #106).
+    Segment {
+        /// Segment index 0..=95; segment k covers D-1 UTC [k*900s,(k+1)*900s).
+        #[arg(long)]
+        index: i32,
+
+        /// Output path (.ts). Manifest goes to <out>.manifest.json.
+        #[arg(long, short = 'o', default_value = "/tmp/rsghsing-seg.ts")]
+        out: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -138,6 +151,13 @@ fn main() -> Result<()> {
                         seed,
                         out: &out,
                     },
+                )
+            }
+            RenderKind::Segment { index, out } => {
+                let cfg = config::Config::load(&cli.config)?;
+                render::render_segment::run(
+                    &cfg,
+                    &render::render_segment::Args { index, out: &out },
                 )
             }
         },

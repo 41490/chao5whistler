@@ -112,10 +112,63 @@ pub struct AssetAccents {
     pub synth_decay: f64,
 }
 
-/// `[video]` — only `fps` is on the audio path (frames per rendered second).
+/// `[video]` — visual parameters for the P3 segment renderer (Issue #106).
+/// `fps` stays on the audio path (composer tick rate); the segment VIDEO is a
+/// fixed 30fps (decision baseline #5), applied in `render_segment`.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Video {
     pub fps: i32,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
+    #[serde(default)]
+    pub font_path: String,
+    #[serde(default)]
+    pub font_size_min: u32,
+    #[serde(default)]
+    pub font_size_max: u32,
+    #[serde(default)]
+    pub palette: VideoPalette,
+    #[serde(default)]
+    pub motion: VideoMotion,
+    #[serde(default)]
+    pub text: VideoText,
+    /// Event name -> "#rrggbb"; resolved against `[events].types` order.
+    #[serde(default)]
+    pub event_colors: BTreeMap<String, String>,
+}
+
+/// `[video.palette]` — hex strings; empty fields fall back to Solarized Dark.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct VideoPalette {
+    pub background: String,
+    pub text: String,
+}
+
+/// `[video.motion]` — floater rise speed and spawn band (fractions of height).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct VideoMotion {
+    pub speed_px_per_sec: f64,
+    #[serde(default)]
+    pub spawn_y_min: f64,
+    #[serde(default)]
+    pub spawn_y_max: f64,
+}
+
+/// `[video.text]` — despawn band, scale growth, rotation, bottom margin.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct VideoText {
+    #[serde(default)]
+    pub bottom_margin_px: u32,
+    #[serde(default)]
+    pub despawn_y_min: f64,
+    #[serde(default)]
+    pub despawn_y_max: f64,
+    #[serde(default)]
+    pub scale_grow_per_sec: f64,
+    #[serde(default)]
+    pub rotation_deg: f64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -195,6 +248,7 @@ impl Config {
             &mut self.archive.daypack_dir,
             &mut self.assets.tonal_bed.wav_path,
             &mut self.assets.accents.bank_dir,
+            &mut self.video.font_path,
         ] {
             if field.is_empty() || Path::new(field.as_str()).is_absolute() {
                 continue;

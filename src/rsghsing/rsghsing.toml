@@ -75,7 +75,39 @@ bank_dir    = "/opt/src/41490/chao5whistler/ops/assets/sounds/bells/sampled"
 synth_decay = 0.996
 
 [video]
+# fps stays the audio/composer tick rate. The P3 segment VIDEO is a fixed
+# 30fps (decision baseline #5), applied in `render segment`; it does not read
+# this value. Visual params below mirror src/ghsingo/ghsingo.toml [video].
 fps = 15
+width = 1280
+height = 720
+font_path = "/opt/src/41490/chao5whistler/ops/assets/3270NerdFontMono-Condensed.ttf"
+font_size_min = 14
+font_size_max = 42
+
+[video.palette]
+background = "#002b36"
+text = "#fdf6e3"
+
+[video.motion]
+speed_px_per_sec = 180.0
+spawn_y_min = 0.50
+spawn_y_max = 0.95
+
+[video.text]
+bottom_margin_px = 16
+despawn_y_min = 0.18
+despawn_y_max = 0.45
+scale_grow_per_sec = 0.22
+rotation_deg = 90.0
+
+[video.event_colors]
+PushEvent = "#268bd2"
+CreateEvent = "#2aa198"
+IssuesEvent = "#cb4b16"
+PullRequestEvent = "#d33682"
+ForkEvent = "#93a1a1"
+ReleaseEvent = "#dc322f"
 
 [output]
 mode = "local"

@@ -17,7 +17,10 @@ pub const TS_PACKET: u64 = 188;
 /// `idx = floor(seconds_of_day(T) / 900)`, clamped to 0..=95.
 pub fn segment_index(epoch: i64) -> i64 {
     let idx = epoch.rem_euclid(86_400) / SEGMENT_SECS;
-    debug_assert!(idx < SEGMENTS_PER_DAY, "idx {idx} out of 0..={SEGMENTS_PER_DAY}");
+    debug_assert!(
+        idx < SEGMENTS_PER_DAY,
+        "idx {idx} out of 0..={SEGMENTS_PER_DAY}"
+    );
     idx
 }
 
@@ -44,7 +47,8 @@ pub fn segment_name(idx: i64) -> String {
 
 /// Full path of the segment playing at T.
 pub fn segment_path(dir: &Path, epoch: i64) -> PathBuf {
-    dir.join(play_date(epoch)).join(segment_name(segment_index(epoch)))
+    dir.join(play_date(epoch))
+        .join(segment_name(segment_index(epoch)))
 }
 
 /// Byte offset inside a segment for wall time T: the TS packet boundary at or
@@ -113,7 +117,10 @@ mod tests {
         // Wall 2026-03-29T11:00:00Z -> D-1 2026-03-28, seg-44 (the P3 set).
         let t = NEXT + 11 * 3600;
         assert_eq!(segment_index(t), 44);
-        assert_eq!(segment_path(Path::new("/seg"), t), Path::new("/seg/2026-03-28/seg-44.ts"));
+        assert_eq!(
+            segment_path(Path::new("/seg"), t),
+            Path::new("/seg/2026-03-28/seg-44.ts")
+        );
         // On the boundary the pump starts at the segment head.
         assert_eq!(byte_offset(t, 309_704_056), 0);
         // Mid-segment: 10 min into a 15 min segment -> ~2/3 of the file,
@@ -121,7 +128,10 @@ mod tests {
         let mid = t + 600;
         let off = byte_offset(mid, 309_704_056);
         let expect = 309_704_056u64 * 600 / 900;
-        assert!(off <= expect && expect - off < TS_PACKET, "off={off} expect={expect}");
+        assert!(
+            off <= expect && expect - off < TS_PACKET,
+            "off={off} expect={expect}"
+        );
         assert_eq!(off % TS_PACKET, 0);
         assert_eq!(byte_offset(mid, 0), 0); // empty file guard
     }

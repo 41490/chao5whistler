@@ -79,7 +79,11 @@ pub fn parse_now(spec: &str) -> Result<i64> {
     let da: u32 = dp[2].parse().context("bad day")?;
     let h: i64 = tp[0].parse().context("bad hour")?;
     let mi: i64 = tp[1].parse().context("bad minute")?;
-    let se: i64 = if tp.len() == 3 { tp[2].parse().context("bad second")? } else { 0 };
+    let se: i64 = if tp.len() == 3 {
+        tp[2].parse().context("bad second")?
+    } else {
+        0
+    };
     if !(1..=12).contains(&mo) || !(1..=31).contains(&da) {
         bail!("date out of range: {spec:?}");
     }
@@ -147,15 +151,19 @@ pub fn run(cfg: &Config, args: &Args) -> Result<()> {
     let backoff_cap = Duration::from_secs_f64(cfg.stream.restart_backoff_max_secs.max(1.0));
 
     let outcome = loop {
-        let mut session = ffmpeg::Session::spawn(
-            &cfg.stream.ffmpeg_path,
-            &target,
-            args.ffmpeg_log,
-            &secret,
-        )?;
+        let mut session =
+            ffmpeg::Session::spawn(&cfg.stream.ffmpeg_path, &target, args.ffmpeg_log, &secret)?;
         match pump::run(&pcfg, &clock, session.stdin(), &STOP, &mut stats) {
             Ok(o) => {
-                session.finish()?;
+                match session.finish() {
+                    Ok(()) => {}
+                    // ffmpeg exits non-zero on an empty input; say what actually
+                    // happened instead of leaking an exit status.
+                    Err(e) if stats.bytes == 0 => {
+                        bail!("no segment bytes pumped ({e}); no segment became ready")
+                    }
+                    Err(e) => return Err(e),
+                }
                 break o;
             }
             Err(e) => {
@@ -190,11 +198,7 @@ pub fn run(cfg: &Config, args: &Args) -> Result<()> {
     println!(
         "STREAM_SUMMARY outcome={outcome} wall_secs={wall:.2} segments={} boundaries={} \
          bytes={} missing_waits={} missing_secs={:.1} restarts={restarts}",
-        stats.segments,
-        stats.boundaries,
-        stats.bytes,
-        stats.missing_waits,
-        stats.missing_secs
+        stats.segments, stats.boundaries, stats.bytes, stats.missing_waits, stats.missing_secs
     );
     tracing::info!(
         "stream done ({outcome}) wall={wall:.1}s segments={} boundaries={} bytes={} \

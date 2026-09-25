@@ -127,9 +127,10 @@ pub fn run<W: Write>(
                 path.display()
             );
             let wait = match cfg.stop_after {
-                Some(d) => cfg
-                    .missing_poll
-                    .min(d.saturating_sub(start.elapsed()).max(Duration::from_millis(20))),
+                Some(d) => cfg.missing_poll.min(
+                    d.saturating_sub(start.elapsed())
+                        .max(Duration::from_millis(20)),
+                ),
                 None => cfg.missing_poll,
             };
             let t0 = Instant::now();

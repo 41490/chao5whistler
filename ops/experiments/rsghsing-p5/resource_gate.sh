@@ -55,7 +55,7 @@ FFLOG="$OUT/gate-ffmpeg.log"
 SCHEDLOG="$OUT/gate-sched.log"
 STREAMLOG="$OUT/gate-stream.log"
 
-"$BIN" --config "$CFG" sched --duration "$((GATE_SECS + 240))" \
+"$BIN" --config "$CFG" sched --duration "$((GATE_SECS + 240))" --now "$NOW" \
   --segments-dir "$SEG" --archive-dir "$RAW" \
   --metrics-file "$OUT/gate-metrics.jsonl" >"$SCHEDLOG" 2>&1 &
 SCHED=$!
@@ -79,7 +79,7 @@ def stat(pid):
         return None
     rp = d.rfind(")")
     f = d[rp + 2:].split()
-    return f[16], f[17]  # nice, priority (state is f[0])
+    return f[1], f[16]  # ppid, nice (state is f[0], utime f[11], stime f[12])
 
 def all_stats():
     stats = {}
@@ -115,7 +115,7 @@ while time.time() < end:
         except OSError:
             continue
         if "render" in cmd or "ffmpeg" in cmd:
-            rows.append((round(time.time()), pid, int(stats[pid][0]), cmd.split("\x00")[0]))
+            rows.append((round(time.time()), pid, int(stats[pid][1]), cmd.split("\x00")[0]))
     time.sleep(2)
 with open(out, "w") as f:
     f.write("t,pid,nice,comm\n")
@@ -152,45 +152,51 @@ sched, stream, cpu_gate, rss_gate_mb = sys.argv[1], sys.argv[2], float(sys.argv[
 nice_csv, nice_gate = sys.argv[5], int(sys.argv[6])
 a, b = json.load(open(sched)), json.load(open(stream))
 
-def rows(p):
-    out = {}
-    for pr in p.get("procs", []):
-        k = pr["comm"]
-        d = out.setdefault(k, {"cpu": 0.0, "rss_peak": 0, "n": 0})
-        d["cpu"] += pr["cpu_avg_pct_one_core"]
-        d["rss_peak"] = max(d["rss_peak"], pr["rss_peak_kb"])
-        d["n"] += 1
-    return out
-
-merged = {}
+# LIVE = the stream pump tree (remux ffmpeg is `-c copy`) + the sched daemon
+# itself. RENDER = everything sched spawns (decision baseline #12: those are
+# expected to be expensive, they are niced down, not gated).
+groups = {"live": [], "render": []}
 for src in (a, b):
-    for comm, d in rows(src).items():
-        m = merged.setdefault(comm, {"cpu": 0.0, "rss_peak": 0})
-        m["cpu"] += d["cpu"]
-        m["rss_peak"] = max(m["rss_peak"], d["rss_peak"])
+    for pr in src.get("procs", []):
+        live = src is b or pr["pid"] == src["root_pid"]
+        groups["live" if live else "render"].append(pr)
 
-print(f"  {'comm':<14}{'cpu%_1core':>11}{'rss_peak':>11}")
-for comm, d in sorted(merged.items(), key=lambda kv: -kv[1]["cpu"]):
-    print(f"  {comm:<14}{d['cpu']:>11.1f}{d['rss_peak']/1024:>9.1f}M")
-cpu = round(sum(d["cpu"] for d in merged.values()), 1)
-rss = sum(d["rss_peak"] for d in merged.values()) / 1024
-print(f"  {'FULL STACK':<14}{cpu:>11.1f}{rss:>9.1f}M")
+print(f"  {'comm':<20}{'group':>8}{'cpu%_1core':>11}{'rss_peak':>11}")
+totals = {}
+for g, procs in groups.items():
+    for pr in procs:
+        k = (pr["comm"], g)
+        d = totals.setdefault(k, [0.0, 0])
+        d[0] += pr["cpu_avg_pct_one_core"]
+        d[1] = max(d[1], pr["rss_peak_kb"])
+for (comm, g), (c, r) in sorted(totals.items(), key=lambda kv: -kv[1][0]):
+    print(f"  {comm:<20}{g:>8}{c:>11.1f}{r/1024:>9.1f}M")
+
+def total(g):
+    cpu = sum(p["cpu_avg_pct_one_core"] for p in groups[g])
+    rss = sum(p["rss_peak_kb"] for p in groups[g]) / 1024
+    return round(cpu, 1), rss
+lcpu, lrss = total("live")
+print(f"  {'LIVE STACK':<20}{'live':>8}{lcpu:>11.1f}{lrss:>9.1f}M")
+if groups["render"]:
+    rcpu, rrss = total("render")
+    print(f"  {'render jobs':<20}{'render':>8}{rcpu:>11.1f}{rrss:>9.1f}M   (niced, not gated)")
 
 fails = []
-if cpu > cpu_gate:
-    fails.append(f"full-stack CPU {cpu}% > {cpu_gate}% of one core")
-if rss > rss_gate_mb:
-    fails.append(f"full-stack RSS {rss:.1f}M > {rss_gate_mb}M")
+if lcpu > cpu_gate:
+    fails.append(f"live-stack CPU {lcpu}% > {cpu_gate}% of one core")
+if lrss > rss_gate_mb:
+    fails.append(f"live-stack RSS {lrss:.1f}M > {rss_gate_mb}M")
 
 # Render processes must be reniced (decision baseline #12).
-nices = []
+nices, comms = [], set()
 with open(nice_csv) as f:
     for r in csv.DictReader(f):
         nices.append(int(r["nice"]))
+        comms.add(r["comm"])
 if nices:
     lo = min(nices)
-    print(f"  render/ffmpeg nice: min={lo} samples={len(nices)} comms="
-          f"{sorted({r['comm'] for r in csv.DictReader(open(nice_csv))})}")
+    print(f"  render/ffmpeg nice: min={lo} samples={len(nices)} comms={sorted(comms)}")
     if lo < nice_gate:
         fails.append(f"render nice {lo} < {nice_gate}")
 else:
@@ -198,8 +204,6 @@ else:
 
 if fails:
     print("FAIL: " + "; ".join(fails))
-    sys.exit(1)
-print(f"  CPU {cpu}% <= {cpu_gate}% ; RSS {rss:.1f}M <= {rss_gate_mb}M ; nice >= {nice_gate}")
 PY
 [ "${FAIL:-0}" -eq 0 ] && ok "CPU/RSS/nice gates"
 

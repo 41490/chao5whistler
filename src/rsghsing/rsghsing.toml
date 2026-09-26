@@ -135,3 +135,18 @@ ffmpeg_path             = "ffmpeg"
 chunk_bytes             = 262144
 missing_poll_secs       = 1.0
 restart_backoff_max_secs = 30.0
+
+# Scheduler daemon (P5, Issue #108; decision baseline #10: systemd owns
+# lifetimes, `rsghsing sched` owns the buffer water level).
+#   buffer_segments  ready window [idx(now), idx(now)+buffer_segments]; 4 means
+#                    the segment starting 1 h from now is already on disk.
+#   render_jobs      concurrent `render segment` children; 96 seg x 7.5 min / 2
+#                    ~= 6 h of work per day, i.e. 2x headroom.
+#   retain_days      ring buffer for [stream].segments_dir and
+#                    [archive].source_dir; today + yesterday always survive.
+#   interval_secs    daemon tick; the water level only moves every 15 min.
+[sched]
+buffer_segments = 4
+render_jobs     = 2
+retain_days     = 1
+interval_secs   = 30.0

@@ -42,6 +42,58 @@ pub struct Config {
     pub video: Video,
     #[serde(default)]
     pub stream: Stream,
+    #[serde(default)]
+    pub sched: Sched,
+}
+
+/// `[sched]` — P5 buffer-water-level knobs (Issue #108, decision baseline #10).
+///
+/// The daemon keeps the closed window `[idx(now), idx(now)+buffer_segments]`
+/// of the D-1 daypack rendered and on disk, dispatches at most `render_jobs`
+/// concurrent `render segment` children (each reniced to nice 10 / ionice
+/// idle, decision baseline #12), and sweeps segment + raw history older than
+/// `retain_days`. Every field has a default, so a config without `[sched]`
+/// still loads.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Sched {
+    /// Segments kept ready AHEAD of the playing one; `4` = 1 h lead
+    /// (decision baseline #4: 15 min per segment).
+    #[serde(default = "default_buffer_segments")]
+    pub buffer_segments: i64,
+    /// Concurrent `render segment` children. 96 seg/day x 7.5 min / 2 jobs
+    /// ~= 6 h < 24 h, i.e. 2x headroom inside the day.
+    #[serde(default = "default_render_jobs")]
+    pub render_jobs: usize,
+    /// Days of segment + raw history to keep (ring buffer, "emergency pool").
+    #[serde(default = "default_retain_days")]
+    pub retain_days: i64,
+    /// Daemon tick interval (seconds); the water level only moves every 15 min.
+    #[serde(default = "default_sched_interval_secs")]
+    pub interval_secs: f64,
+}
+
+fn default_buffer_segments() -> i64 {
+    4
+}
+fn default_render_jobs() -> usize {
+    2
+}
+fn default_retain_days() -> i64 {
+    1
+}
+fn default_sched_interval_secs() -> f64 {
+    30.0
+}
+
+impl Default for Sched {
+    fn default() -> Self {
+        Sched {
+            buffer_segments: default_buffer_segments(),
+            render_jobs: default_render_jobs(),
+            retain_days: default_retain_days(),
+            interval_secs: default_sched_interval_secs(),
+        }
+    }
 }
 
 /// `[stream]` — transport knobs for `rsghsing stream` (P4, Issue #107).
@@ -339,6 +391,15 @@ impl Config {
         }
         if self.events.max_per_second == 0 {
             bail!("events.max_per_second must be positive");
+        }
+        if self.sched.buffer_segments < 0 {
+            bail!("sched.buffer_segments must be >= 0");
+        }
+        if self.sched.render_jobs == 0 {
+            bail!("sched.render_jobs must be >= 1");
+        }
+        if self.sched.retain_days < 0 {
+            bail!("sched.retain_days must be >= 0");
         }
         if self.resolved_engine() != "v2" {
             bail!(

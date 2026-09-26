@@ -40,7 +40,8 @@ mkdir -p "$OUT"
 
 # ---------------------------------------------------------------- set-up
 say "== set-up: P5 copy with TWO holes in the ready window =="
-rm -rf "$SEG" "$RAW" "$OUT"/gate-*.csv "$OUT"/gate-*.json "$OUT"/gate-*.log "$OUT"/gate-*.flv
+# NB: gate-*.json* (not gate-*.json) — the metrics file is .jsonl.
+rm -rf "$SEG" "$RAW" "$OUT"/gate-*.csv "$OUT"/gate-*.json* "$OUT"/gate-*.log "$OUT"/gate-*.flv
 mkdir -p "$RAW" "$SEG"
 cp -r "$P3SEG/2026-03-28" "$SEG/2026-03-28"
 [ -s "$SEG/2026-03-28/seg-44.ts" ] || { say "FAIL: P5 copy failed"; exit 1; }
@@ -94,7 +95,7 @@ def all_stats():
 def descendants(root, stats):
     kids = {}
     for pid, s in stats.items():
-        ppid = int(s[1])
+        ppid = int(s[0])  # stat() -> (ppid, nice)
         kids.setdefault(ppid, []).append(pid)
     out, stack = [], [root]
     while stack:

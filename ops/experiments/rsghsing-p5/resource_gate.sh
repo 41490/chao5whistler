@@ -21,7 +21,7 @@ P3SEG="/opt/logs/41490/out/rsghsing/p3/segments"
 SEG="$OUT/segments"
 RAW="$OUT/raw"
 SAMPLER="$REPO/ops/experiments/rsghsing-p0/sample_proc.py"
-NOW="2026-03-29T11:00:00Z"   # plays D-1 = 2026-03-28, ready window seg-44..48
+NOW="2026-03-29T11:00:00Z" # plays D-1 = 2026-03-28, ready window seg-44..48
 GATE_SECS="${GATE_SECS:-600}"
 INTERVAL="${INTERVAL:-10}"
 CPU_GATE="${CPU_GATE:-30}"
@@ -31,11 +31,23 @@ NICE_GATE="${NICE_GATE:-10}"
 FAIL=0
 say() { printf '%s\n' "$*"; }
 ok() { say "  PASS $*"; }
-bad() { say "  FAIL $*"; FAIL=1; }
+bad() {
+    say "  FAIL $*"
+    FAIL=1
+}
 
-[ -x "$BIN" ] || { say "FAIL: no binary at $BIN"; exit 1; }
-[ -d "$P3SEG/2026-03-28" ] || { say "FAIL: no P3 segments at $P3SEG"; exit 1; }
-[ "$SEG" != "$P3SEG" ] || { say "FAIL: refusing to touch the P3 tree"; exit 1; }
+[ -x "$BIN" ] || {
+    say "FAIL: no binary at $BIN"
+    exit 1
+}
+[ -d "$P3SEG/2026-03-28" ] || {
+    say "FAIL: no P3 segments at $P3SEG"
+    exit 1
+}
+[ "$SEG" != "$P3SEG" ] || {
+    say "FAIL: refusing to touch the P3 tree"
+    exit 1
+}
 mkdir -p "$OUT"
 
 # ---------------------------------------------------------------- set-up
@@ -44,7 +56,10 @@ say "== set-up: P5 copy with TWO holes in the ready window =="
 rm -rf "$SEG" "$RAW" "$OUT"/gate-*.csv "$OUT"/gate-*.json* "$OUT"/gate-*.log "$OUT"/gate-*.flv
 mkdir -p "$RAW" "$SEG"
 cp -r "$P3SEG/2026-03-28" "$SEG/2026-03-28"
-[ -s "$SEG/2026-03-28/seg-44.ts" ] || { say "FAIL: P5 copy failed"; exit 1; }
+[ -s "$SEG/2026-03-28/seg-44.ts" ] || {
+    say "FAIL: P5 copy failed"
+    exit 1
+}
 # 45 and 46 missing -> exactly render_jobs=2 concurrent renders for the window.
 rm -f "$SEG/2026-03-28/seg-45.ts" "$SEG/2026-03-28/seg-46.ts"
 say "  holes: seg-45, seg-46 (water level wants 44..48)"
@@ -57,13 +72,13 @@ SCHEDLOG="$OUT/gate-sched.log"
 STREAMLOG="$OUT/gate-stream.log"
 
 "$BIN" --config "$CFG" sched --duration "$((GATE_SECS + 240))" --now "$NOW" \
-  --segments-dir "$SEG" --archive-dir "$RAW" \
-  --metrics-file "$OUT/gate-metrics.jsonl" >"$SCHEDLOG" 2>&1 &
+    --segments-dir "$SEG" --archive-dir "$RAW" \
+    --metrics-file "$OUT/gate-metrics.jsonl" >"$SCHEDLOG" 2>&1 &
 SCHED=$!
 
 "$BIN" --config "$CFG" stream --now "$NOW" --output local --local-path "$FLV" \
-  --segments-dir "$SEG" --duration "$GATE_SECS" --ffmpeg-log "$FFLOG" \
-  >"$STREAMLOG" 2>&1 &
+    --segments-dir "$SEG" --duration "$GATE_SECS" --ffmpeg-log "$FFLOG" \
+    >"$STREAMLOG" 2>&1 &
 STREAM=$!
 say "  sched pid=$SCHED stream pid=$STREAM"
 
@@ -126,18 +141,20 @@ PY
 NICE=$!
 
 python3 "$SAMPLER" --pid "$SCHED" --interval "$INTERVAL" \
-  --duration "$((GATE_SECS + 30))" --out "$OUT/gate-sched-proc.csv" \
-  --summary "$OUT/gate-sched-proc.json" --label "p5-gate-sched" \
-  >"$OUT/gate-sampler-sched.log" 2>&1 &
+    --duration "$((GATE_SECS + 30))" --out "$OUT/gate-sched-proc.csv" \
+    --summary "$OUT/gate-sched-proc.json" --label "p5-gate-sched" \
+    >"$OUT/gate-sampler-sched.log" 2>&1 &
 SAMP1=$!
 python3 "$SAMPLER" --pid "$STREAM" --interval "$INTERVAL" \
-  --duration "$((GATE_SECS + 30))" --out "$OUT/gate-stream-proc.csv" \
-  --summary "$OUT/gate-stream-proc.json" --label "p5-gate-stream" \
-  >"$OUT/gate-sampler-stream.log" 2>&1 &
+    --duration "$((GATE_SECS + 30))" --out "$OUT/gate-stream-proc.csv" \
+    --summary "$OUT/gate-stream-proc.json" --label "p5-gate-stream" \
+    >"$OUT/gate-sampler-stream.log" 2>&1 &
 SAMP2=$!
 
-wait "$STREAM"; RC_STREAM=$?
-wait "$SCHED"; RC_SCHED=$?
+wait "$STREAM"
+RC_STREAM=$?
+wait "$SCHED"
+RC_SCHED=$?
 wait "$NICE" 2>/dev/null
 wait "$SAMP1" "$SAMP2" 2>/dev/null
 say "  stream rc=$RC_STREAM sched rc=$RC_SCHED"
@@ -147,7 +164,7 @@ say "  stream rc=$RC_STREAM sched rc=$RC_SCHED"
 # ---------------------------------------------------------------- judge
 say "== gate: live-period full stack (sched tree + stream tree) =="
 python3 - "$OUT/gate-sched-proc.json" "$OUT/gate-stream-proc.json" \
-  "$CPU_GATE" "$RSS_GATE_MB" "$OUT/gate-nice.csv" "$NICE_GATE" <<'PY' || FAIL=1
+    "$CPU_GATE" "$RSS_GATE_MB" "$OUT/gate-nice.csv" "$NICE_GATE" <<'PY' || FAIL=1
 import csv, json, sys
 sched, stream, cpu_gate, rss_gate_mb = sys.argv[1], sys.argv[2], float(sys.argv[3]), int(sys.argv[4])
 nice_csv, nice_gate = sys.argv[5], int(sys.argv[6])

@@ -30,12 +30,24 @@ RENDERLOG="$OUT/chaos-render.log"
 FAIL=0
 say() { printf '%s\n' "$*"; }
 ok() { say "  PASS $*"; }
-bad() { say "  FAIL $*"; FAIL=1; }
+bad() {
+  say "  FAIL $*"
+  FAIL=1
+}
 
-[ -x "$BIN" ] || { say "FAIL: no binary at $BIN (run cargo build --release)"; exit 1; }
-[ -d "$P3SEG/2026-03-28" ] || { say "FAIL: no P3 segments at $P3SEG"; exit 1; }
+[ -x "$BIN" ] || {
+  say "FAIL: no binary at $BIN (run cargo build --release)"
+  exit 1
+}
+[ -d "$P3SEG/2026-03-28" ] || {
+  say "FAIL: no P3 segments at $P3SEG"
+  exit 1
+}
 # The P3 tree must never be written to; assert it is not our target.
-[ "$SEG" != "$P3SEG" ] || { say "FAIL: refusing to touch the P3 tree"; exit 1; }
+[ "$SEG" != "$P3SEG" ] || {
+  say "FAIL: refusing to touch the P3 tree"
+  exit 1
+}
 
 mkdir -p "$OUT"
 
@@ -44,7 +56,10 @@ say "== ① delete a middle segment -> sched re-renders to the water level =="
 rm -rf "$SEG" "$RAW" "$METRICS" "$RENDERLOG"
 mkdir -p "$RAW" "$SEG"
 cp -r "$P3SEG/2026-03-28" "$SEG/2026-03-28"
-[ -s "$SEG/2026-03-28/seg-44.ts" ] || { say "FAIL: P5 copy failed"; exit 1; }
+[ -s "$SEG/2026-03-28/seg-44.ts" ] || {
+  say "FAIL: P5 copy failed"
+  exit 1
+}
 # P3 produced seg-44..47; the water level at $NOW wants 44..48.
 rm -f "$SEG/2026-03-28/seg-46.ts" "$SEG/2026-03-28/seg-46.manifest.json"
 NTS=$(find "$SEG/2026-03-28" -maxdepth 1 -name 'seg-*.ts' | wc -l)
@@ -55,13 +70,16 @@ START=$(date -u +%s)
   --segments-dir "$SEG" --archive-dir "$RAW" \
   --metrics-file "$METRICS" >"$RENDERLOG" 2>&1
 RC=$?
-ELAPSED=$(( $(date -u +%s) - START ))
+ELAPSED=$(($(date -u +%s) - START))
 say "  sched rc=$RC elapsed=${ELAPSED}s"
 [ "$RC" -eq 0 ] || bad "sched --once exited $RC (see $RENDERLOG)"
 
 for k in 44 45 46 47 48; do
   f="$SEG/2026-03-28/seg-$k.ts"
-  [ -s "$f" ] || { bad "seg-$k.ts missing/empty after re-render"; continue; }
+  [ -s "$f" ] || {
+    bad "seg-$k.ts missing/empty after re-render"
+    continue
+  }
   ok "seg-$k.ts present ($(stat -c %s "$f") bytes)"
 done
 # The re-rendered segment must be a real TS, not a truncated leftover.

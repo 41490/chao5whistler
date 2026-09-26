@@ -68,26 +68,23 @@ fn resolve_now(spec: Option<&str>) -> Result<Box<dyn Fn() -> i64>> {
 }
 
 pub fn run(cfg: &Config, args: &Args, bin: &Path, config_path: &Path) -> Result<()> {
-    let segments_root = PathBuf::from(args.segments_dir.map_or_else(
-        || cfg.stream.segments_dir.clone(),
-        String::from,
-    ));
+    let segments_root = PathBuf::from(
+        args.segments_dir
+            .map_or_else(|| cfg.stream.segments_dir.clone(), String::from),
+    );
     if segments_root.as_os_str().is_empty() {
         bail!("no segments dir: pass --segments-dir or set [stream].segments_dir");
     }
-    let archive_root = PathBuf::from(args.archive_dir.map_or_else(
-        || cfg.archive.source_dir.clone(),
-        String::from,
-    ));
-
-    let interval = Duration::from_secs_f64(
-        args.interval
-            .unwrap_or(cfg.sched.interval_secs)
-            .max(0.05),
+    let archive_root = PathBuf::from(
+        args.archive_dir
+            .map_or_else(|| cfg.archive.source_dir.clone(), String::from),
     );
-    let deadline = args.duration.map(|d| {
-        std::time::Instant::now() + Duration::from_secs_f64(d.max(0.0))
-    });
+
+    let interval =
+        Duration::from_secs_f64(args.interval.unwrap_or(cfg.sched.interval_secs).max(0.05));
+    let deadline = args
+        .duration
+        .map(|d| std::time::Instant::now() + Duration::from_secs_f64(d.max(0.0)));
     let clock = resolve_now(args.now)?;
     let mut sink = metrics::Sink::new(args.metrics_file);
     let mut rendered_total = 0u64;

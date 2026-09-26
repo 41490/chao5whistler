@@ -76,12 +76,7 @@ fn dir_size(path: &Path) -> u64 {
 ///
 /// `protected` (the date playing at `now`) is skipped even when the config
 /// would expire it: the streamer is pumping that directory right now.
-pub fn sweep(
-    now: i64,
-    retain_days: i64,
-    segments_root: &Path,
-    archive_root: &Path,
-) -> Sweep {
+pub fn sweep(now: i64, retain_days: i64, segments_root: &Path, archive_root: &Path) -> Sweep {
     let today_days = now.div_euclid(86_400);
     let protected = ymd(today_days - 1); // play_date(now) == D-1
     let mut out = Sweep::default();
@@ -193,7 +188,11 @@ mod tests {
             std::fs::write(dir.join("seg-00.ts"), vec![0u8; 4096]).unwrap();
         }
         std::fs::create_dir_all(&raw).unwrap();
-        for f in ["2026-03-27-11.json.gz", "2026-03-28-11.json.gz", "2026-03-29-0.json.gz"] {
+        for f in [
+            "2026-03-27-11.json.gz",
+            "2026-03-28-11.json.gz",
+            "2026-03-29-0.json.gz",
+        ] {
             std::fs::write(raw.join(f), vec![0u8; 2048]).unwrap();
         }
 

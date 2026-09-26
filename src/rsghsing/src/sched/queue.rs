@@ -36,7 +36,8 @@ fn which(bin: &str) -> bool {
             let p = dir.join(bin);
             p.is_file() && {
                 use std::os::unix::fs::PermissionsExt;
-                p.metadata().is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+                p.metadata()
+                    .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
             }
         })
     })
@@ -44,8 +45,7 @@ fn which(bin: &str) -> bool {
 
 /// `<root>/<date>/seg-<k>.ts` — the P3 producer's layout, D-1 keyed.
 pub fn segment_path(root: &Path, date: &str, index: i64) -> PathBuf {
-    root.join(date)
-        .join(format!("seg-{index:02}.ts"))
+    root.join(date).join(format!("seg-{index:02}.ts"))
 }
 
 /// Spawns one reniced `render segment` child for ready index `k`.
@@ -78,11 +78,7 @@ pub fn spawn_render(
 /// `try_wait` poll is the cheapest correct thing. A failing child is fatal:
 /// silently skipping a segment would put a hole in the relay, and the water
 /// level would report a level it does not actually have.
-pub fn dispatch<S>(
-    pending: &[i64],
-    limit: usize,
-    mut spawn: S,
-) -> Result<Vec<(i64, f64)>>
+pub fn dispatch<S>(pending: &[i64], limit: usize, mut spawn: S) -> Result<Vec<(i64, f64)>>
 where
     S: FnMut(i64) -> Result<Child>,
 {
@@ -95,11 +91,7 @@ where
         while next < pending.len() && live.len() < limit {
             let k = pending[next];
             next += 1;
-            tracing::info!(
-                "render dispatch idx={k} slots={}/{}",
-                live.len() + 1,
-                limit
-            );
+            tracing::info!("render dispatch idx={k} slots={}/{}", live.len() + 1, limit);
             live.push((k, spawn(k)?, Instant::now()));
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -113,7 +105,9 @@ where
                         tracing::info!("render done idx={k} secs={secs:.1} slots={}", live.len());
                         done.push((k, secs));
                     } else {
-                        anyhow::bail!("render segment idx={k} exited with {status} after {secs:.1}s");
+                        anyhow::bail!(
+                            "render segment idx={k} exited with {status} after {secs:.1}s"
+                        );
                     }
                 }
                 Ok(None) => i += 1,

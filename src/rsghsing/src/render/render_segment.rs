@@ -81,30 +81,75 @@ fn render_audio_f32le(
 /// libx264/aac MPEG-TS with absolute PTS (`-output_ts_offset ws`) and a
 /// per-segment discontinuity flag (P0-D3). No B-frames keep DTS monotonic so
 /// byte-concatenated segments decode cleanly.
-fn spawn_ffmpeg(cfg: &Config, trim_samples: i64, audio_path: &Path, out: &Path) -> Result<std::process::Child> {
+fn spawn_ffmpeg(
+    cfg: &Config,
+    trim_samples: i64,
+    audio_path: &Path,
+    out: &Path,
+) -> Result<std::process::Child> {
     let p = video::resolve_params(&cfg.video);
     Command::new("ffmpeg")
         .args([
-            "-f", "rawvideo", "-pix_fmt", "rgba", "-s",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-s",
             &format!("{}x{}", p.width, p.height),
-            "-r", &SEGMENT_FPS.to_string(), "-i", "pipe:0",
+            "-r",
+            &SEGMENT_FPS.to_string(),
+            "-i",
+            "pipe:0",
         ])
         .args([
-            "-f", "f32le", "-ar", &cfg.audio.sample_rate.to_string(), "-ac", "2",
-            "-i", &audio_path.to_string_lossy(),
+            "-f",
+            "f32le",
+            "-ar",
+            &cfg.audio.sample_rate.to_string(),
+            "-ac",
+            "2",
+            "-i",
+            &audio_path.to_string_lossy(),
         ])
         .args(["-map", "0:v", "-map", "1:a"])
-        .args(["-af", &format!("aresample=async=1:first_pts=0,atrim=end_sample={trim_samples}")])
         .args([
-            "-c:v", "libx264", "-preset", "veryfast",
-            "-b:v", "2500k", "-maxrate", "2500k", "-bufsize", "2500k",
-            "-g", "60", "-pix_fmt", "yuv420p", "-bf", "0",
-            "-x264-params", "nal-hrd=cbr:force-cfr=1",
+            "-af",
+            &format!("aresample=async=1:first_pts=0,atrim=end_sample={trim_samples}"),
+        ])
+        .args([
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-b:v",
+            "2500k",
+            "-maxrate",
+            "2500k",
+            "-bufsize",
+            "2500k",
+            "-g",
+            "60",
+            "-pix_fmt",
+            "yuv420p",
+            "-bf",
+            "0",
+            "-x264-params",
+            "nal-hrd=cbr:force-cfr=1",
         ])
         .args(["-c:a", "aac", "-b:a", "128k"])
-        .args(["-avoid_negative_ts", "make_zero", "-muxdelay", "0", "-muxpreload", "0"])
         .args([
-            "-f", "mpegts", "-mpegts_flags", "+initial_discontinuity+resend_headers",
+            "-avoid_negative_ts",
+            "make_zero",
+            "-muxdelay",
+            "0",
+            "-muxpreload",
+            "0",
+        ])
+        .args([
+            "-f",
+            "mpegts",
+            "-mpegts_flags",
+            "+initial_discontinuity+resend_headers",
         ])
         .arg(out)
         .stdin(Stdio::piped())
@@ -145,7 +190,7 @@ fn remux_absolute(clean: &Path, offset: i32, out: &Path) -> Result<()> {
 
 pub fn run(cfg: &Config, args: &Args<'_>) -> Result<()> {
     let index = args.index;
-    if index < 0 || index > 95 {
+    if !(0..=95).contains(&index) {
         bail!("segment index {index} out of range 0..=95");
     }
     let (ws, we) = segment_window(index);
@@ -281,7 +326,7 @@ mod tests {
         assert_eq!(segment_window(44), (39_600, 40_500)); // 11:00:00
         assert_eq!(segment_window(47), (42_300, 43_200)); // 11:45:00
         assert_eq!(segment_window(95), (85_500, 86_400)); // 23:45:00
-        // Contiguous, non-overlapping.
+                                                          // Contiguous, non-overlapping.
         let (_, e44) = segment_window(44);
         let (s45, _) = segment_window(45);
         assert_eq!(e44, s45);

@@ -1,0 +1,48 @@
+# rsghsing streamer — UTC 墙钟字节泵（P4/P5，Issue #107/#108）。
+#
+# 决策基线 #10：生命周期归 systemd。本 unit 只负责"永远有一个 streamer 在跑"，
+# `Restart=always` 让它在任何退出后重生；缓冲水位/渲染队列/保留清理归
+# rsghsing-sched.service，本 unit 不管那些，也不重启它们。
+#
+# 真实 enable/start 由 CTO 执行（见 ops/experiments/rsghsing-p5/README.md 的
+# 「并行运行切换清单」）；本文件只做 systemd-analyze verify 与干跑。
+#
+# 路径说明：BIN/WORKDIR 是仓库标准检出位置 /opt/src/41490/chao5whistler
+# （`make -C src/rsghsing install` 把 release 产物落到 ops/bin/rsghsing）。若仓库迁址，
+# 改这两行即可，其余不变。
+#
+# ExecStart 的 `-` 前缀：`systemd-analyze verify` 会把"ExecStart 指向一个还不存在
+# 的可执行文件"判成 error（exit 1）。二进制由 CTO 在 enable 之前用
+# `make -C src/rsghsing install` 落位，所以这里用 `-` 让"文件暂缺"不变成 unit
+# 语法错误。运行期语义不变：`Restart=always` 对干净退出同样重启，`ps` 里看到的
+# 仍然是 rsghsing 本身。
+
+[Unit]
+Description=rsghsing streamer — UTC wall-clock TS byte pump (P4)
+Documentation=https://github.com/41490/chao5whistler/issues/107
+Wants=network-online.target
+After=network-online.target rsghsing-sched.service
+# 弱依赖：sched 不在也不会阻止 streamer 起（水位可以由 timer/prepare 侧补）。
+Wants=rsghsing-sched.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/src/41490/chao5whistler
+# 目标（mode + rtmps url/key）只来自 gitignored 的 rsghsing.local.toml，
+# 不出现在本文件、不进库。
+ExecStart=-/opt/src/41490/chao5whistler/ops/bin/rsghsing --config /opt/src/41490/chao5whistler/src/rsghsing/rsghsing.toml --log-level info stream
+Restart=always
+RestartSec=5
+# 停得干净：SIGTERM 让当前 chunk 写完再 finalize（P4 语义）。
+KillSignal=SIGTERM
+TimeoutStopSec=60
+# 决策基线 #12：与 musikalisches/ng46tv 并行，流泵自身不吃 CPU（0.4% 单核），
+# 但仍让出 I/O 优先级，避免和渲染抢盘。
+Nice=5
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rsghsing-stream
+
+[Install]
+WantedBy=default.target

@@ -32,7 +32,12 @@ pub struct Rgba {
 pub fn parse_hex(s: &str) -> Rgba {
     let h = s.strip_prefix('#').unwrap_or(s);
     if h.len() != 6 {
-        return Rgba { r: 0, g: 0, b: 0, a: 255 };
+        return Rgba {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
     }
     let p = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0);
     Rgba {
@@ -61,8 +66,16 @@ pub struct VideoParams {
 /// Resolves `[video]` into concrete params, applying Solarized-Dark defaults
 /// for any field the config leaves empty/zero (mirrors Go `video.New`).
 pub fn resolve_params(cfg: &VideoCfg) -> VideoParams {
-    let width = if cfg.width > 0 { cfg.width as usize } else { 1280 };
-    let height = if cfg.height > 0 { cfg.height as usize } else { 720 };
+    let width = if cfg.width > 0 {
+        cfg.width as usize
+    } else {
+        1280
+    };
+    let height = if cfg.height > 0 {
+        cfg.height as usize
+    } else {
+        720
+    };
     let bg = if cfg.palette.background.is_empty() {
         parse_hex("#002b36")
     } else {
@@ -295,7 +308,12 @@ impl Renderer {
                 let draw_x = f.x
                     + (f.age * f.wobble_freq * std::f64::consts::PI * 2.0 + f.wobble_phase).sin()
                         * f.wobble_amp;
-                (draw_x, f.y.round() as i64, (f.alpha / 255.0).clamp(0.0, 1.0), (f.scale * 20.0).round().max(1.0) as i32)
+                (
+                    draw_x,
+                    f.y.round() as i64,
+                    (f.alpha / 255.0).clamp(0.0, 1.0),
+                    (f.scale * 20.0).round().max(1.0) as i32,
+                )
             };
             if !self.floaters[i].scaled.contains_key(&key) {
                 let scale = f64::from(key) / 20.0;
@@ -375,7 +393,9 @@ fn self_half_extent(f: &Floater) -> f64 {
 
 /// Straight source-over alpha blend of one channel.
 fn blend(dst: u8, src: u8, a: f64) -> u8 {
-    (f64::from(src) * a + f64::from(dst) * (1.0 - a)).round().clamp(0.0, 255.0) as u8
+    (f64::from(src) * a + f64::from(dst) * (1.0 - a))
+        .round()
+        .clamp(0.0, 255.0) as u8
 }
 
 #[cfg(test)]
@@ -422,9 +442,33 @@ mod tests {
 
     #[test]
     fn parse_hex_reads_solarized() {
-        assert_eq!(parse_hex("#002b36"), Rgba { r: 0, g: 43, b: 54, a: 255 });
-        assert_eq!(parse_hex("fdf6e3"), Rgba { r: 253, g: 246, b: 227, a: 255 });
-        assert_eq!(parse_hex("#bogus"), Rgba { r: 0, g: 0, b: 0, a: 255 });
+        assert_eq!(
+            parse_hex("#002b36"),
+            Rgba {
+                r: 0,
+                g: 43,
+                b: 54,
+                a: 255
+            }
+        );
+        assert_eq!(
+            parse_hex("fdf6e3"),
+            Rgba {
+                r: 253,
+                g: 246,
+                b: 227,
+                a: 255
+            }
+        );
+        assert_eq!(
+            parse_hex("#bogus"),
+            Rgba {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255
+            }
+        );
     }
 
     #[test]
@@ -432,13 +476,37 @@ mod tests {
         let p = resolve_params(&base_cfg());
         assert_eq!(p.width, 1280);
         assert_eq!(p.height, 720);
-        assert_eq!(p.bg, Rgba { r: 0, g: 43, b: 54, a: 255 });
+        assert_eq!(
+            p.bg,
+            Rgba {
+                r: 0,
+                g: 43,
+                b: 54,
+                a: 255
+            }
+        );
         assert_eq!(p.speed, 180.0);
         assert_eq!(p.bottom_margin, 16.0);
         assert_eq!(p.scale_grow, 0.22);
         // type_id 0 (PushEvent) -> #268bd2, 5 (ReleaseEvent) -> #dc322f.
-        assert_eq!(p.event_colors[&0], Rgba { r: 0x26, g: 0x8b, b: 0xd2, a: 255 });
-        assert_eq!(p.event_colors[&5], Rgba { r: 0xdc, g: 0x32, b: 0x2f, a: 255 });
+        assert_eq!(
+            p.event_colors[&0],
+            Rgba {
+                r: 0x26,
+                g: 0x8b,
+                b: 0xd2,
+                a: 255
+            }
+        );
+        assert_eq!(
+            p.event_colors[&5],
+            Rgba {
+                r: 0xdc,
+                g: 0x32,
+                b: 0x2f,
+                a: 255
+            }
+        );
         assert_eq!(p.event_colors.len(), 6);
 
         // Empty config -> Solarized/Go defaults, no event colors.
@@ -473,7 +541,10 @@ mod tests {
         let s = font::Sprite {
             width: 2,
             height: 3,
-            pixels: vec![1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255, 13, 14, 15, 255, 16, 17, 18, 255],
+            pixels: vec![
+                1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255, 13, 14, 15, 255, 16, 17,
+                18, 255,
+            ],
         };
         let d = font::scale_nearest(&s, 2.0);
         assert_eq!(d.width, 4);

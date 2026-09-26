@@ -1,0 +1,40 @@
+# rsghsing sched — 常驻守护：缓冲水位 / 渲染队列 / 保留清理 / JSON 指标（P5，#108）。
+#
+# 决策基线 #10：systemd 管生命周期，本服务管水位。它**不**重启 streamer
+# （那是 rsghsing-stream.service 的 Restart=always 的职责），也不推流。
+#
+# 一个 tick：就绪集 [idx(now), idx(now)+4] 缺段 -> `render segment` 补（<=2 并发，
+# 每个 ionice -c3 + nice -n 10）-> 清理 > retain_days 的段与 raw -> 一行 JSON。
+#
+# ExecStart 的 `-` 前缀：`systemd-analyze verify` 会把"ExecStart 指向一个还不存在
+# 的可执行文件"判成 error（exit 1）。二进制由 CTO 在 enable 之前用
+# `make -C src/rsghsing install` 落到 ops/bin/rsghsing，所以这里用 `-` 让"文件暂缺"
+# 不变成 unit 语法错误。运行期语义不变：`Restart=always` 对干净退出同样重启。
+
+[Unit]
+Description=rsghsing sched — buffer water level, render queue, retention (P5)
+Documentation=https://github.com/41490/chao5whistler/issues/108
+Wants=network-online.target
+After=network-online.target rsghsing-prepare.service
+# 弱依赖：sched 需要 D-1 daypack 才能渲染；prepare 是幂等的 oneshot，
+# 缺文件只会让渲染 job 失败并留下 metrics，不会阻止 sched 起来重试。
+Wants=rsghsing-prepare.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/src/41490/chao5whistler
+ExecStart=-/opt/src/41490/chao5whistler/ops/bin/rsghsing --config /opt/src/41490/chao5whistler/src/rsghsing/rsghsing.toml --log-level info sched
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=60
+# 决策基线 #12：守护本身几乎不耗 CPU（tick 之间在睡），但仍让出优先级，
+# 它派生出的渲染子进程另有 ionice -c3 + nice -n 10（见 sched/queue.rs）。
+Nice=5
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rsghsing-sched
+
+[Install]
+WantedBy=default.target

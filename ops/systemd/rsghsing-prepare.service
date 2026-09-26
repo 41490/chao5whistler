@@ -1,0 +1,36 @@
+# rsghsing prepare — 每日 D-1 daypack 构建（P1/P5，Issue #104/#108）。
+#
+# 由 rsghsing-prepare.timer 在 UTC 00:20 触发（D-1 的 24 个小时包在 00:00 后
+# 才齐全）。幂等：已有 daypack 直接复用，缺则补，可反复跑。
+#
+# ExecStart 的 `-` 前缀：`systemd-analyze verify` 会把"ExecStart 指向一个还不存在
+# 的可执行文件"判成 error（exit 1）。二进制由 CTO 在 enable 之前用
+# `make -C src/rsghsing install` 落到 ops/bin/rsghsing，所以这里用 `-` 让"文件暂缺"
+# 不变成 unit 语法错误。oneshot + RemainAfterExit 的语义不受影响。
+#
+# 职责切分（决策基线 #10）：下载/解析/bucketing 归本 oneshot；水位、渲染队列、
+# 保留清理归 rsghsing-sched.service；streamer 生命周期归 systemd。
+
+[Unit]
+Description=rsghsing prepare — build the D-1 daypack (idempotent)
+Documentation=https://github.com/41490/chao5whistler/issues/104
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/src/41490/chao5whistler
+ExecStart=-/opt/src/41490/chao5whistler/ops/bin/rsghsing --config /opt/src/41490/chao5whistler/src/rsghsing/rsghsing.toml --log-level info prepare --date yesterday
+# 让 timer 的 Unit= 与 sched 的 Wants= 都能看到"已跑过"这个状态。
+RemainAfterExit=yes
+# 下载/解析一整天的小时包可以跑满一小时；超时按失败计，timer 明天补。
+TimeoutStartSec=3600
+# 决策基线 #12：与 musikalisches/ng46tv 并行时不吃满 I/O。
+Nice=5
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rsghsing-prepare
+
+[Install]
+WantedBy=default.target

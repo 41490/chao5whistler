@@ -11,12 +11,13 @@ mod gorand;
 mod gosort;
 mod log;
 mod render;
+mod sched;
 mod stream;
 mod video;
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -99,6 +100,39 @@ enum Command {
         /// ffmpeg stderr log, stream key redacted; default = inherit stderr.
         #[arg(long)]
         ffmpeg_log: Option<PathBuf>,
+    },
+
+    /// Daemon: keep the D-1 buffer water level full, dispatch `render segment`
+    /// jobs (<= render_jobs, nice/ionice), sweep retention, emit JSON-lines
+    /// metrics. Does NOT own the streamer's lifetime (systemd does).
+    Sched {
+        /// Injected wall clock: epoch seconds or `2026-03-28T11:00:00Z`.
+        #[arg(long)]
+        now: Option<String>,
+
+        /// Override [stream].segments_dir (root holding `<D-1>/seg-NN.ts`).
+        #[arg(long)]
+        segments_dir: Option<String>,
+
+        /// Override [archive].source_dir (root holding `<D-1>-HH.json.gz`).
+        #[arg(long)]
+        archive_dir: Option<String>,
+
+        /// Tick interval in seconds (default `[sched].interval_secs`).
+        #[arg(long)]
+        interval: Option<f64>,
+
+        /// Stop after N seconds of wall time.
+        #[arg(long)]
+        duration: Option<f64>,
+
+        /// Run exactly one tick and exit (chaos harness / dry run).
+        #[arg(long)]
+        once: bool,
+
+        /// Append the JSON-lines metrics here (stdout always gets them too).
+        #[arg(long)]
+        metrics_file: Option<PathBuf>,
     },
 }
 
@@ -210,6 +244,34 @@ fn main() -> Result<()> {
                     duration,
                     ffmpeg_log: ffmpeg_log.as_deref(),
                 },
+            )
+        }
+        Command::Sched {
+            now,
+            segments_dir,
+            archive_dir,
+            interval,
+            duration,
+            once,
+            metrics_file,
+        } => {
+            let cfg = config::Config::load(&cli.config)?;
+            // Render children are THIS binary re-invoked as `render segment`,
+            // so the daemon and the renderer can never drift apart in version.
+            let bin = std::env::current_exe().with_context(|| "resolve current exe")?;
+            sched::run(
+                &cfg,
+                &sched::Args {
+                    now: now.as_deref(),
+                    segments_dir: segments_dir.as_deref(),
+                    archive_dir: archive_dir.as_deref(),
+                    interval,
+                    duration,
+                    once,
+                    metrics_file: metrics_file.as_deref(),
+                },
+                &bin,
+                &cli.config,
             )
         }
     }

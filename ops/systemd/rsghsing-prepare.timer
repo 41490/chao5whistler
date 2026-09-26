@@ -1,0 +1,20 @@
+# rsghsing prepare timer — UTC 00:20 触发每日 D-1 daypack 构建（P5，#108）。
+#
+# 为什么是 00:20：D-1 的 24 个小时包在 UTC 00:00 之后才陆续齐全（决策基线 #1
+# UTC 执行），00:20 给下载留出余量；`Persistent=true` 让关机错过的窗口在下次
+# 开机后补跑（prepare 幂等）。
+#
+# 水位/渲染/清理不在 timer 里：那些由常驻的 rsghsing-sched.service 按 tick 做。
+
+[Unit]
+Description=rsghsing daily prepare trigger (D-1 daypack, idempotent)
+Documentation=https://github.com/41490/chao5whistler/issues/108
+
+[Timer]
+Unit=rsghsing-prepare.service
+OnCalendar=*-*-* 00:20:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

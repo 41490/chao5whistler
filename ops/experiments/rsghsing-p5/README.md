@@ -32,6 +32,7 @@ ops/systemd/rsghsing-sched.service  Type=simple / Restart=always / RestartSec=10
 ops/systemd/rsghsing-stream.service Type=simple / Restart=always / RestartSec=5
 ops/experiments/rsghsing-p5/chaos.sh        三场景混沌（①②③）
 ops/experiments/rsghsing-p5/resource_gate.sh 10min 本地流 + 2 并发渲染的资源门
+ops/experiments/rsghsing-p5/unit_dryrun.sh   systemd-analyze verify + ExecStart 干跑（不碰 systemctl）
 ```
 
 ## 运行
@@ -66,6 +67,7 @@ src/rsghsing/target/release/rsghsing sched
 ```bash
 bash ops/experiments/rsghsing-p5/chaos.sh          # ①②③ 全过才 exit 0
 bash ops/experiments/rsghsing-p5/resource_gate.sh  # 10min 流 + 2 并发渲染
+bash ops/experiments/rsghsing-p5/unit_dryrun.sh    # verify + ExecStart 干跑
 ```
 
 两个脚本都只在 **P5 自己的段副本** `/opt/logs/41490/out/rsghsing/p5/segments/` 上做删除/恢复，
